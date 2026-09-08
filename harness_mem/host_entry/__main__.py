@@ -130,6 +130,8 @@ def _post_turn_host_result(payload: dict[str, Any]) -> dict[str, Any]:
         next_step = "completed: transcript evidence is up to date"
     elif status == "deferred":
         next_step = "deferred: an existing distill job is waiting for its retry window"
+    elif status == "skipped":
+        next_step = "skipped: this maintenance session was not ingested"
     else:
         next_step = "failed: transcript evidence staging did not complete"
     return {
@@ -597,6 +599,28 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
             }
             return (ExitCode.SUCCESS, json.dumps(payload, sort_keys=True))
 
+        if args.action in {"post-turn-maintenance", "dream-end"}:
+            from harness_mem.maintenance_lock import maintenance_is_locked
+
+            if maintenance_is_locked(
+                DEFAULT_DATA_DIR,
+                trigger_id=args.trigger_id,
+            ):
+                payload = {
+                    "action": args.action,
+                    "success": True,
+                    "status": "skipped",
+                    "reason": "exclusive_maintenance_run_active",
+                    "project_root": str(project_root),
+                    "trigger_id": args.trigger_id,
+                    "summary": {
+                        "maintenance_excluded": True,
+                        "background": False,
+                        "spawned": False,
+                    },
+                }
+                return (ExitCode.SUCCESS, json.dumps(payload, sort_keys=True))
+
         if (
             args.action == "post-turn-maintenance"
             and args.source == "ide_hook"
@@ -748,6 +772,7 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
                         project_root=args.project_root,
                         config=merged,
                         source=args.source,
+                        trigger_id=args.trigger_id,
                     )
                 except Exception as exc:  # noqa: BLE001 - host entry is total.
                     logger.exception("host_entry caught unhandled dream exception")

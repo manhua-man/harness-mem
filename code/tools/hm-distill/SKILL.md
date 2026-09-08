@@ -1,182 +1,47 @@
 ---
 name: hm-distill
-description: Process project-scoped Codex, Claude Code, Cursor, Antigravity, opencode, Hermes, or generic Agent sessions into a readable session summary, optional governed memory candidates, and an auditable completion result. Use when the user asks to process, distill, summarize, learn from, or hand off one or more sessions, especially when a session ID is provided.
+description: Process project sessions into readable current memory. Use when the user asks to remember, process, or continue sessions.
 ---
 
 # HM Distill
 
-Use one public flow: native session evidence → semantic review → optional memory candidates → finalize → readable Note. Run it through the configured harness-mem MCP tools; do not create a parallel CLI or local promotion workspace.
+这是 `hm` 背后的整理规则，不是用户要学习的命令清单。读完整会话，留下以后有用的项目知识；没有价值的内容不写入。
 
-## Explicit session ID fast path
+## 处理
 
-For a user-provided session ID:
+1. 用 `prepare_session_distill` 取得当前项目的完整会话材料。明确指定会话时只处理那一场；未指定时处理当前项目范围内匹配的内容。不要读取其他项目，也不要人为加入每场、每批或每天的数量限制。
+2. 完整阅读来源。把一场会话拆成彼此独立的知识点；一场会话可以产生多条记忆，也可以一条都不产生。必要时用语义或原文读取补足证据；原文不完整就不要假装完整。
+3. 每个知识点分别核对：来源是否真的支持、当前代码或用户决定是否仍有效、当前记忆是否已有同一事实。然后分别决定新增、替换、删除或不写；未完成的工作单独交接，不当作记忆。
+4. 通过现有 `govern_memory` 写入决定，通过 `finalize_session_distill` 收尾。不要创建第二套写入流程。写入前必须带证据；运行时会再次检查证据和目标。没有明确决定时保持未完成。
+5. `finalize_session_distill` 完成后，用普通 `search_memory` 读回新增或替换内容；新说法找不到，或旧说法仍能找到，就不能报告成功。
 
-1. Call `prepare_session_distill` once with:
-   - `session_id=<id>`
-   - `client="auto"`
-   - `scope="project"`
-   - `project_root=<current workspace root>`
-   - `evidence_mode="semantic"`
-   - `detail_level="compact"`
-   - `budget_tokens=<configured or user target>`
-2. Read the complete compact manifest and bundled decision exchanges returned by that call.
-3. Produce the final semantic review and run the candidate admission check below.
-4. Write only admitted candidates or a justified unfinished-work handoff.
-5. Call `finalize_session_distill` once.
-6. Return the readable summary. Finalize writes the immutable audit Note at
-   `~/.codex/hm-distill/sessions/revisions/<job_id>/<session_id>.md` and advances
-   `~/.codex/hm-distill/sessions/<session_id>.md` as the convenient latest view,
-   all from the same review without rereading the transcript.
+收尾时提交完整的 `semantic_review`（至少包括 `session_summary`、`final_user_request`、`final_outcome`、`last_turn_status`、`contradictions`、`unfinished_work`、`evidence_status` 和 `promotion_decision`），再读取运行结果里的已保存内容。这些是内部数据，不要原样展示给用户，也不要把 Agent 自报的状态当成事实。
 
-The bundled zero-candidate template is fail-closed. Detected decision, solution,
-workflow, preference, migration, or handoff signals start as `candidate_required`;
-do not submit that template unchanged as a no-candidate verdict. Missing current
-repository proof is an evidence gap, not a reason to discard the claim.
+## 最低可靠性要求
 
-When an explicit session ID points to a legacy completed `no_candidate` job whose
-detected signals were downgraded without signal-specific reasons, prepare creates a
-new policy-recheck job. The old completion remains immutable audit history.
+写入前只问五件事：以后是否还会用、范围是否清楚、内容是否足够窄、证据是否完整、是否与当前记忆重复或冲突。先补齐证据再决定；通过后才写，否则不写或留待处理。只有本机核对通过的内容才能写入。
 
-The common no-candidate path is exactly `prepare → finalize`. Do not add status, list, export, or local diagnostic calls unless the MCP result reports an error or compatibility fallback.
+- 需要分块读取时，按 `prepare_session_distill` 返回的顺序逐块调用 `submit_distill_chunk`，直到进入可收尾状态。
+- 每个候选都要有 `evidence_basis`、`verification_outcome` 和 `verification_refs`；`ANSWERED` 只表示证据问题已回答，不等于一定要写入。
+- 只把一个独立、可复用的结论写成一条清楚的事实。运行结果只是内部提交结果，不要复制 Agent 自报的状态。
+- `add`、`refine`、`replace` 只写一条清楚的当前事实；替换会删除旧当前条目。不要把来源、候选、回执或 Note 当作当前记忆。
+- 只有当前项目的 `knowledge_entries` 是长期记忆；旧兼容行、临时材料和原始会话不能进入普通记忆搜索。
+- 失败、证据不足或来源不完整时保留会话并说明原因；不要把排队、接口返回或测试通过说成用户结果。
 
-## Project or batch path
+## 结果
 
-When no session ID is supplied, resolve the current project with `get_project_status`, then call `prepare_session_distill` with `client="auto"`, project scope, the real workspace root, and the requested count (default 5). Process each returned job independently; an explicit invocation may complete at most three jobs.
-
-## Evidence contract
-
-- The native transcript revision is authoritative.
-- The runtime must hash-check and checkpoint every expected raw chunk before final review.
-- The compact response is a complete navigation view, not a truncated transcript substitute.
-- `budget_tokens` is a soft target for the complete serialized MCP response. Expansion is allowed for complete coverage; malformed or clipped JSON is not.
-- Use bundled `semantic_decision_exchanges` first.
-- Request semantic or raw drilldown only when a candidate needs exact wording, commands, versions, errors, or repository proof.
-- Use `detail_level="full"` only for an explicitly requested full semantic audit.
-- If the runtime explicitly falls back to raw mode, read and submit every ordered chunk with `submit_distill_chunk` until the job reaches `reviewing`.
-
-## Final semantic review
-
-Complete these fields from the whole session, never from one isolated chunk:
-
-- `session_summary`: 1–3 sentences covering topic, actual result, and important unfinished work;
-- `final_user_request`;
-- `final_outcome`;
-- `last_turn_status`;
-- `contradictions`: unresolved conflicts in the evidence for a current candidate;
-- `unfinished_work`;
-- `evidence_status`;
-- `promotion_decision`.
-
-The summary is always required and is independent of memory promotion. `no_candidate` means “nothing should enter durable memory,” not “the session had no content.” An older approach explicitly replaced by a later decision belongs in the summary or final outcome. Do not label that history as a current candidate evidence contradiction, because doing so can incorrectly suppress an otherwise Answered candidate.
-
-## Candidate admission
-
-Apply the following check inline before any memory write:
-
-1. Is the claim reusable beyond this session?
-2. Is its destination clear: memory, rule, relation, handoff, repository documentation, or no durable write?
-3. Is its scope narrow enough to avoid misleading future Agents?
-4. Is the evidence complete and appropriate for the claim?
-5. Is it current, non-duplicative, and free of unresolved contradiction?
-
-Use one outcome:
-
-- `admit`: write the candidate;
-- `narrow`: correct its wording or scope, then write it;
-- `defer`: do not write until missing evidence or intent is available;
-- `reject`: do not write session noise, duplication, transient state, or unsupported claims.
-
-For ordinary candidates, run the check in one pass without asking the user. For high-impact rules, architecture, security, release policy, or repo-wide defaults, verify repository evidence first. Ask the user only when the remaining uncertainty is genuinely their preference, intent, or product decision.
-
-Treat each surviving claim as an evidence question. Gather the smallest current-source proof needed to answer it, then attach the evidence envelope to the candidate. The runtime derives the Answer Gate status after revalidating those refs; the Agent cannot self-declare `ANSWERED`. Only runtime-derived `ANSWERED` candidates may enter the truth layer. `PARTIAL`, `UNANSWERED`, `CONTRADICTED`, `STALE`, and `NOT_APPLICABLE` remain blocked or are rejected. This gate is part of the existing govern/finalize calls and must not add a default MCP round trip.
-
-Do not reject a plausible durable claim merely because current-source proof is
-missing. Gather that proof before deciding. Pressure-test high-impact, repo-wide,
-security, release, or long-lived-default claims in the same admission pass. Ask the
-user only when evidence cannot resolve a genuine product or intent decision. If
-completed durable claims coexist with unfinished work, write the
-durable candidates plus a scoped handoff and use `promotion_decision="partial"`.
-Finalize may assimilate Answered promotion points in that explicit job, while Dream remains separate and blocked from the manual path.
-
-When no candidate remains, use the bundled `zero_candidate_challenge_template`. Check corrections, decisions, successful solutions, repeated failures, preferences, reusable workflows or facts, migrations, and unfinished handoffs. Submit the returned exchange hashes unchanged. Detected signals are prefilled as `candidate_required`. Downgrade one to `not_durable` only after reviewing its complete window, and name that exact signal key plus the session-only reason in `rationale`. A durable finding requires a candidate or handoff; otherwise conclude `no_durable_candidate`.
-
-Apply [distillation-rules.md](references/distillation-rules.md) for claim classification and noise rejection.
-
-## Governed writes
-
-Use `govern_memory(action="suggest")` only for admitted or narrowed durable claims. Use `govern_memory(action="handoff")` for concrete unfinished state that another task must resume. Pass the current `distill_job_id` to both candidate and handoff writes so finalize governs only artifacts produced by this job.
-
-Every candidate must include:
-
-- `evidence_basis`;
-- `verification_outcome`;
-- `verification_refs`.
-
-For repository claims, answer “Is this still true in the current repo/runtime?” with current file hashes. For user preferences or decisions, answer “Did the user explicitly state this?” with a user-role exchange hash.
-
-Repository facts require current repository verification and project-relative paths with content hashes. Explicit user preferences or decisions require user-statement evidence. Transcript-only unverified claims may explain rejection but must not become durable truth.
-
-## Finalize
-
-Call `finalize_session_distill(project_name=<project>, job_id=<job>, semantic_review=<review>)` as the only commit point.
-
-Finalize must:
-
-- revalidate the source revision, checkpoints, and zero-candidate hashes;
-- govern only candidates created by this job;
-- automatically settle safe, rejected, contradicted, or unverified candidates;
-- never start Dream from this manual path;
-- record the runtime-derived assimilation outcome and actual source cleanup status.
-
-Use the single `hm` entry later for audit, correction, undo, replacement, or explicit trust upgrades. Do not run a second project-level semantic pass or Dream to close the same job.
-
-## User-visible result
-
-Read the formal `answer_packet` derived by finalize, but present one public
-concept: long-term memory. The runtime owns `answer_status`; never copy an Agent-authored status from semantic review or invent `ANSWERED`. Translate
-runtime values into plain language and do not expose storage kinds or categories
-in the default result:
+默认只报告实际知识变化：
 
 ```text
-会话：<session_summary>
-已完成整理：<形成 N 条长期记忆 / 无需长期记忆>。
-结果校验：<已验证 / 证据不完整 / 没有充分证据 / 证据冲突 / 证据已过期>。
-未完成：<无 / concise unfinished work>
-原文：<retained / deleted / partial failure / unsupported>
-会话记录（Note）：<path>
+记住了：<新增、替换或删除的内容；没有则写“没有需要长期记住的内容”>
+没记：<没有写入的普通原因；没有则省略>
+还没完成：<未完成事项；没有则省略>
 ```
 
-`Note` is the immutable path returned as `note.path`. `note.latest_path` is the stable user shortcut for the newest completed revision of that session; it is not used as the audit receipt.
+不要默认输出会话总数、任务状态、进度、费用、内部编号或对应表。写入、修改和交接由现有工具在内部完成，不要把它们变成用户要学习的步骤。只有用户明确要完整审查时，才展开“会话 → 主题 → 知识 → 实际证据”。`Session Note` 是可读摘要，不是另一份记忆。可读结果不要附加会话、任务、来源或内部编号。
 
-When durable memories were formed, render each `promoted_items` entry as one
-verifiable fact. `kind`, `category`, `knowledge_kind`, and
-`knowledge_category` remain internal audit metadata and are not separate
-user-facing memory products:
+用户主动整理成功后，按运行时返回的结果清理该会话原文、对应宿主历史和生成摘要；不制作会话备份，也不清空宿主全部历史。Dream 自动整理只归档，失败或未完成的来源保留。
 
-```text
-- **<title>**：<fact>（<验证日期；当前项目已验证 / 用户已确认>）。
-```
+如果 MCP 不可用，直接说明当前入口无法使用和最短恢复动作；不要改走终端或另一套记忆库。
 
-For `PARTIAL`, `UNANSWERED`, `CONTRADICTED`, `STALE`, or `NOT_APPLICABLE`,
-still show the result and explicitly say `无需长期记忆` when
-`promoted_items` is empty. Never imply promotion from semantic review alone.
-Finalize persists the packet in the existing job completion receipt;
-the Session Note is its readable projection, not another truth store.
-
-`job_bound_truth` and `sanitized_project_truth` are internal archive-audit
-routes, not user concepts. In default output say only whether each saved memory
-was read back successfully. If the user explicitly requests audit detail,
-translate them as `按原处理记录回查` and `清理原文后按项目记忆回查`.
-
-Do not append session, job, candidate, memory, evidence, or source IDs to those
-bullets or to the default readable Note. IDs, token counts, policy reasons, and
-verification refs belong only in audit detail when the user asks for them.
-
-## Boundaries
-
-- Do not ask users to run maintenance CLI commands when MCP tools are available.
-- Do not import global cross-project history unless the user explicitly requests it.
-- Do not infer whole-session outcomes from partial evidence.
-- Do not create parallel knowledge bases, promotion files, or duplicate truth stores.
-- Do not turn the distillation procedure itself into project memory unless harness-mem is the project being documented.
-- If MCP evidence is unavailable or incomplete, report the gap instead of claiming completion.
+详细的分类和证据取舍见 [references/distillation-rules.md](references/distillation-rules.md)。不要把这些内部规则复述给用户，除非用户明确要求查看处理方法。

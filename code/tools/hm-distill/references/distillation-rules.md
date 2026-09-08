@@ -1,6 +1,6 @@
 # Distillation Rules
 
-> Stages 1--4 below landed in `0.9.20` and remain the current `0.9.27` source
+> Stages 1--4 below landed in `0.9.20` and remain the current `0.9.28` source
 > knowledge-adoption contract.
 > They run after Stage 0 (session intake and lifecycle). Extraction remains
 > lossless; assimilation dispositions are runtime claims verified by their
@@ -20,19 +20,19 @@ Treat the full product lifecycle as five responsibilities:
   revisions, job/receipt lifecycle, and safe source retention/cleanup. It does
   not decide memory content.
 - Keep the existing lossless extraction path. One session may yield zero to
-  twelve independently addressable promotion points.
+  every independently addressable promotion point found in the session.
 - Verify every point independently. `ANSWERED` means the evidence question is
   answered; it does not by itself authorize durable memory.
 - Assimilate every verified point as one of `add`, `refine`, `confirm`,
-  `supersede`, `no_write`, `handoff`, `defer`, `conflict`, or `reject`.
+  `replace`, `no_write`, `handoff`, `defer`, `conflict`, or `reject`.
 - Derive the session-level `promotion_decision` from point outcomes. Never let
   one unfinished or rejected point suppress unrelated ANSWERED durable points.
 - Normal retrieval uses only current canonical prose. Audit identifiers and
   evidence metadata remain outside readable memory.
 
-`review` and `dream` are governance feedback around stages 3--4: use feedback
-can trigger re-verification and then refine, replace, merge, or retire current
-memory. They are not a sixth linear stage.
+`review` and `dream` are feedback around stages 3--4: use feedback can trigger
+re-verification and then keep, replace, or delete current memory. They are not
+a sixth linear stage.
 
 ## Classify Before Suggesting
 
@@ -111,12 +111,10 @@ never a truth store.
 
 - `add`: write a new canonical statement only when no equivalent current truth
   exists.
-- `refine`: replace an overbroad or incomplete current statement and preserve
-  supersede lineage.
+- `refine`: replace an overbroad or incomplete current statement.
 - `confirm`: keep the existing truth and record confirmation without adding a
   duplicate row.
-- `supersede`: end the old truth's current validity and link the verified
-  replacement.
+- `replace`: delete the old statement and write the verified replacement.
 - `no_write`: keep one-off requests, task narration, explanations, counts, and
   audit navigation in the Note/audit only.
 - `handoff`: persist concrete unfinished state outside long-term truth.
@@ -129,7 +127,7 @@ Before any insert, compare the normalized point with current project truth.
 The absence of an exact text match is not sufficient proof that the knowledge
 is new.
 
-Use this comparison order: explicit temporal replacement (`supersede`),
+Use this comparison order: explicit temporal replacement (`replace`),
 incompatible current claims without proven order (`conflict`), semantic
 equivalence (`confirm`), compatible precision/completeness improvement
 (`refine`), then no meaningful match (`add`). Assign a functional module/topic
@@ -156,13 +154,13 @@ platform.
 - In the default user-visible result and readable session note, render each
   promoted memory as `title + one verifiable fact + verification date/status`.
 - Keep session, job, candidate, memory, evidence, and source IDs out of readable
-  memory prose. Preserve them only in the audit record and explicit audit views.
+  memory prose.
 
 ## Review Outcomes
 
 - Extraction review: `admit`, `narrow`, `defer`, or `reject` determines whether
   a signal becomes an independently verified candidate.
-- Assimilation review: `add`, `refine`, `confirm`, `supersede`, `no_write`,
+- Assimilation review: `add`, `refine`, `confirm`, `replace`, `no_write`,
   `handoff`, `defer`, `conflict`, or `reject` determines its durable effect.
 - A valid `confirm` and a valid `no_write` are successful terminal outcomes even
   though neither inserts a new truth row.
@@ -170,5 +168,5 @@ platform.
 `finalize_session_distill` is the only lossless-session commit point for an
 explicit active-host distill. It may run scoped verification and assimilation only after
 structural and semantic gates pass; it does not start Dream. A Hook instead
-wakes Dream with its persisted session source. `/hm:review` remains the audit,
-correction, undo, and trust-upgrade surface.
+wakes Dream with its persisted session source. The same `hm` entry handles
+finding, correcting, replacing, and deleting memory.

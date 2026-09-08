@@ -240,7 +240,7 @@ class LocalVerbatimStore:
     async def list(
         self,
         session_id: str | None = None,
-        limit: int = 100,
+        limit: int | None = 100,
         project_name: str | None = None,
     ) -> builtins.list[Observation]:
         """List observations, optionally filtered by session or project."""
@@ -349,14 +349,14 @@ class LocalVerbatimStore:
         pattern: str,
         *,
         project_name: str | None = None,
-        limit: int = 20,
+        limit: int | None = 20,
         flags: int = 0,
     ) -> builtins.list[RegexObservationMatch]:
         """Search raw observation text by regex using trigram candidate pruning."""
         compiled = re.compile(pattern, flags)
         literal = _longest_literal_fragment(pattern)
         trigrams = _trigrams(literal) if literal else set()
-        candidate_limit = max(limit * 20, 100)
+        candidate_limit = None if limit is None else max(limit * 20, 100)
         if trigrams:
             candidate_ids = await asyncio.to_thread(
                 self._index.candidate_observation_ids_for_trigrams,
@@ -397,7 +397,7 @@ class LocalVerbatimStore:
                     candidate_count=candidate_count,
                 )
             )
-            if len(matches) >= limit:
+            if limit is not None and len(matches) >= limit:
                 break
         return matches
 
@@ -432,7 +432,7 @@ class LocalVerbatimStore:
     async def timeline(
         self,
         project_name: str | None = None,
-        limit: int = 50,
+        limit: int | None = 50,
     ) -> builtins.list[Observation]:
         """Timeline — all observations ordered by timestamp, optionally filtered by project_name."""
         where_parts = ["COALESCE(compacted, 0) = 0"]
@@ -457,70 +457,6 @@ class LocalVerbatimStore:
                     continue
                 results.append(Observation.from_dict(data))
         return results
-
-    async def recent_observations(
-        self,
-        project_name: str,
-        since: datetime,
-        limit: int,
-    ) -> builtins.list[Observation]:
-        """Observations for a project recorded at or after ``since``, newest first.
-
-        Mirrors :meth:`timeline` but adds a ``timestamp >= ?`` predicate. Used
-        by the v2.3.0 replay-window selector to feed the recent-observations
-        dimension. ``since`` is serialized as ISO-8601, matching how
-        ``timestamp`` is stored in the SQLite index.
-        """
-        where_parts = [
-            "COALESCE(compacted, 0) = 0",
-            "metadata LIKE ?",
-            "timestamp >= ?",
-        ]
-        params: tuple = (
-            self._project_metadata_pattern(project_name),
-            since.isoformat(),
-        )
-        rows = await asyncio.to_thread(
-            self._index.list,
-            "observations",
-            " AND ".join(where_parts),
-            params,
-            order_by="timestamp DESC",
-            limit=limit,
-        )
-        results = []
-        for row in rows:
-            blob_path = self._blob_path(row["id"])
-            if blob_path.exists():
-                data = json.loads(blob_path.read_text())
-                if data.get("compacted", False):
-                    continue
-                results.append(Observation.from_dict(data))
-        return results
-
-    async def count_recent_observations(
-        self,
-        project_name: str,
-        since: datetime,
-    ) -> int:
-        """Count non-compacted observations for a project at or after ``since``.
-
-        Companion to :meth:`recent_observations`. The replay-window selector
-        uses this when the ``cap+1`` probe has reported truncation, so the
-        ``truncated_within_observations: <selected>/<pool>`` note can carry
-        the true pool size as the denominator.
-        """
-        where = "COALESCE(compacted, 0) = 0 AND metadata LIKE ? AND timestamp >= ?"
-        params = (
-            self._project_metadata_pattern(project_name),
-            since.isoformat(),
-        )
-        return await asyncio.to_thread(
-            self._index.count,
-            "observations",
-            where,
-            params,
-        )
 
     async def rebuild_exact_index(self, project_name: str | None = None) -> tuple[int, int]:
         """Atomically rebuild the global exact index from canonical truth.

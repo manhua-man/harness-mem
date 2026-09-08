@@ -23,8 +23,7 @@
       },
       "limit": {
         "type": "integer",
-        "description": "Maximum matches to return (default 20)",
-        "default": 20
+        "description": "Optional match count; omitted returns all matching evidence"
       }
     },
     "required": [

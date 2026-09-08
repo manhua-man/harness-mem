@@ -53,18 +53,12 @@ class MergedConfig:
     transcript_retention_days: int = 0
     distill_auto_enabled: bool = True
     distill_autonomous_enabled: bool = False
-    distill_auto_max_jobs_per_wake: int = 2
-    distill_auto_target_backlog: int = 2
     distill_auto_recent_first: bool = True
-    distill_auto_daily_job_budget: int = 8
-    distill_delete_source_after_complete: bool = False
     # Background authorization is project-scoped; host CLI credentials stay in the host.
     distill_autonomous_cli: Literal[
         "current", "codex", "claude-code", "hermes", "opencode"
     ] = "current"
     archive_distill_enabled: bool = False
-    archive_distill_batch_size: int = 3
-    archive_distill_daily_limit: int = 20
     archive_distill_order: Literal["recent_first", "oldest_first"] = "recent_first"
     archive_distill_project_scope: Literal["detected", "current", "all"] = "current"
     archive_distill_unresolved_project: Literal["defer", "skip", "error"] = "defer"
@@ -79,21 +73,6 @@ class MergedConfig:
     dream_auto_min_interval_hours: int = 24
     dream_auto_idle_seconds: int = 900
     dream_auto_max_runtime_seconds: int = 120
-    dream_parse_parse_all: bool = True
-    dream_parse_require_evidence: bool = True
-    dream_handle_handle_all: bool = True
-    # Retained as a read-compatible setting during 0.9.x. Dream no longer
-    # interprets it as permission to mutate truth; every proposal re-enters
-    # verification and assimilation.
-    dream_handle_auto_apply: bool = False
-    dream_handle_auto_reject_uncertain: bool = True
-    dream_handle_auto_archive_unclassifiable: bool = True
-    dream_handle_allow_supersede: bool = True
-    dream_handle_allow_merge: bool = True
-    dream_handle_allow_mark_stale: bool = True
-    dream_handle_allow_delete_truth: bool = False
-    dream_handle_preserve_audit: bool = True
-    dream_handle_undo_window_days: int = 30
     cost_budget_wake_tokens: int = 2000
     cost_budget_search_tokens: int = 1200
     cost_budget_file_context_tokens: int = 900
@@ -132,6 +111,9 @@ _REMOVED_CONFIG_KEYS: tuple[str, ...] = (
     "worker.mode",
     "semantic.execution.mode",
     "semantic.execution.restricted",
+    "dream.handle.allow_supersede",
+    "dream.handle.allow_merge",
+    "dream.handle.allow_mark_stale",
 )
 
 _CAPTURE_KEYS: tuple[tuple[str, str, str, Any], ...] = (
@@ -157,47 +139,11 @@ _DISTILL_KEYS: tuple[tuple[str, str, str, Any], ...] = (
         "enum:current,codex,claude-code,hermes,opencode",
         "current",
     ),
-    (
-        "distill.auto.max_jobs_per_wake",
-        "distill_auto_max_jobs_per_wake",
-        "int:min=1:max=3",
-        2,
-    ),
-    (
-        "distill.auto.target_backlog",
-        "distill_auto_target_backlog",
-        "int:min=0",
-        2,
-    ),
     ("distill.auto.recent_first", "distill_auto_recent_first", "bool", True),
-    (
-        "distill.auto.daily_job_budget",
-        "distill_auto_daily_job_budget",
-        "int:min=1",
-        8,
-    ),
-    (
-        "distill.delete_source_after_complete",
-        "distill_delete_source_after_complete",
-        "bool",
-        False,
-    ),
 )
 
 _ARCHIVE_DISTILL_KEYS: tuple[tuple[str, str, str, Any], ...] = (
     ("archive_distill.enabled", "archive_distill_enabled", "bool", False),
-    (
-        "archive_distill.batch_size",
-        "archive_distill_batch_size",
-        "int:min=1:max=100",
-        3,
-    ),
-    (
-        "archive_distill.daily_limit",
-        "archive_distill_daily_limit",
-        "int:min=1:max=10000",
-        20,
-    ),
     (
         "archive_distill.order",
         "archive_distill_order",
@@ -258,33 +204,6 @@ _DREAM_KEYS: tuple[tuple[str, str, str, Any], ...] = (
         "int:min=1",
         120,
     ),
-    ("dream.parse.parse_all", "dream_parse_parse_all", "const:true", True),
-    ("dream.parse.require_evidence", "dream_parse_require_evidence", "bool", True),
-    ("dream.handle.handle_all", "dream_handle_handle_all", "const:true", True),
-    ("dream.handle.auto_apply", "dream_handle_auto_apply", "bool", False),
-    (
-        "dream.handle.auto_reject_uncertain",
-        "dream_handle_auto_reject_uncertain",
-        "bool",
-        True,
-    ),
-    (
-        "dream.handle.auto_archive_unclassifiable",
-        "dream_handle_auto_archive_unclassifiable",
-        "bool",
-        True,
-    ),
-    ("dream.handle.allow_supersede", "dream_handle_allow_supersede", "bool", True),
-    ("dream.handle.allow_merge", "dream_handle_allow_merge", "bool", True),
-    ("dream.handle.allow_mark_stale", "dream_handle_allow_mark_stale", "bool", True),
-    (
-        "dream.handle.allow_delete_truth",
-        "dream_handle_allow_delete_truth",
-        "const:false",
-        False,
-    ),
-    ("dream.handle.preserve_audit", "dream_handle_preserve_audit", "const:true", True),
-    ("dream.handle.undo_window_days", "dream_handle_undo_window_days", "int:min=1", 30),
 )
 
 _COST_BUDGET_KEYS: tuple[tuple[str, str, str, Any], ...] = (
@@ -321,10 +240,7 @@ PUBLIC_CONFIG_KEY_PATHS: tuple[str, ...] = (
     "distill.auto.enabled",
     "distill.autonomous.enabled",
     "distill.autonomous.cli",
-    "distill.delete_source_after_complete",
     "archive_distill.enabled",
-    "archive_distill.batch_size",
-    "archive_distill.daily_limit",
     "archive_distill.order",
     "archive_distill.project_scope",
     "archive_distill.unresolved_project",
@@ -660,7 +576,6 @@ def load_merged_config(project_root: str | os.PathLike[str]) -> MergedConfig:
     project_dict = _load_toml_file(project_path)
 
     # Background authorization and destructive cleanup are project-scoped.
-    _remove_dotted(user_dict, "distill.delete_source_after_complete")
     _remove_dotted(user_dict, "distill.autonomous.enabled")
     _remove_dotted(user_dict, "distill.autonomous.cli")
     _remove_dotted(user_dict, "semantic.execution.profile")

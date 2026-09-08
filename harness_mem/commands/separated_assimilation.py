@@ -4,13 +4,13 @@ This is the new-session side of the knowledge-truth separation boundary.  It
 uses the existing evidence gate, but represents its input as a short-lived
 admission subject rather than persisting a ``MemoryEntry`` / ``RuleCandidate``
 / ``RelationFact`` first.  The durable rows are therefore limited to the four
-separated knowledge collections (plus an explicit task handoff when needed).
+    current knowledge and its source locators (plus a task handoff when needed).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 import re
 from typing import Any, Mapping, Sequence, cast
@@ -22,7 +22,6 @@ from harness_mem.commands.evidence_admission import (
     validate_candidate_evidence,
 )
 from harness_mem.commands.knowledge_assimilation import (
-    assimilation_decision_id,
     record_assimilation_result,
     resolve_candidate_source_context,
 )
@@ -36,21 +35,21 @@ from harness_mem.core.schemas import (
 from harness_mem.core.schemas.task_handoff import TaskHandoff
 from harness_mem.knowledge_validation import validate_atomic_knowledge_statement
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 
 
-_MAX_CURRENT_TRUTH = 12
 _ASSIMILATION_DISPOSITIONS = {
     "add",
     "refine",
     "confirm",
-    "supersede",
+    "replace",
     "no_write",
     "handoff",
     "defer",
     "conflict",
     "reject",
 }
-_WRITING_DISPOSITIONS = {"add", "refine", "supersede"}
+_WRITING_DISPOSITIONS = {"add", "refine", "replace"}
 FORBIDDEN_KNOWLEDGE_MODULE_NAMES: frozenset[str] = frozenset(
     {
         "stable operation rule",
@@ -109,6 +108,100 @@ class _EvidenceAdmissionSubject:
     verified_at: datetime | None = None
 
 
+async def admit_separated_candidate(
+    backend: LocalMemoryBackend,
+    *,
+    candidate_id: str,
+    project_name: str,
+    candidate_type: str,
+    statement: str,
+    distill_job_id: str | None,
+    evidence_basis: str,
+    verification_outcome: str,
+    verification_refs: Sequence[Any] = (),
+    verification_reason_codes: Sequence[str] = (),
+    assimilation_disposition: str | None = None,
+    assimilation_reason: str | None = None,
+    assimilation_target_ids: Sequence[str] = (),
+    canonical_title: str | None = None,
+    topic_path: Sequence[str] = (),
+) -> tuple[KnowledgeCandidate, bool]:
+    """Admit one proposal directly into the finite-lifetime knowledge workspace."""
+
+    kind = str(candidate_type).strip()
+    if kind not in {"memory", "rule", "relation"}:
+        raise ValueError("separated candidate kind must be memory, rule, or relation")
+    normalized_statement = " ".join(str(statement).split())
+    if not normalized_statement:
+        raise ValueError("separated candidate statement is empty")
+
+    store = backend.structured_store.knowledge_store
+    candidate = await store.get_candidate(candidate_id)
+    replay = candidate is not None
+    if candidate is None:
+        candidate = KnowledgeCandidate(
+            id=candidate_id,
+            project_name=project_name,
+            candidate_type=cast(Any, kind),
+            statement=normalized_statement,
+        )
+    elif (
+        candidate.project_name != project_name
+        or candidate.candidate_type != kind
+        or candidate.statement != normalized_statement
+    ):
+        raise ValueError("separated candidate id already belongs to another proposal")
+    elif candidate.status != "pending":
+        raise ValueError("separated candidate already has a processing result")
+
+    candidate.assimilation_disposition = cast(Any, assimilation_disposition)
+    candidate.assimilation_reason = assimilation_reason
+    candidate.assimilation_target_ids = [
+        str(value).strip() for value in assimilation_target_ids if str(value).strip()
+    ]
+    candidate.canonical_title = canonical_title
+    candidate.topic_path = [str(part).strip() for part in topic_path if str(part).strip()]
+    candidate.updated_at = datetime.now(timezone.utc)
+
+    refs = _evidence_refs(verification_refs)
+    subject = _EvidenceAdmissionSubject(
+        id=candidate.id,
+        project_name=project_name,
+        distill_job_id=distill_job_id,
+        evidence_basis=evidence_basis,
+        verification_outcome=verification_outcome,
+        verification_refs=refs,
+        verification_reason_codes=[str(value) for value in verification_reason_codes],
+    )
+    project_root: str | None = None
+    if evidence_basis == "repository" and distill_job_id is None:
+        profile = await LocalProjectProfileStore(backend.data_dir).get(project_name)
+        project_root = profile.project_root if profile is not None else None
+    validation = await validate_candidate_evidence(
+        backend,
+        subject,
+        project_root=project_root,
+    )
+    apply_validation(subject, validation)
+    await store.save_candidate(candidate)
+    await store.save_evidence(
+        KnowledgeEvidence(
+            id=_evidence_id(candidate.id),
+            project_name=project_name,
+            candidate_id=candidate.id,
+            distill_job_id=distill_job_id,
+            evidence_basis=cast(Any, subject.evidence_basis or "transcript"),
+            verification_outcome=cast(
+                Any, subject.verification_outcome or "unverified"
+            ),
+            verification_refs=subject.verification_refs,
+            verification_reason_codes=list(subject.verification_reason_codes),
+            verified_at=subject.verified_at,
+        )
+    )
+    return candidate, replay
+
+
 async def create_separated_candidates(
     backend: LocalMemoryBackend,
     *,
@@ -161,42 +254,36 @@ async def create_separated_candidates(
                 f"{index}:{kind}:{statement}",
             )
         )
-        candidate = KnowledgeCandidate(
-            id=candidate_id,
+        replayed_candidate = await store.get_candidate(candidate_id)
+        if replayed_candidate is not None and replayed_candidate.status != "pending":
+            if (
+                replayed_candidate.project_name != project_name
+                or replayed_candidate.candidate_type != kind
+                or replayed_candidate.statement != " ".join(statement.split())
+            ):
+                raise ValueError(
+                    "separated candidate id already belongs to another proposal"
+                )
+            evidence = _job_bound_evidence(
+                await store.list_evidence(replayed_candidate.id),
+                candidate_id=replayed_candidate.id,
+            )
+            if evidence.distill_job_id != distill_job_id:
+                raise ValueError("separated candidate replay belongs to another job")
+            candidate_ids.append(candidate_id)
+            continue
+        await admit_separated_candidate(
+            backend,
+            candidate_id=candidate_id,
             project_name=project_name,
-            candidate_type=cast(Any, kind),
+            candidate_type=kind,
             statement=statement,
-        )
-        refs = _evidence_refs(arguments.get("verification_refs") or [])
-        subject = _EvidenceAdmissionSubject(
-            id=candidate_id,
-            project_name=project_name,
             distill_job_id=distill_job_id,
             evidence_basis=_required_evidence_basis(arguments),
             verification_outcome=_requested_verification_outcome(arguments),
-            verification_refs=refs,
-            verification_reason_codes=[
-                str(value)
-                for value in arguments.get("verification_reason_codes") or []
-            ],
+            verification_refs=arguments.get("verification_refs") or [],
+            verification_reason_codes=arguments.get("verification_reason_codes") or [],
         )
-        validation = await validate_candidate_evidence(backend, subject)
-        apply_validation(subject, validation)
-        await store.save_candidate(candidate)
-        evidence = KnowledgeEvidence(
-            id=_evidence_id(candidate_id),
-            project_name=project_name,
-            candidate_id=candidate_id,
-            distill_job_id=distill_job_id,
-            evidence_basis=cast(Any, subject.evidence_basis or "transcript"),
-            verification_outcome=cast(
-                Any, subject.verification_outcome or "unverified"
-            ),
-            verification_refs=subject.verification_refs,
-            verification_reason_codes=list(subject.verification_reason_codes),
-            verified_at=subject.verified_at,
-        )
-        await store.save_evidence(evidence)
         candidate_ids.append(candidate_id)
     return candidate_ids
 
@@ -302,7 +389,7 @@ def validate_separated_assimilation_decision(
 ) -> dict[str, Any]:
     """Validate complete per-point coverage without accepting legacy targets."""
 
-    decision = normalize_identical_truth_mutations(prepared, decision)
+    decision = normalize_identical_replacements(prepared, decision)
     points = list(decision.points)
     ids = [str(point.candidate_id) for point in points]
     expected = set(prepared.eligible_candidate_ids)
@@ -334,14 +421,16 @@ def validate_separated_assimilation_decision(
             target_uses.setdefault(handle, []).append(disposition)
         if disposition == "add" and handles:
             raise ValueError("add must not target current truth")
-        if disposition in {"confirm", "refine", "supersede"} and len(handles) != 1:
-            raise ValueError(f"{disposition} requires exactly one current truth handle")
+        if disposition == "confirm" and len(handles) != 1:
+            raise ValueError("confirm requires exactly one current truth handle")
+        if disposition in {"refine", "replace"} and not handles:
+            raise ValueError(f"{disposition} requires at least one current truth handle")
         if disposition == "conflict" and len(handles) > 1:
             raise ValueError("conflict may reference at most one current truth handle")
         if disposition in {"no_write", "handoff", "defer", "reject"} and handles:
             raise ValueError(f"{disposition} must not target current truth")
         knowledge_items = [item.model_dump() for item in point.knowledge_items]
-        if disposition in {"add", "refine", "supersede"}:
+        if disposition in {"add", "refine", "replace"}:
             if knowledge_items:
                 if (
                     point.canonical_title
@@ -350,10 +439,6 @@ def validate_separated_assimilation_decision(
                 ):
                     raise ValueError(
                         "knowledge_items and legacy canonical fields cannot both write truth"
-                    )
-                if disposition == "refine" and len(knowledge_items) != 1:
-                    raise ValueError(
-                        "refine requires exactly one replacement knowledge item"
                     )
                 knowledge_items = [
                     _validate_canonical_knowledge_item(item)
@@ -416,16 +501,16 @@ def validate_separated_assimilation_decision(
     }
 
 
-def normalize_identical_truth_mutations(
+def normalize_identical_replacements(
     prepared: SeparatedPreparedAssimilation,
     decision: Any,
 ) -> Any:
-    """Turn exact no-op refine/supersede decisions into confirmations.
+    """Turn exact no-op refine/replace decisions into confirmations.
 
     Providers decide semantic intent, but exact equality is a deterministic
     runtime fact. Normalizing it here prevents a harmless no-op from reaching
     the truth transaction as an invalid replacement while preserving genuine
-    one-to-many supersedes for the normal mutation path.
+    one-to-many replaces for the normal replacement path.
     """
 
     current_by_handle = {
@@ -439,7 +524,7 @@ def normalize_identical_truth_mutations(
     payload = decision.model_dump(mode="json")
     changed = False
     for point in payload.get("points") or []:
-        if point.get("disposition") not in {"refine", "supersede"}:
+        if point.get("disposition") not in {"refine", "replace"}:
             continue
         handles = [str(value) for value in point.get("matched_truth_handles") or []]
         if len(handles) != 1:
@@ -450,7 +535,7 @@ def normalize_identical_truth_mutations(
 
         items = list(point.get("knowledge_items") or [])
         if items:
-            # A one-to-many supersede is never a confirmation, even when one
+            # A one-to-many replace is never a confirmation, even when one
             # successor happens to equal the predecessor.
             if len(items) != 1:
                 continue
@@ -525,11 +610,11 @@ async def apply_separated_assimilation(
         for target_id in point.get("matched_truth_ids") or []:
             if target_id in available_truth_ids:
                 continue
-            if point["disposition"] not in {"refine", "supersede"}:
+            if point["disposition"] not in {"refine", "replace"}:
                 raise ValueError(
                     "separated assimilation target was not offered to the provider"
                 )
-            # A retired target is allowed to reach the mutation replay check.
+            # A replaced target is allowed to reach the idempotent replay check.
             # A still-current target that was never in the bounded provider
             # manifest is an untrusted payload escalation and must fail here.
             if await store.get_entry(
@@ -543,6 +628,22 @@ async def apply_separated_assimilation(
     actual = [str(item.get("candidate_id") or "") for item in points]
     if set(actual) != set(expected):
         raise ValueError("separated assimilation plan does not cover this job's candidates")
+
+    # Resolve the complete candidate/evidence set before the first mutation.
+    # A disappearing later point must not leave earlier points committed while
+    # the session is still reported as a successful complete review.
+    candidates_by_id: dict[str, KnowledgeCandidate] = {}
+    evidence_by_candidate: dict[str, KnowledgeEvidence] = {}
+    for candidate_id in expected:
+        candidate = await store.get_candidate(candidate_id)
+        if candidate is None:
+            raise ValueError(f"separated candidate is missing: {candidate_id}")
+        if candidate.project_name != project_name:
+            raise ValueError("separated assimilation candidate belongs to another project")
+        candidates_by_id[candidate_id] = candidate
+        evidence_by_candidate[candidate_id] = _job_bound_evidence(
+            await store.list_evidence(candidate.id), candidate_id=candidate.id
+        )
 
     results: list[dict[str, Any]] = []
     counts = {
@@ -559,15 +660,8 @@ async def apply_separated_assimilation(
     }
     for point in points:
         candidate_id = str(point["candidate_id"])
-        candidate = await store.get_candidate(candidate_id)
-        if candidate is None:
-            counts["missing"] += 1
-            continue
-        if candidate.project_name != project_name:
-            raise ValueError("separated assimilation candidate belongs to another project")
-        evidence = _job_bound_evidence(
-            await store.list_evidence(candidate.id), candidate_id=candidate.id
-        )
+        candidate = candidates_by_id[candidate_id]
+        evidence = evidence_by_candidate[candidate_id]
         subject = _subject(candidate, evidence)
         status = answer_gate_status(subject)
         disposition = str(point.get("disposition") or "reject")
@@ -576,7 +670,7 @@ async def apply_separated_assimilation(
             record_point["claim_kind"] = _fallback_claim_kind(candidate, evidence)
         source_refs: list[ProjectKnowledgeSourceRef] = []
         resolved_root = Path(project_root).expanduser().resolve()
-        if disposition in {"add", "refine", "supersede", "confirm"}:
+        if disposition in {"add", "refine", "replace", "confirm"}:
             resolved_root, source_refs, verified_at = await resolve_candidate_source_context(
                 backend,
                 candidate=candidate,
@@ -591,18 +685,8 @@ async def apply_separated_assimilation(
             project_root=resolved_root,
             source_refs=source_refs,
         )
-        mutation_id = (
-            assimilation_decision_id(
-                candidate_id=candidate.id,
-                disposition=disposition,
-                knowledge_ids=truth_ids,
-                reason=str(record_point.get("reason") or disposition),
-            )
-            if disposition in {"add", "refine", "supersede"}
-            else None
-        )
         handoff_id: str | None = None
-        if disposition == "handoff":
+        if disposition in {"handoff", "defer", "conflict"}:
             handoff_id = await _materialize_handoff(
                 backend, candidate=candidate, evidence=evidence, point=point
             )
@@ -613,10 +697,9 @@ async def apply_separated_assimilation(
             "canonical_truth_ids": truth_ids,
             "separated_knowledge_ids": truth_ids,
             "handoff_id": handoff_id,
-            "mutation_id": mutation_id,
         }
         results.append(result)
-        if disposition in {"add", "refine", "supersede"}:
+        if disposition in {"add", "refine", "replace"}:
             counts["promoted"] += 1
         elif disposition == "confirm":
             counts["confirmed"] += 1
@@ -673,8 +756,10 @@ def _validate_apply_points(
         targets = [str(value) for value in point.get("matched_truth_ids") or []]
         if len(targets) != len(set(targets)):
             raise ValueError("assimilation point contains duplicate truth targets")
-        if disposition in {"confirm", "refine", "supersede"} and len(targets) != 1:
-            raise ValueError(f"{disposition} requires exactly one current truth target")
+        if disposition == "confirm" and len(targets) != 1:
+            raise ValueError("confirm requires exactly one current truth target")
+        if disposition in {"refine", "replace"} and not targets:
+            raise ValueError(f"{disposition} requires at least one current truth target")
         if disposition == "conflict" and len(targets) > 1:
             raise ValueError("conflict may reference at most one current truth target")
         if disposition in {"add", "no_write", "handoff", "defer", "reject"} and targets:
@@ -695,10 +780,6 @@ def _validate_apply_points(
             point,
             writes_truth=disposition in _WRITING_DISPOSITIONS,
         )
-        if disposition == "refine" and len(knowledge_items) != 1:
-            raise ValueError("refine requires exactly one replacement knowledge item")
-        if disposition == "supersede" and not 1 <= len(knowledge_items) <= 3:
-            raise ValueError("supersede requires one to three replacement knowledge items")
         normalized.append(
             {
                 "candidate_id": candidate_id,
@@ -722,7 +803,7 @@ def _reject_reused_mutating_targets(target_uses: Mapping[str, Sequence[str]]) ->
 
     for dispositions in target_uses.values():
         if len(dispositions) > 1 and any(
-            disposition in {"refine", "supersede"} for disposition in dispositions
+            disposition in {"refine", "replace"} for disposition in dispositions
         ):
             raise ValueError(
                 "one current truth target is reused across points that mutate it"
@@ -755,8 +836,8 @@ def _validated_apply_knowledge_items(
                 "claim_kind": str(point.get("claim_kind") or "procedure"),
             }
         ]
-    if not 1 <= len(supplied) <= 3:
-        raise ValueError("knowledge-writing assimilation requires one to three items")
+    if not supplied:
+        raise ValueError("knowledge-writing assimilation requires at least one item")
     normalized: list[dict[str, Any]] = []
     for raw in supplied:
         if not isinstance(raw, Mapping):
@@ -885,9 +966,9 @@ def _validate_canonical_knowledge_item(raw: Mapping[str, Any]) -> dict[str, Any]
     statement = " ".join(str(raw.get("statement") or "").split())
     topic_value = raw.get("topic_path")
     claim_kind = str(raw.get("claim_kind") or "")
-    if not 1 <= len(title) <= 160 or not 1 <= len(statement) <= 4000:
+    if not title or not statement:
         raise ValueError("canonical knowledge title or statement is invalid")
-    if not isinstance(topic_value, list) or not 1 <= len(topic_value) <= 8:
+    if not isinstance(topic_value, list) or not topic_value:
         raise ValueError("canonical knowledge topic_path is invalid")
     if any(not isinstance(part, str) or not part.strip() for part in topic_value):
         raise ValueError("canonical knowledge topic_path is invalid")
@@ -909,7 +990,9 @@ def _validate_canonical_knowledge_item(raw: Mapping[str, Any]) -> dict[str, Any]
     try:
         statement = validate_atomic_knowledge_statement(statement)
     except ValueError as exc:
-        raise ValueError("canonical knowledge statement is not atomic") from exc
+        raise ValueError(
+            f"canonical knowledge statement is not atomic or natural: {exc}"
+        ) from exc
     return {
         "title": title,
         "statement": statement,
@@ -952,10 +1035,10 @@ def _statement(arguments: Mapping[str, Any], *, kind: str) -> str:
     if kind == "memory":
         statement = str(arguments.get("content") or "").strip()
     elif kind == "rule":
-        statement = "When {trigger}, {pattern}".format(
-            trigger=str(arguments.get("trigger") or "").strip(),
-            pattern=str(arguments.get("pattern") or "").strip(),
-        ).strip()
+        trigger = str(arguments.get("trigger") or "").strip().rstrip("，,:：")
+        pattern = str(arguments.get("pattern") or "").strip()
+        separator = "：" if re.search(r"[\u3400-\u4dbf\u4e00-\u9fff]", trigger) else ": "
+        statement = f"{trigger}{separator}{pattern}".strip()
     else:
         statement = "{source} {relation} {target}".format(
             source=str(arguments.get("source_entity") or "").strip(),
@@ -1187,7 +1270,7 @@ async def _current_truth_handles(
     )
     handles: dict[str, str] = {}
     projected: list[dict[str, Any]] = []
-    for index, entry in enumerate(entries[:_MAX_CURRENT_TRUTH], 1):
+    for index, entry in enumerate(entries, 1):
         handle = f"T{index}"
         handles[handle] = entry.id
         projected.append(
@@ -1257,9 +1340,10 @@ def _fallback_claim_kind(
 
 __all__ = [
     "SeparatedPreparedAssimilation",
+    "admit_separated_candidate",
     "apply_separated_assimilation",
     "create_separated_candidates",
-    "normalize_identical_truth_mutations",
+    "normalize_identical_replacements",
     "prepare_separated_assimilation",
     "separated_job_candidate_ids",
     "validate_separated_assimilation_decision",

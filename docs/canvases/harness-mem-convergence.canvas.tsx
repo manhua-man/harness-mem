@@ -20,19 +20,16 @@ import {
   useHostTheme,
 } from "cursor/canvas";
 
-const AS_OF = "2026-09-04";
-const RUNTIME_VERSION = "0.9.27";
-const PUBLIC_RELEASE_VERSION = "0.9.27";
-const PYTEST_COUNT = 1061;
-const MCP_TOOL_COUNT = 27;
-const HOST_COUNT = 7;
+const AS_OF = "2026-09-06";
+const RUNTIME_VERSION = "0.9.28";
+const PYTEST_STATUS = "rerun required";
 const OUTCOME_CLAIM_COUNT = 12;
 
 const MODULES: string[][] = [
   ["0 会话接入", "1 session + 1 immutable revision", "宿主接入 · chunk · job · receipt · 来源生命周期", "不判断陈述是否值得长期记忆"],
-  ["1 提取", "0–12 promotion points / session", "窄 claim · 可重开 source location · 完整 manifest", "不验证证据 · 不写长期知识"],
-  ["2 逐点验证", "1 promotion point", "reference integrity · Answer Gate fail-closed", "不决定 durable value · 不改长期知识"],
-  ["3 归纳吸收", "1 verified point", "九处置 · 去重 · SQLite mutation · 自然模块", "不获取原始来源 · 不默认暴露 audit"],
+  ["1 提取", "每个可独立处理的 promotion point", "窄 claim · 可重开 source location · 完整 manifest", "不验证证据 · 不写长期知识"],
+  ["2 逐点验证", "1 promotion point", "核对来源与当前事实 · 证据不足就不写", "不决定长期价值 · 不改长期知识"],
+  ["3 归纳吸收", "1 verified point", "去重 · 替换或删除 · SQLite 当前记忆 · 自然模块", "不获取原始来源 · 不保留知识历史"],
   ["4 检索使用", "1 task / query", "干净 wake/search · 项目隔离 · bounded feedback", "normal 结果不暴露 transcript/candidate/ID"],
 ];
 
@@ -47,7 +44,7 @@ const EXECUTION_PATHS: string[][] = [
   ["人工 distill", "当前宿主读取会话", "prepare → submit → finalize · 不走后台改道"],
   ["Hook SessionStop", "仅模块 0", "持久化 source/job · 唤醒 Dream · 不执行语义判断"],
   ["Dream", "唯一无人值守执行者", "已授权 → 所选 CLI Agent（默认当前宿主，也可明确指定）· 同一路验证与吸收"],
-  ["Review", "事后审计支路", "纠错 · supersede · undo · 不替代逐点验证"],
+  ["Review", "人工纠错支路", "纠错 · 替换 · 删除 · 不替代逐点验证"],
 ];
 
 const RELEASE_TRAIN: string[][] = [
@@ -56,9 +53,10 @@ const RELEASE_TRAIN: string[][] = [
   ["0.9.22", "archive repair · clean search · Autopilot 边界 · truth archival 门禁", "Released"],
   ["0.9.23", "operator-owned provider profile · Dream 终态 source recheck · 凭证不进项目配置", "Released"],
   ["0.9.24", "Anthropic 兼容网关 strict JSON 无工具传输 · schema fail-closed", "Released"],
-  ["0.9.25", "Hook→Dream 唯一路径 · 截断来源 fail-closed · undo/receipt/provider 终态", "Released"],
+  ["0.9.25", "Hook→Dream 唯一路径 · 当时包含 undo；该知识历史设计已由 0.9.28 删除", "Released history"],
   ["0.9.26", "enabled + 默认当前宿主、也可指定 CLI · 诚实 {host}_cli 回执", "Released"],
-  ["0.9.27", "唯一 hm 入口 · Quickstart 不管 MCP · Hook 不内联 · 不猜宿主", "Current release line"],
+  ["0.9.27", "唯一 hm 入口 · Quickstart 不管 MCP · Hook 不内联 · 不猜宿主", "Released"],
+  ["0.9.28", "当前记忆只有 knowledge_entries · 直接替换/删除 · 无知识历史或撤销 · 20 个 MCP 工具", "Preparing release"],
 ];
 
 const OUT_OF_PRODUCT: string[][] = [
@@ -70,21 +68,21 @@ const OUT_OF_PRODUCT: string[][] = [
 
 const OUTCOME_CLAIMS: string[][] = [
   ["codex_cleanup_liveness", "Native cleanup 只删 definitively inactive task"],
-  ["archive_distill_batch_outcome", "Archive distill 全链路：Packet · Note · ledger · retrieval · cleanup"],
+  ["archive_distill_batch_outcome", "归档会话整理：处理结果 · 可读 Note · 当前记忆检索 · 临时材料清理"],
   ["codex_hook_lifecycle", "Desktop Hook start/post-turn 有 fresh receipt"],
   ["dream_execution", "Dream 在验证窗口内有 persisted successful run"],
-  ["distill_user_artifacts", "已完成 distill 有可读 Session Note 或 audited-unavailable"],
+  ["distill_user_artifacts", "已完成 distill 有可读 Session Note 或明确说明未生成"],
   ["background_memory_hook_flow", "隔离 Hook → host CLI → job-bound Note/SQLite → normal search · 三种 Hook 重入均被阻止"],
   ["partial_distill_handoff", "Partial distill：独立 Answered 点 + handoff + 分离 Note"],
   ["distill_acceptance_matrix", "F1–F11 fixture 路径矩阵可执行验收"],
   ["multi_point_memory_assimilation", "多点独立 assimilation 与 SQLite 当前知识"],
-  ["clean_retrieval_boundary", "normal wake/search 不泄漏 raw/audit/provisional"],
-  ["distill_audit_summaries", "语义 audit summary 持久化"],
+  ["clean_retrieval_boundary", "normal wake/search 不泄漏 raw/internal/provisional"],
+  ["distill_audit_summaries", "会话可读总结生成；不作为当前记忆或知识历史"],
   ["durable_memory_retrieval", "写入后的长期知识经 intended 检索路径可读"],
 ];
 
 const CONTRACT_GATES: string[][] = [
-  ["MCP 27-tool surface", "test_mcp_public_surface_contract.py · ensure_mcps_canonical.py"],
+  ["MCP 25-tool surface", "test_mcp_public_surface_contract.py · ensure_mcps_canonical.py"],
   ["Host replay / Hook", "test_host_replay_qualification.py · 各宿主 fixture"],
   ["Evidence admission", "test_evidence_admission.py"],
   ["Assimilation / truth", "test_assimilation_runtime.py · test_assimilation_shadow.py"],
@@ -178,25 +176,24 @@ const OPEN_GAPS_FROM_REFS: string[][] = [
   ["RRF / adaptive IDF 可测改进", "Graphiti · vstash（paper）", "defer.md · 需 golden-suite 证明"],
 ];
 
-/** 本机实际结果检查（2026-09-04 · harness-mem 仓库）— 比百分制分更优先 */
-const OUTCOME_RUN_AT = "2026-09-04T06:42:46+08:00";
-const OUTCOME_RUN_STATUS = "passed";
-const OUTCOME_PASSED = 12;
-const OUTCOME_FAILED = 0;
+/** 当前简化修改后的实际结果检查尚未运行；旧结果不证明当前源码。 */
+const OUTCOME_RUN_AT = "not run after 0.9.28 memory simplification";
+const OUTCOME_RUN_STATUS = "pending";
+const OUTCOME_PASSED = 0;
 
 const OUTCOME_LIVE: string[][] = [
-  ["codex_cleanup_liveness", "passed", "—"],
-  ["archive_distill_batch_outcome", "passed", "—"],
-  ["codex_hook_lifecycle", "passed", "—"],
-  ["dream_execution", "passed", "—"],
-  ["distill_user_artifacts", "passed", "—"],
-  ["background_memory_hook_flow", "passed", "provider.name=hermes_cli · normal_search_hit=true · real data unchanged"],
-  ["partial_distill_handoff", "passed", "—"],
-  ["distill_acceptance_matrix", "passed", "—"],
-  ["multi_point_memory_assimilation", "passed", "—"],
-  ["clean_retrieval_boundary", "passed", "—"],
-  ["distill_audit_summaries", "passed", "—"],
-  ["durable_memory_retrieval", "passed", "—"],
+  ["codex_cleanup_liveness", "not_run", "current source changed"],
+  ["archive_distill_batch_outcome", "not_run", "current source changed"],
+  ["codex_hook_lifecycle", "not_run", "current source changed"],
+  ["dream_execution", "not_run", "current source changed"],
+  ["distill_user_artifacts", "not_run", "current source changed"],
+  ["background_memory_hook_flow", "not_run", "current source changed"],
+  ["partial_distill_handoff", "not_run", "current source changed"],
+  ["distill_acceptance_matrix", "not_run", "current source changed"],
+  ["multi_point_memory_assimilation", "not_run", "current source changed"],
+  ["clean_retrieval_boundary", "not_run", "current source changed"],
+  ["distill_audit_summaries", "not_run", "current source changed"],
+  ["durable_memory_retrieval", "not_run", "current source changed"],
 ];
 
 type VerifyTier = "verified_local" | "partial_local" | "failed_local" | "contract_only" | "documented_gap";
@@ -222,46 +219,46 @@ const DIMENSION_VERIFICATION: {
     code: "L1",
     label: "记忆闭环",
     weight: 20,
-    tier: "verified_local",
-    mappedOutcomes: "PASS: distill_user_artifacts · dream · acceptance_matrix · partial_handoff · hook · background_memory_hook_flow",
-    contracts: "27-tool MCP · 7 hosts · $hm / /hm · pytest 1061 passed",
-    note: "本机 L1 对应检查全 PASS",
+    tier: "contract_only",
+    mappedOutcomes: "待重跑：distill_user_artifacts · dream · acceptance_matrix · partial_handoff · hook · background_memory_hook_flow",
+    contracts: `25-tool MCP · 7 hosts · $hm / /hm · pytest ${PYTEST_STATUS}`,
+    note: "当前源码改变后尚未重跑本机检查",
   },
   {
     code: "L2",
     label: "真理与治理",
     weight: 25,
-    tier: "verified_local",
-    mappedOutcomes: "PASS: multi_point_assimilation · clean_retrieval · archive_distill（含 sqlite authority 探针）",
+    tier: "contract_only",
+    mappedOutcomes: "待重跑：multi_point_assimilation · clean_retrieval · archive_distill",
     contracts: "test_assimilation_runtime · test_evidence_admission（未跑）",
-    note: "本机没有失败的 truth 类检查；Dream undo 靠发布说明和单测，不在本次 12 项检查内",
+    note: "需证明替换/删除后只有当前记忆，且不存在知识历史或撤销入口",
   },
   {
     code: "L3",
     label: "检索与召回",
     weight: 15,
-    tier: "verified_local",
-    mappedOutcomes: "PASS: clean_retrieval_boundary · durable_memory_retrieval",
+    tier: "contract_only",
+    mappedOutcomes: "待重跑：clean_retrieval_boundary · durable_memory_retrieval",
     contracts: "test_clean_retrieval_outcome · RRF deferred（defer.md）",
-    note: "本机两项目检索检查均 PASS；live used/ignored 反馈仍少（maturity-model）",
+    note: "当前源码改变后尚未重跑本机检查",
   },
   {
     code: "L4",
     label: "证据与蒸馏",
     weight: 20,
-    tier: "verified_local",
-    mappedOutcomes: "PASS: archive_distill · acceptance_matrix · distill_user_artifacts · partial_handoff · audit_summaries",
+    tier: "contract_only",
+    mappedOutcomes: "待重跑：archive_distill · acceptance_matrix · distill_user_artifacts · partial_handoff · session summaries",
     contracts: "test_lossless_distill_mcp · host replay（未跑）",
-    note: "蒸馏主链本机检查全 PASS",
+    note: "当前源码改变后尚未重跑本机检查",
   },
   {
     code: "L5",
     label: "宿主集成",
     weight: 15,
-    tier: "verified_local",
-    mappedOutcomes: "PASS: codex_hook_lifecycle · autonomous_distill · autonomous_provider · autonomous_note",
+    tier: "contract_only",
+    mappedOutcomes: "待重跑：codex_hook_lifecycle · autonomous_distill · autonomous_provider · autonomous_note",
     contracts: "test_host_replay_qualification（未跑）",
-    note: "本机 hook+autonomous 四 claim 全 PASS（2026-08-26 合同对齐后）",
+    note: "当前源码改变后尚未重跑本机检查",
   },
   {
     code: "L6",
@@ -311,22 +308,22 @@ type ScoreCheck = {
   probe: string;
 };
 
-const OUTCOME_STATUS: Record<string, "passed" | "failed"> = Object.fromEntries(
-  OUTCOME_LIVE.map(([id, status]) => [id, status as "passed" | "failed"]),
+const OUTCOME_STATUS: Record<string, "passed" | "failed" | "not_run"> = Object.fromEntries(
+  OUTCOME_LIVE.map(([id, status]) => [id, status as "passed" | "failed" | "not_run"]),
 );
 
 /** 本 canvas 会话内已核对静态事实（pyproject / pytest --collect-only） */
 const FACT_VERIFIED: Record<string, boolean> = {
   runtime_version: true,
-  pytest_collected: true,
+  pytest_collected: false,
   mcp_tool_count: true,
 };
 
 /** 契约测试本会话未跑 → 0 分；跑过后改 passed/failed 并重算 */
 const CONTRACT_STATUS: Record<string, "passed" | "failed" | "not_run"> = {
-  mcp_public_surface: "passed",
-  version_alignment: "passed",
-  ensure_mcps_canonical: "passed",
+  mcp_public_surface: "not_run",
+  version_alignment: "not_run",
+  ensure_mcps_canonical: "not_run",
   host_replay_qualification: "not_run",
 };
 
@@ -474,7 +471,7 @@ const LEGACY_TEN_TO_DIM: string[][] = [
 function releaseVsLocalRows(): string[][] {
   return [
     ["roadmap.md 发布记录", "frozen oracle + Desktop Hook + 14/14 实际结果检查通过", "仓库记录 · 非本机实时"],
-    ["本机实际结果检查", `${OUTCOME_PASSED}/${OUTCOME_CLAIM_COUNT} passed · overall ${OUTCOME_RUN_STATUS}`, OUTCOME_RUN_AT],
+    ["本机实际结果检查", `${OUTCOME_PASSED}/${OUTCOME_CLAIM_COUNT} verified · overall ${OUTCOME_RUN_STATUS}`, OUTCOME_RUN_AT],
     ["本机机械分（rubric）", `L1–L6 加权 ${HM_WEIGHTED_L6}/100 · Σ(weight×track_score)`, "可复算 · 见检查项表"],
     ["参考项目", "形态/adopt 对照 · 不共享本项目检查", "不打竞品综合分"],
   ];
@@ -490,6 +487,7 @@ function tierPill(tier: VerifyTier) {
 
 function outcomePill(status: string) {
   if (status === "passed") return <Pill tone="success">passed</Pill>;
+  if (status === "not_run") return <Pill tone="neutral">not run</Pill>;
   return <Pill tone="warning">failed</Pill>;
 }
 
@@ -538,7 +536,7 @@ export default function HarnessMemConvergenceCanvas() {
         <Row gap={10} align="center" wrap>
           <H1>产品边界与收敛证据</H1>
           <Pill tone="info">source {RUNTIME_VERSION}</Pill>
-          <Pill tone="success">public {PUBLIC_RELEASE_VERSION}</Pill>
+          <Pill tone="warning">preparing release</Pill>
           <Pill tone="info">仅可核对事实</Pill>
         </Row>
         <Text tone="secondary">
@@ -553,7 +551,7 @@ export default function HarnessMemConvergenceCanvas() {
 
       <Grid columns={4} gap={12}>
         <Stat label="源码版本" value={RUNTIME_VERSION} tone="info" />
-        <Stat label="本机检查" value={`${OUTCOME_PASSED}/${OUTCOME_CLAIM_COUNT}`} tone="success" />
+        <Stat label="本机检查" value={`${OUTCOME_PASSED}/${OUTCOME_CLAIM_COUNT}`} tone="warning" />
         <Stat label="L1–L6 加权分" value={String(HM_WEIGHTED_L6)} tone="success" />
         <Stat label="最低轨" value={`${HM_BOTTLENECK.code} ${HM_BOTTLENECK.score}`} tone="info" />
       </Grid>
@@ -581,7 +579,7 @@ export default function HarnessMemConvergenceCanvas() {
       <Stack gap={6}>
         <H2>机械评分（L1–L6 + D7/D8）</H2>
         <Text tone="tertiary" size="small">
-          公式：track_score = Σ earned_points · 数据源 {OUTCOME_RUN_AT} · 本机检查 {OUTCOME_PASSED}/{OUTCOME_CLAIM_COUNT} passed
+          公式：track_score = Σ earned_points · 当前结果 {OUTCOME_RUN_AT} · 本机检查尚未重跑
         </Text>
       </Stack>
 
@@ -759,7 +757,7 @@ export default function HarnessMemConvergenceCanvas() {
       </Card>
 
       <Stack gap={6}>
-        <H2>执行入口（0.9.27）</H2>
+        <H2>执行入口（0.9.28）</H2>
       </Stack>
       <Table headers={["入口", "谁编排", "合同要点"]} rows={EXECUTION_PATHS} striped />
 
@@ -830,11 +828,11 @@ export default function HarnessMemConvergenceCanvas() {
 
       <Callout tone="info">
         相关面板：readiness-v3.canvas.tsx（六轨 Readiness + 权重分，须带轨道 breakdown）·
-        docs/canvases/harness-mem-readiness-v1.canvas.tsx（0.9.27 精简架构边界，与 test_package_version_alignment 对齐）。
+        docs/canvases/harness-mem-readiness-v1.canvas.tsx（0.9.28 精简架构边界，与 test_package_version_alignment 对齐）。
       </Callout>
 
         <Text tone="tertiary" size="small">
-          验证：pytest --collect-only（{PYTEST_COUNT}）· outcome-verifier · 参考项目页本地 HEAD 见 index.md
+          验证：pytest {PYTEST_STATUS} · outcome-verifier 尚未重跑 · 参考项目页本地 HEAD 见 index.md
         </Text>
     </Stack>
   );

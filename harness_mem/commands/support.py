@@ -62,15 +62,7 @@ _WORKSPACE_MARKERS = (
 )
 
 
-# v1.6.1: wake-up bucket quota defaults & validation.
-DEFAULT_BUCKET_QUOTAS: dict[str, float] = {
-    "semantic": 0.5,
-    "episodic": 0.5,
-    "procedural": 0.0,
-}
-_BUCKET_QUOTA_TOLERANCE: float = 0.001
-
-# v1.6.2: embedding model configuration
+# Embedding model configuration
 DEFAULT_EMBEDDING_MODEL_ID: str = "all-MiniLM-L6-v2"
 EMBEDDING_MODEL_ENV: str = "HARNESS_MEM_EMBEDDING_MODEL_ID"
 PROJECT_ROOT_ENV: str = "HARNESS_MEM_PROJECT_ROOT"
@@ -99,65 +91,6 @@ class HostSourceResolution:
     resolved_client: str | None
     source_kind: Literal["transcript", "archive", "unavailable"]
     adapter_available: bool
-
-
-class WakeBucketQuotaError(ValueError):
-    """``[wake] bucket_quota_*`` 段配置非法时抛出。
-
-    ``code`` 字段 = ``"HM-101"`` (sum mismatch) / ``"HM-102"`` (out of range)，
-    ``harness-mem doctor`` 会按此码格式化提示。
-    """
-
-    def __init__(self, message: str, *, code: str) -> None:
-        super().__init__(message)
-        self.code = code
-
-
-def wake_bucket_enabled(config: dict | None = None) -> bool:
-    """``[wake] bucket_quota_enabled`` 默认 True。"""
-    cfg = config if config is not None else get_config()
-    value = cfg.get("wake", {}).get("bucket_quota_enabled", True)
-    if isinstance(value, str):
-        return value.strip().lower() not in {"0", "false", "no", "off"}
-    return bool(value)
-
-
-def wake_bucket_quotas(config: dict | None = None) -> dict[str, float]:
-    """读取并校验 ``[wake] bucket_quota_*``，返回归一化的三桶比例。
-
-    校验规则：
-    - 单值必须在 ``[0.0, 1.0]``；否则 raise ``HM-102``
-    - 三值之和必须在 ``[0.999, 1.001]``；否则 raise ``HM-101``
-
-    缺省 / 缺字段时回落到 ``DEFAULT_BUCKET_QUOTAS``。
-    """
-    cfg = config if config is not None else get_config()
-    wake_cfg = cfg.get("wake", {}) or {}
-    quotas: dict[str, float] = {}
-    for bucket, default in DEFAULT_BUCKET_QUOTAS.items():
-        raw = wake_cfg.get(f"bucket_quota_{bucket}", default)
-        try:
-            value = float(raw)
-        except (TypeError, ValueError):
-            raise WakeBucketQuotaError(
-                f"wake.bucket_quota_{bucket} must be a float; got {raw!r}",
-                code="HM-102",
-            )
-        if value < 0.0 or value > 1.0:
-            raise WakeBucketQuotaError(
-                f"wake.bucket_quota_{bucket}={value} is out of range [0.0, 1.0]",
-                code="HM-102",
-            )
-        quotas[bucket] = value
-    total = sum(quotas.values())
-    if abs(total - 1.0) > _BUCKET_QUOTA_TOLERANCE:
-        raise WakeBucketQuotaError(
-            f"wake bucket quotas must sum to 1.0; got "
-            f"semantic={quotas['semantic']} episodic={quotas['episodic']} "
-            f"procedural={quotas['procedural']} (sum={total:g})",
-            code="HM-101",
-        )
-    return quotas
 
 
 def get_embedding_model_id(config: dict | None = None) -> str:
@@ -809,7 +742,9 @@ def wake_budget(
     relation_facts: list | None = None,
 ) -> tuple[int, str]:
     profile_tokens = chars_to_tokens(len(profile_text(profile)))
-    entry_tokens = chars_to_tokens(sum(len(entry.content) for entry in entries))
+    entry_tokens = chars_to_tokens(
+        sum(len(str(getattr(entry, "statement", ""))) for entry in entries)
+    )
     rule_tokens = chars_to_tokens(sum(len(rule.pattern) + len(rule.trigger) for rule in rules))
     handoff_tokens = chars_to_tokens(
         sum(len(handoff.summary) + sum(len(step) for step in handoff.next_steps) for handoff in handoffs)
@@ -831,7 +766,7 @@ def suggested_next_step(
     *,
     project_name: str,
     observation_count: int,
-    memory_entry_count: int,
+    current_knowledge_count: int,
     claude_sessions: list[SessionRecord],
     cursor_sessions: list[SessionRecord] | None = None,
     grok_sessions: list[SessionRecord] | None = None,
@@ -895,18 +830,18 @@ def suggested_next_step(
             ),
         )
 
-    if memory_entry_count == 0 and claude_sessions:
+    if current_knowledge_count == 0 and claude_sessions:
         return (
             "hm",
             (
-                "Sessions are ingested but no memory entries exist yet. "
+                "Sessions are ingested but no current knowledge exists yet. "
                 "Use hm in your AI agent (Claude Code, Codex, "
                 "Cursor, etc.) so it can read sessions and write candidates "
                 "through MCP govern_memory. Distill is Agent-driven only."
             ),
         )
 
-    if memory_entry_count == 0:
+    if current_knowledge_count == 0:
         return (
             'MCP search_memory(query="<query>")',
             "Observations are searchable, but wake-up needs structured memory before it becomes useful.",
@@ -924,12 +859,14 @@ async def project_state(project_name: str) -> dict[str, int]:
     try:
         all_obs = await backend.verbatim_store.list(limit=10000)
         project_obs = [obs for obs in all_obs if obs.metadata.get("project_name") == project_name]
-        entries = await backend.structured_store.list_memory_entries(project_name, limit=1000)
+        entries = await backend.structured_store.knowledge_store.list_entries(
+            project_name
+        )
         handoffs = await backend.structured_store.get_latest_handoffs(project_name, limit=100)
         rules = await backend.structured_store.list_confirmed_rules(project_name)
         return {
             "observations": len(project_obs),
-            "memory_entries": len(entries),
+            "current_knowledge": len(entries),
             "task_handoffs": len(handoffs),
             "confirmed_rules": len(rules),
         }

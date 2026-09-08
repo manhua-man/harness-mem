@@ -113,18 +113,19 @@ async def sync_sessions_fairly(
     client: str,
     source_root: Path | str,
     sessions: list[SessionRecord],
-    change_limit: int,
+    change_limit: int | None,
     sync_session: Callable[[SessionRecord], Awaitable[TranscriptSyncResult]],
 ) -> FairSessionSyncResult:
     """Synchronize a bounded change budget while advancing backlog fairly."""
 
+    work_limit = max(1, len(sessions)) if change_limit is None else max(1, int(change_limit))
     plan = plan_session_scan(
         store,
         project_name=project_name,
         client=client,
         source_root=source_root,
         sessions=sessions,
-        change_limit=change_limit,
+        change_limit=work_limit,
     )
     ingested = 0
     updated = 0
@@ -133,11 +134,11 @@ async def sync_sessions_fairly(
     failures: list[SessionSyncFailure] = []
     try:
         lane_changes = {"recent": 0, "backlog": 0}
-        lane_limits = _lane_change_limits(plan, change_limit)
+        lane_limits = _lane_change_limits(plan, work_limit)
         deferred: list[SessionRecord] = []
         first_changed_lane: str | None = None
         for session in plan.sessions:
-            if ingested + updated >= max(1, int(change_limit)):
+            if ingested + updated >= work_limit:
                 break
             lane = plan.lane_for(session)
             if lane_changes[lane] >= lane_limits[lane]:
@@ -164,7 +165,7 @@ async def sync_sessions_fairly(
         # If one lane had no changes, use its unused capacity for candidates in
         # the other lane. This keeps a quiet backlog from reducing useful work.
         for session in deferred:
-            if ingested + updated >= max(1, int(change_limit)):
+            if ingested + updated >= work_limit:
                 break
             scanned += 1
             try:
@@ -190,7 +191,7 @@ async def sync_sessions_fairly(
             client=client,
             observed_session_ids={str(session["session_id"]) for session in sessions},
         )
-        plan.advance_lane_turn(first_changed_lane, change_limit=change_limit)
+        plan.advance_lane_turn(first_changed_lane, change_limit=work_limit)
     finally:
         plan.commit()
     return FairSessionSyncResult(
@@ -210,7 +211,7 @@ def plan_session_scan(
     client: str,
     source_root: Path | str,
     sessions: list[SessionRecord],
-    change_limit: int,
+    change_limit: int | None,
 ) -> SessionScanPlan:
     """Reserve recent capacity while making durable progress through backlog."""
 
@@ -227,7 +228,7 @@ def plan_session_scan(
     if not sessions:
         return SessionScanPlan([], frontier, store)
 
-    total_budget = max(1, int(change_limit))
+    total_budget = max(1, len(sessions)) if change_limit is None else max(1, int(change_limit))
     # This is a probe budget, not a changed-session limit.  Full content is
     # still hashed by the adapter before a source is called unchanged.
     probe_budget = max(4, total_budget * 4)

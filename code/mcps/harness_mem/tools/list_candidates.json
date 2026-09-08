@@ -1,6 +1,6 @@
 {
   "name": "list_candidates",
-  "description": "List structured memory candidates for human review or audit inbox. Status values are layered governance states — use pending / provisional / auto_confirmed for audit; not all seven are interchangeable review filters.",
+  "description": "List temporary knowledge candidates that still exist in the current processing workspace. Candidates are not long-term memory.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -13,19 +13,16 @@
         "enum": [
           "pending",
           "deferred",
+          "conflict",
           "rejected",
-          "auto_confirmed",
-          "provisional",
-          "user_confirmed",
-          "superseded"
+          "assimilated"
         ],
-        "description": "Governance status filter (single value). Layers: candidate (pending, deferred, rejected); truth (auto_confirmed, provisional, user_confirmed); historical (superseded). Audit inbox typically uses pending, provisional, or auto_confirmed — not all seven interchangeably.",
+        "description": "Temporary candidate status.",
         "default": "pending"
       },
       "limit": {
         "type": "integer",
-        "description": "Maximum candidates to return across all candidate types (default: 100)",
-        "default": 100
+        "description": "Optional candidate count; omitted returns all matching candidates"
       }
     },
     "required": [

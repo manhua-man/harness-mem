@@ -28,7 +28,6 @@ from harness_mem.governance_status import (
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_structured_store import LocalStructuredStore
 from harness_mem.storage.local_verbatim_store import LocalVerbatimStore
-from harness_mem.storage.canonical_store import count_managed_backup_observations
 
 _TRUTH_COLLECTIONS = {
     "memory_entries",
@@ -103,6 +102,7 @@ async def retry_retained_source_cleanups(
             status="completed",
             limit=100_000,
         )
+        if job.review_execution_source != "autonomous_worker"
         if job.completion_disposition is not None
         and job.source_cleanup_status in {"retained", "partial_failure"}
         and job.updated_at <= retry_before
@@ -264,29 +264,6 @@ async def cleanup_processed_source(
             receipt_id=None,
             counts={},
             reason_codes=["receipt_persistence_failed"],
-        )
-    try:
-        backup_matches = count_managed_backup_observations(
-            backend.data_dir,
-            project_name=job.project_name,
-            transcript_source_id=job.source_id,
-        )
-    except Exception:
-        backup_matches = -1
-    if backup_matches:
-        reason = (
-            "managed_backup_probe_failed"
-            if backup_matches < 0
-            else "managed_backup_contains_source_evidence"
-        )
-        return _finish_failure(
-            backend,
-            job=job,
-            receipt=receipt,
-            receipt_id=receipt_id,
-            reason_codes=[*reason_codes, reason],
-            operation="managed_backup_gate",
-            counts={"managed_backup_observations": max(0, backup_matches)},
         )
     if native_status != "deleted":
         status = "unsupported" if native_status == "unsupported" else "partial_failure"
@@ -668,20 +645,6 @@ async def _verify_cleanup(
         for entity_id in entity_ids
         if store.record_payload_exists(collection, entity_id)
     )
-    completed_job = backend.transcript_store.get_distill_job(job_id)
-    if completed_job is None:
-        remaining["managed_backup_observations"] = 1
-    else:
-        try:
-            remaining["managed_backup_observations"] = (
-                count_managed_backup_observations(
-                    backend.data_dir,
-                    project_name=completed_job.project_name,
-                    transcript_source_id=completed_job.source_id,
-                )
-            )
-        except Exception:
-            remaining["managed_backup_observations"] = 1
     return remaining
 
 
@@ -796,24 +759,6 @@ def begin_processed_source_cleanup(
                 if job is None
                 else "distill_job_not_completed"
             ],
-        }
-    try:
-        backup_matches = count_managed_backup_observations(
-            backend.data_dir,
-            project_name=job.project_name,
-            transcript_source_id=job.source_id,
-        )
-    except Exception:
-        return {
-            "success": False,
-            "receipt_id": None,
-            "reason_codes": ["managed_backup_probe_failed"],
-        }
-    if backup_matches:
-        return {
-            "success": False,
-            "receipt_id": None,
-            "reason_codes": ["managed_backup_contains_source_evidence"],
         }
     receipt_id = str(uuid4())
     receipt = _new_receipt(

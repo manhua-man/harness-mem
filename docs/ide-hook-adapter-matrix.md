@@ -18,8 +18,8 @@ invent the adapter schema at runtime.
 
 ## Current `harness-mem` support
 
-The first `hm` status check supports seven clients and installs the matching
-Hook adapter for that project:
+The first `hm` use supports seven clients and installs the matching Hook
+adapter for that project:
 
 | Client flag | Generated files | Runtime action mapping | ID source |
 |---|---|---|---|
@@ -46,8 +46,8 @@ apps, but that is not the normal setup path:
 | OpenCode | `~/.config/opencode/commands/hm.md` | `/hm` |
 | Antigravity | `~/.gemini/antigravity/global_workflows/hm.md` | `/hm` |
 
-The entry contains no project path. The first `hm` status call in each workspace
-adopts that project and installs only its native Hook adapter. MCP initialization
+The entry contains no project path. The first `hm` use in each workspace adopts
+that project and installs only its native Hook adapter. MCP initialization
 does not adopt a project or write Hook files. Codex still requires its native
 trust approval for each new or changed project Hook manifest.
 
@@ -111,8 +111,10 @@ Every shipped transcript adapter implements the same evidence boundary:
    extraction, verification, and assimilation, then performs project-level
    governance. An explicitly invoked `distill` instead stays in the active host.
 
-`limit` is a changed-session budget, not a newest-file window. A persistent
-frontier alternates the recent and historical lanes when the budget is one;
+`limit` is an optional caller-selected changed-session count, not a newest-file
+window or a daily quota. When it is omitted, the adapter processes every
+matching changed session in the project scope. A persistent frontier still
+alternates the recent and historical lanes when a caller chooses a small count;
 failed sources use a backoff retry lane so they cannot block history. A source
 absent from a complete host inventory becomes `missing`, while all captured
 revisions remain locally readable.
@@ -140,11 +142,14 @@ The `Hook runtime` block reports:
 - which generated hook artifacts are installed, legacy, or not bound
 - whether installed hook files still contain the current project root
 
-`get_project_status` additionally tracks successful generated-Hook execution
-against the current artifact fingerprint. Codex project command hooks require
-review in **Settings > Hooks** before Codex runs them. A present manifest with
-no matching successful `SessionStart` receipt is reported as
-`review_required`, not `ok`; changing the manifest invalidates the receipt.
+The automatic `get_project_status(project_root, host_client)` call reports only
+whether the project is usable or preparation failed; it does not expose the
+Hook receipt, artifact fingerprint, version, queue, or repair detail. Doctor
+checks successful generated-Hook execution against the current artifact
+fingerprint. Codex project command hooks require review in **Settings > Hooks**
+before Codex runs them. A present manifest without a matching successful
+`SessionStart` receipt still requires review; changing the manifest invalidates
+the receipt.
 
 The installer validates `harness-mem-hook --version` before writing Hook
 artifacts, so IDE hooks do not depend on a bare `python` selected from the

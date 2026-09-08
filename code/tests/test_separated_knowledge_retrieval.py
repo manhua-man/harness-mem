@@ -79,7 +79,7 @@ def test_separated_knowledge_search_is_current_only_and_clean(
         )
         _run(store.save_candidate(candidate))
         _run(
-            store.apply_truth_mutation(
+            store.apply_current_change(
                 candidate_before=candidate,
                 candidate_after=candidate.model_copy(update={"status": "assimilated"}),
                 decision=decision,
@@ -200,7 +200,7 @@ def test_separated_knowledge_search_is_current_only_and_clean(
             project_name="demo",
             _include_diagnostics=True,
         )
-        assert diagnostics["memory_entry_count"] == 1
+        assert diagnostics["memory_count"] == 1
         assert diagnostics["context_plan"]["source_ids"] == [entries[0].id]
         assert diagnostics["answer_ready_context"]["truth"] == [
             {
@@ -225,7 +225,7 @@ def test_separated_knowledge_search_is_current_only_and_clean(
             changed_files=["README.md"],
         )
         assert autopilot["search_executed"] is True
-        assert autopilot["search"]["memory_entry_count"] == 1
+        assert autopilot["search"]["memory_count"] == 1
         assert autopilot["context_injection"]["source_ids"] == [entries[0].id]
         assert autopilot["context_injection"]["answer_ready_context"]["truth"]
     finally:

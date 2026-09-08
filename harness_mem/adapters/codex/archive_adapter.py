@@ -246,7 +246,7 @@ class CodexArchiveAdapter:
     async def ingest(
         self,
         project_name: str | None = None,
-        limit: int = 10,
+        limit: int | None = None,
         min_size_kb: int = 0,
         *,
         full_rescan: bool = False,

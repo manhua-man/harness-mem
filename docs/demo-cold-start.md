@@ -1,8 +1,8 @@
 # Cold-Start Demo
 
 This demo shows the core `harness-mem` job: a fresh Agent joins a real project
-without reading old chats, recovers useful context, and proposes new memory
-without hiding memory changes from the audit trail.
+without reading old chats, recovers useful context, and adds only useful current
+memory.
 
 The product has a small action set, not a mandatory linear flow:
 
@@ -25,12 +25,12 @@ checkpointed, the current host extracts narrow promotion points, verifies their
 evidence, and assimilates only proven knowledge. `finalize_session_distill`
 verifies that explicit job's completeness and commits it; it never starts Dream.
 Hook-started Dream is the separate unattended path. The public model is two
-execution paths plus an optional audit path:
+execution paths plus a correction path:
 
 ```text
 explicit distill -> active host: extract -> verify -> assimilate
 Hook -> immutable session + job -> authorized Dream: session + project governance
-review -> post-hoc audit / correction / undo
+review -> correct, replace, or delete current memory
 ```
 
 ## What You Need
@@ -55,14 +55,15 @@ normal daily workflow:
 This makes the cold-start problem visible. Session B should start with only the
 repo and the memory backend, not the previous conversation.
 
-When the demo uses a project-scoped MCP entry, the first MCP initialization
-registers the workspace and installs the matching IDE hooks automatically.
-If hooks are missing, the next MCP initialization repairs the project-local
-installation without overwriting existing files.
+The first `hm` use in a workspace registers the project and installs the
+matching IDE hooks automatically. Later uses perform only a short readiness
+check. If hooks are missing, that check repairs the project-local installation
+without overwriting existing files.
 Codex users must then review and trust the newly installed project hooks once
-in **Settings > Hooks** and start a new task. Check `get_project_status`:
-`hooks=review_required` means Codex has not yet run the current Hook
-configuration; `hooks=ok` means the matching `SessionStart` Hook completed.
+in **Settings > Hooks** and start a new task. The daily `hm` reply only says
+whether the project is usable or preparation failed, except that its first
+Codex reply includes this one required trust action. Use `harness-mem doctor`
+when you need the Hook receipt and configuration details.
 
 ## Five-Minute Script
 
@@ -73,8 +74,8 @@ Session A:
 ```text
 Use harness-mem to distill the recent project session. Extract narrow durable
 points, verify each source, and assimilate only proven current knowledge. Use
-review only to audit, correct, or undo stable facts that a future Agent should
-know; reject noisy, speculative, or one-off items.
+review only to correct, replace, or delete facts that a future Agent should
+know; do not keep noisy, speculative, or one-off items.
 ```
 
 Session B:
@@ -84,7 +85,7 @@ Use harness-mem to wake this project.
 Search harness-mem for the current release boundary or claim boundary.
 Use the recovered context to make one small safe update.
 Distill this session into memory candidates.
-Open the review inbox only to audit what was auto-promoted or kept pending.
+Use review only if a current memory needs correction.
 ```
 
 If Session B can recover a real prior decision without pasted chat history, the
@@ -105,8 +106,8 @@ Ask the existing Agent:
 
 ```text
 Use harness-mem to distill the recent project session into memory candidates.
-Apply the normal low-risk review policy. Use review only to correct or undo a
-result; Dream finishes its own verified work in a terminal state rather than
+Apply the normal low-risk review policy. Use review only to correct, replace, or
+delete a result; Dream finishes its own verified work in a terminal state rather than
 leaving automatic items pending.
 ```
 
@@ -142,8 +143,8 @@ Search harness-mem for the current release boundary or claim boundary.
 Expected result:
 
 - The Agent retrieves a specific prior decision or rule.
-- The answer includes enough source or memory metadata to explain why it was
-  returned.
+- The answer returns one specific, readable current memory. Source details are
+  shown only if explicitly requested.
 - The Agent does not invent a stronger claim than the memory supports.
 
 ### 3. Do A Small Task
@@ -176,7 +177,7 @@ Expected result:
 - `finalize_session_distill` verifies completeness and commits only that
   explicit active-host job. It does not start Dream.
 - New information reaches current knowledge only after point-level verification
-  and local harness-mem assimilation with audit metadata.
+  and local harness-mem assimilation.
 - One-off task details are not promoted as durable memory.
 - Anything broad, risky, or under-evidenced is rejected or handed off instead
   of becoming normal current knowledge.
@@ -219,8 +220,8 @@ The demo is working when:
 - `finalize_session_distill` completes explicit active-host work only after
   structural completeness is verified; a Hook-started Dream is the separate
   unattended session and project-governance path.
-- Dream handles authorized unattended work to terminal outcomes; review audits,
-  corrects, or undoes governed truth after the fact.
+- Dream handles authorized unattended work to terminal outcomes; review
+  corrects, replaces, or deletes current memory after the fact.
 - The user can understand the value in under five minutes.
 
 ## Common Failure Modes

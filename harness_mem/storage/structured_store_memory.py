@@ -344,7 +344,7 @@ class StructuredMemoryMixin:
     async def get_latest_handoffs(
         self,
         project_name: str,
-        limit: int = 5,
+        limit: int | None = 5,
     ) -> list[TaskHandoff]:
         rows = await asyncio.to_thread(
             self._index.list,

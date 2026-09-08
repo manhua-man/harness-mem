@@ -66,17 +66,15 @@ Stop Hook → 保存会话 → Dream/worker → 所选 CLI → 本机验证 → 
 
 ---
 
-## status / Doctor
+## `hm` 与 Doctor
 
-`health_card.authorization`：
+`hm` 每次执行用户请求前会调用 `get_project_status(project_root, host_client)`。
+它只在首次使用时准备当前项目与 Hook，平时只返回简短的可用或失败消息。
+检索统计、处理进度、费用、版本、队列、后台 CLI 状态和修复证据不进入日常回复。
 
-| 字段 | 含义 |
-|------|------|
-| `ready` | 后台已开，而且所选 CLI 可用 |
-| `on` | 后台开关已开 |
-| `selected_cli` | 实际准备调用的 CLI |
-| `reason` | `ok` / `disabled` / `host_not_detected` / `unsupported_cli` / `cli_not_found` |
-| `message` | 短英文说明 |
+需要查看这些详情或排查问题时，在项目根目录运行 `harness-mem doctor`。
+后台是否开启、所选 CLI 是否可用以及失败原因都属于这个完整检查，
+不再由日常回复展开。
 
 ---
 

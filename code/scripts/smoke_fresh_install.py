@@ -86,7 +86,7 @@ def main() -> int:
             'host_client=<当前 Agent 宿主>',
             'search_memory',
             'finalize_session_distill',
-            'govern_memory(action="decide")',
+            'govern_memory',
         )
         if not all(fragment in hm_text for fragment in required_entry_contract):
             raise RuntimeError("installed hm entry is missing its daily-use contract")
@@ -191,16 +191,16 @@ def main() -> int:
             raise RuntimeError(f"unexpected MCP responses: {responses}")
         status_text = responses[1]["result"]["content"][0]["text"]
         status = json.loads(status_text)
-        health = status["integration_health"]
-        bootstrap = status["integration_bootstrap"]
-        if (
-            health["project"]["status"] != "ok"
-            or health["host"] != {"status": "ok", "client": "codex"}
-            or bootstrap["attempted"] is not True
-            or bootstrap["hooks_status"] not in {"installed", "existing"}
-            or health["hooks"]["status"] != "review_required"
-        ):
-            raise RuntimeError(f"first-run integration is unhealthy: {health}")
+        expected_status = {
+            "success": True,
+            "project_name": workspace.name,
+            "message": (
+                "Memory is ready. Review the new project Hooks in Codex Settings, "
+                "then start a new task."
+            ),
+        }
+        if status != expected_status:
+            raise RuntimeError(f"unexpected first-run status: {status}")
 
         expected_hook = workspace / ".codex" / "hooks.json"
         if not expected_hook.is_file():
@@ -220,6 +220,7 @@ def main() -> int:
                 "mcp_initialize_project_untouched": True,
                 "single_host_flow": True,
                 "first_status_project_ready": True,
+                "first_status_is_short": True,
                 "first_status_hooks_installed": True,
                 "codex_hook_trust_step_reported": True,
             },

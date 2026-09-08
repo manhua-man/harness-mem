@@ -121,7 +121,7 @@ def test_cross_host_transcript_distill_fact_wake_contract(
             )
             store = backend.structured_store.knowledge_store
             await store.save_candidate(candidate)
-            await store.apply_truth_mutation(
+            await store.apply_current_change(
                 candidate_before=candidate,
                 candidate_after=candidate.model_copy(update={"status": "assimilated"}),
                 decision=decision,

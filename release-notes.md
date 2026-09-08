@@ -1,3 +1,85 @@
+# Release 0.9.28 (2026-09-06)
+
+## What changed
+
+- Explicit `hm` distillation now submits the complete assimilation decision
+  before finalize. Add, refine, confirm, replace, and no-write outcomes use
+  the same SQLite current-knowledge transaction as background processing.
+- Confirm names one current SQLite target; refine and replace may name one or
+  more current SQLite targets. Missing,
+  stale, or mismatched targets leave the job unfinished instead of turning a
+  compatibility status into a successful write.
+- Current reads now start from `knowledge_entries`. Legacy `MemoryEntry` rows
+  remain readable only for compatibility and do not
+  count as current project knowledge.
+- Replacing knowledge deletes the old item and writes the new item. Invalid
+  knowledge is deleted. There are no knowledge versions, archived knowledge
+  copies, knowledge change records, or undo chain.
+- The automatic project check now returns one short ready or failure message.
+  Detailed retrieval, queue, cost, version, and repair information remains in
+  `harness-mem doctor`.
+
+## Runtime corrections
+
+- Finalize verifies that every newly committed item is returned by ordinary
+  current-project search and that replaced items are no longer returned.
+- Archive verification no longer falls back to legacy candidate or truth rows
+  when current SQLite knowledge is absent.
+- Archives containing only host events now finish as verified empty records;
+  they do not call a model or create a job, Note, or knowledge item.
+- A historical session cannot establish the current project version without
+  matching evidence from the current repository.
+- Review can directly delete exactly one named current-memory item when it is
+  no longer valid.
+- The legacy Observation-only distill response no longer embeds the old project
+  status object, and current status counting never reads `memory_entries`.
+- Dream no longer creates legacy `MemoryEntry` merge or stale output.
+  It rechecks every named complete source against `knowledge_entries`; a
+  multi-item replacement is applied only when all of those sources verify.
+- Wake now uses one current-knowledge path for normal use and one diagnostic
+  path when explicitly requested; the duplicate CLI renderer, repeated backend
+  pass, and obsolete status modules have been removed.
+- `temporal_query`, `undo_dream_item`, and the old rule/skill/relation read
+  tools are no longer public MCP tools. The public contract now contains 20
+  tools.
+- New databases no longer create knowledge-version or knowledge-mutation
+  tables. Existing compatibility data is left untouched and never counts as
+  current memory.
+- Removed artificial processing caps: a source candidate may produce multiple
+  current memories; search and wake no longer hide current entries behind a
+  fixed default count; archive, background, and session sync work no longer
+  have an implicit batch or daily quota. An explicit count remains an optional
+  caller choice.
+- Current-memory titles and statements no longer have the old 160/4000
+  character limits. A refine or replace decision may remove several current
+  entries and write several new entries atomically.
+- A successful user-requested session cleanup now removes only the selected
+  session's source, generated Note, and matching host-history file. Dream keeps
+  its source and Note as an archive. Failed, unfinished, unsupported, or
+  ambiguous sessions remain.
+- Session processing never creates an automatic source backup, and it never
+  clears a host's unrelated history.
+
+## Release evidence
+
+- Release completion requires Git tag `v0.9.28` and a successful public build.
+- Python package metadata, runtime `__version__`, and plugin manifest:
+  `0.9.28`.
+- Full source, Rust, built-wheel, seven-host, Hook, and current result checks are
+  required before the release is declared complete.
+- The release does not migrate, delete, or rewrite existing user memory unless
+  the user explicitly requests that particular memory change.
+
+## Install or upgrade
+
+```bash
+python -m pip install --upgrade \
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.28 \
+  harness-mem==0.9.28
+```
+
+The package is distributed through GitHub Releases, not PyPI.
+
 # Release 0.9.27 (2026-09-04)
 
 ## What changed

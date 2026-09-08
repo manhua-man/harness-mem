@@ -12,15 +12,8 @@ from harness_mem.core.schemas.session_distill import SessionDistillJob
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 DistillSource = Literal["user", "agent", "ide_hook", "scheduler"]
-MAX_DISTILL_JOBS_PER_OFFER = 3
 DEFAULT_DISTILL_BUDGET_TOKENS = 3000
 MAX_STATUS_QUEUE_PREVIEW = 12
-
-
-def _bounded_job_limit(max_jobs: int) -> int:
-    """Clamp every offer path to the shared, sequential batch safety limit."""
-
-    return min(MAX_DISTILL_JOBS_PER_OFFER, max(0, int(max_jobs)))
 
 
 def stage_distill_job(
@@ -41,13 +34,11 @@ def stage_distill_job(
             project_name=project_name,
             status="needs_distill",
             kind="reflection",
-            limit=100,
         ),
         *backend.reflection_job_store.list(
             project_name=project_name,
             status="processing",
             kind="reflection",
-            limit=100,
         ),
     ]
     ref_set = set(refs)
@@ -73,13 +64,15 @@ def pending_distill_jobs(
     *,
     project_name: str,
     recent_first: bool = True,
-    target_backlog: int = 2,
-    max_jobs: int = 2,
-    daily_job_budget: int = 8,
+    max_jobs: int | None = None,
     record_offer: bool = True,
     now: datetime | None = None,
 ) -> list[ReflectionJob | SessionDistillJob]:
-    """Return bounded Agent-active work without exceeding the daily new-job budget."""
+    """Return eligible Agent work in queue order.
+
+    ``max_jobs`` is an optional caller choice.  Omitting it returns every
+    eligible job; the runtime does not impose a daily processing quota.
+    """
 
     current = now or datetime.now(timezone.utc)
 
@@ -90,28 +83,14 @@ def pending_distill_jobs(
         now=current,
         recovery_budget=3,
     )
-    backend.transcript_store.rebalance_distill_jobs(
-        project_name,
-        target_active=target_backlog,
-        recent_first=recent_first,
-    )
-
     lossless_jobs: list[SessionDistillJob] = []
-    for status in ("queued", "processing", "reviewing"):
+    for status in ("queued", "processing", "reviewing", "parked", "retryable"):
         lossless_jobs.extend(
             backend.transcript_store.list_distill_jobs(
                 project_name=project_name,
                 status=status,
-                limit=100,
             )
         )
-    all_jobs = backend.transcript_store.list_distill_jobs(
-        project_name=project_name,
-        limit=100000,
-    )
-    today = current.date().isoformat()
-    offered_today = {job.id for job in all_jobs if job.agent_offer_day == today}
-    remaining = max(0, int(daily_job_budget) - len(offered_today))
     ordered = sorted(
         [
             job
@@ -122,22 +101,27 @@ def pending_distill_jobs(
                 and job.review_lease_until is not None
                 and job.review_lease_until > current
             )
+            and not (
+                job.status == "retryable"
+                and job.retry_after is not None
+                and job.retry_after > current
+            )
         ],
         key=lambda item: item.created_at,
         reverse=recent_first,
     )
-    job_limit = _bounded_job_limit(max_jobs)
-    selected: list[SessionDistillJob] = []
-    for job in ordered:
-        if len(selected) >= job_limit:
-            break
-        if job.id in offered_today:
-            selected.append(job)
-            continue
-        if remaining <= 0:
-            continue
-        selected.append(job)
-        remaining -= 1
+    selected = ordered if max_jobs is None else ordered[: max(0, int(max_jobs))]
+    selected = [
+        (
+            backend.transcript_store.activate_parked_distill_job_for_agent(
+                job.id,
+                offered_at=current,
+            )
+            if job.status == "parked"
+            else job
+        )
+        for job in selected
+    ]
     if record_offer and selected:
         backend.transcript_store.mark_distill_jobs_agent_offered(
             project_name,
@@ -151,18 +135,15 @@ def distill_drainer_metrics(
     backend: LocalMemoryBackend,
     *,
     project_name: str,
-    daily_job_budget: int = 8,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Return truthful queue, budget, backoff, fairness, and throughput state."""
+    """Return truthful queue, backoff, fairness, and throughput state."""
 
     current = now or datetime.now(timezone.utc)
     jobs = backend.transcript_store.list_distill_jobs(
         project_name=project_name,
         limit=100000,
     )
-    today = current.date().isoformat()
-    offered_today = [job for job in jobs if job.agent_offer_day == today]
     completed = [job for job in jobs if job.completed_at is not None]
     completed_24h = [
         job
@@ -229,8 +210,6 @@ def distill_drainer_metrics(
         and (job.retry_after is None or job.retry_after <= current)
     ]
     oldest_parked = min((job.created_at for job in parked), default=None)
-    budget_remaining = max(0, int(daily_job_budget) - len(offered_today))
-    offered_active_ids = {job.id for job in active if job.agent_offer_day == today}
     autonomous_reviewing = [
         job
         for job in active
@@ -250,8 +229,6 @@ def distill_drainer_metrics(
         "processing_autonomously"
         if autonomous_reviewing
         else "waiting_for_agent"
-        if active and (budget_remaining > 0 or bool(offered_active_ids))
-        else "daily_budget_exhausted"
         if active
         else "backoff"
         if retry_backoff
@@ -280,8 +257,6 @@ def distill_drainer_metrics(
         parked=len(parked),
         retry_backoff_count=len(retry_backoff),
         throughput_per_day=throughput_per_day,
-        daily_job_budget=int(daily_job_budget),
-        daily_budget_remaining=budget_remaining,
         state=state,
         retry_backoff=retry_backoff,
         current=current,
@@ -291,9 +266,7 @@ def distill_drainer_metrics(
         "active": len(active),
         "parked": len(parked),
         "retry_backoff": len(retry_backoff),
-        "offered_today": len(offered_today),
-        "daily_job_budget": int(daily_job_budget),
-        "daily_budget_remaining": budget_remaining,
+        "offered_total": sum(job.agent_offer_day is not None for job in jobs),
         "completed_24h": len(completed_24h),
         "completed_7d": len(completed_7d),
         "promoted_7d": len(promoted_7d),
@@ -470,11 +443,6 @@ def _distill_handler_summary(
         return {"kind": "interactive_agent", "label": "current MCP Agent"}
     if live_owner:
         return {"kind": "agent_worker", "label": "active Agent worker"}
-    if queue_state == "daily_budget_exhausted":
-        return {
-            "kind": "waiting",
-            "label": "no Agent is running; waiting for the next daily budget",
-        }
     if job.status == "retryable":
         return {"kind": "waiting", "label": "waiting for a retry-capable Agent"}
     if job.status == "parked":
@@ -494,8 +462,6 @@ def _distill_queue_state(
         return "processing_transcript"
     if live_owner and job.status == "reviewing":
         return "reviewing_session"
-    if queue_state == "daily_budget_exhausted":
-        return "waiting_for_daily_budget"
     if job.status == "retryable":
         return "waiting_for_retry"
     if job.status == "parked":
@@ -516,14 +482,6 @@ def _distill_stuck_reasons(
     pending_total: int,
 ) -> list[dict[str, Any]]:
     reasons: list[dict[str, Any]] = []
-    if state == "daily_budget_exhausted":
-        reasons.append(
-            {
-                "code": "daily_budget_exhausted",
-                "count": active,
-                "action": "Resume on the next UTC budget day; already offered jobs remain runnable.",
-            }
-        )
     if retry_backoff:
         next_retry = min(
             job.retry_after for job in retry_backoff if job.retry_after is not None
@@ -570,13 +528,11 @@ def _coarse_drain_estimate(
     parked: int,
     retry_backoff_count: int,
     throughput_per_day: float,
-    daily_job_budget: int,
-    daily_budget_remaining: int,
     state: str,
     retry_backoff: list[SessionDistillJob],
     current: datetime,
 ) -> dict[str, Any]:
-    """Estimate queue drain conservatively from observed Agent completions and budget."""
+    """Estimate queue drain from observed Agent completions."""
 
     base: dict[str, Any] = {
         "pending_jobs": pending_total,
@@ -584,26 +540,21 @@ def _coarse_drain_estimate(
         "parked_jobs": parked,
         "retry_backoff_jobs": retry_backoff_count,
         "observed_throughput_per_day_7d": throughput_per_day,
-        "daily_job_budget": max(0, daily_job_budget),
-        "daily_budget_remaining": daily_budget_remaining,
         "requires_agent_execution": pending_total > 0,
         "background_semantic_processing": False,
     }
     if pending_total == 0:
         return {**base, "status": "drained", "estimated_calendar_days": 0}
-    if throughput_per_day <= 0 or daily_job_budget <= 0:
-        reason = (
-            "zero_7d_throughput" if throughput_per_day <= 0 else "zero_daily_budget"
-        )
+    if throughput_per_day <= 0:
         return {
             **base,
             "status": "unavailable",
-            "reason": reason,
+            "reason": "zero_7d_throughput",
             "estimated_calendar_days": None,
         }
 
-    effective_rate = min(throughput_per_day, float(daily_job_budget))
-    delay_days = 1 if state == "daily_budget_exhausted" else 0
+    effective_rate = throughput_per_day
+    delay_days = 0
     latest_retry_after: datetime | None = None
     if retry_backoff:
         retry_times = [
@@ -623,17 +574,11 @@ def _coarse_drain_estimate(
         "effective_jobs_per_day": round(effective_rate, 2),
         "estimated_calendar_days": estimated_days,
         "basis": (
-            "latest retry backoff plus min(observed 7d Agent throughput, "
-            "daily new-job budget)"
+            "latest retry backoff plus observed 7d Agent throughput"
             if latest_retry_after is not None
-            else "min(observed 7d Agent throughput, daily new-job budget)"
+            else "observed 7d Agent throughput"
         ),
     }
-    if delay_days:
-        next_budget_day = (
-            (current.astimezone(timezone.utc) + timedelta(days=1)).date().isoformat()
-        )
-        estimate["starts_after"] = f"{next_budget_day}T00:00:00+00:00"
     if retry_backoff:
         estimate["next_retry_after"] = min(
             job.retry_after for job in retry_backoff if job.retry_after is not None
@@ -659,7 +604,6 @@ def complete_pending_distill_jobs(
         project_name=project_name,
         status="processing",
         kind="reflection",
-        limit=100,
     )
     if job_id is not None:
         jobs = [job for job in jobs if job.id == job_id]
@@ -678,16 +622,15 @@ def complete_pending_distill_jobs(
 def render_pending_distill_instruction(
     jobs: list[ReflectionJob | SessionDistillJob],
     *,
-    max_jobs: int = 2,
-    target_backlog: int = 2,
+    max_jobs: int | None = None,
     budget_tokens: int = DEFAULT_DISTILL_BUDGET_TOKENS,
     metrics: dict[str, Any] | None = None,
 ) -> str:
-    """Render bounded automatic Agent work; no user command is required."""
+    """Render automatic Agent work; no user command is required."""
 
     if not jobs:
         return ""
-    selected = jobs[: _bounded_job_limit(max_jobs)]
+    selected = jobs if max_jobs is None else jobs[: max(0, int(max_jobs))]
     if not selected:
         return ""
     job_ids = ", ".join(job.id for job in selected)
@@ -697,10 +640,8 @@ def render_pending_distill_instruction(
             "# Automatic Memory Maintenance  (private Agent action)",
             f"State: {queue.get('state', 'waiting_for_agent')}; Agent execution is required.",
             f"Queue: active={queue.get('active', len(jobs))}, parked={queue.get('parked', 0)}, retry_backoff={queue.get('retry_backoff', 0)}.",
-            f"Daily new-job budget: {queue.get('offered_today', len(selected))}/{queue.get('daily_job_budget', len(selected))}; process up to {len(selected)} now: {job_ids}",
-            "Fair refill policy: three recent jobs, then one oldest eligible job.",
-            f"Steady-state target: at most {max(0, target_backlog)} queued task(s).",
-            "Older cold evidence is parked, not deleted, and refills this active lane after completion.",
+            f"Process the available jobs now: {job_ids}",
+            "Process each selected session independently; do not create a second queue or daily quota.",
             "Do this automatically without asking the user to start another memory action.",
             "Process the selected ids sequentially, in the order shown.",
             "For each selected id, call prepare_session_distill with",
@@ -721,19 +662,18 @@ def render_pending_distill_instruction(
 def build_distill_maintenance_offer(
     jobs: list[ReflectionJob | SessionDistillJob],
     *,
-    max_jobs: int = 2,
-    target_backlog: int = 2,
+    max_jobs: int | None = None,
     budget_tokens: int = DEFAULT_DISTILL_BUDGET_TOKENS,
     metrics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return the machine-readable contract for one Agent-active wake.
 
-    The offer does not perform semantic work.  It gives the current Agent the
-    exact bounded job ids and shared prepare parameters so host skills do not
-    have to scrape ids from rendered wake text.
+    The offer does not perform semantic work. It gives the current Agent the
+    exact job ids and shared prepare parameters so host skills do not have to
+    scrape ids from rendered wake text.
     """
 
-    selected = jobs[: _bounded_job_limit(max_jobs)]
+    selected = jobs if max_jobs is None else jobs[: max(0, int(max_jobs))]
     job_ids = [job.id for job in selected]
     normalized_budget = max(1, int(budget_tokens))
     prepare_arguments = {
@@ -785,14 +725,11 @@ def build_distill_maintenance_offer(
             "active": int(queue.get("active", len(jobs)) or 0),
             "parked": int(queue.get("parked", 0) or 0),
             "retry_backoff": int(queue.get("retry_backoff", 0) or 0),
-            "offered_today": int(queue.get("offered_today", len(selected)) or 0),
-            "daily_job_budget": int(queue.get("daily_job_budget", len(selected)) or 0),
-            "target_active": max(0, int(target_backlog)),
+            "offered_total": int(queue.get("offered_total", 0) or 0),
         },
         "instruction": render_pending_distill_instruction(
             jobs,
             max_jobs=max_jobs,
-            target_backlog=target_backlog,
             budget_tokens=normalized_budget,
             metrics=metrics,
         ),

@@ -13,6 +13,12 @@ from harness_mem.commands.archive_distill import (
     run_archive_distill_batch,
 )
 from harness_mem.config.merge import MergedConfig
+from harness_mem.core.schemas.knowledge import (
+    AssimilationDecision,
+    KnowledgeCandidate,
+    KnowledgeEntry,
+)
+from harness_mem.core.schemas.project_knowledge_base import ProjectKnowledgeSourceRef
 from harness_mem.core.schemas.rule_candidate import RuleCandidate
 from harness_mem.core.schemas.relation_fact import RelationFact
 from harness_mem.session_notes import materialize_session_note
@@ -61,12 +67,52 @@ def _write_archive(
     return path
 
 
+def _write_empty_archive(
+    root: Path,
+    workspace: Path,
+    session_id: str,
+) -> Path:
+    """Write a real host event log with no user/assistant conversation."""
+
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / f"rollout-{session_id}.jsonl"
+    records = [
+        {
+            "type": "session_meta",
+            "payload": {
+                "id": session_id,
+                "cwd": str(workspace),
+                "timestamp": "2026-08-13T00:00:00Z",
+            },
+        },
+        {
+            "type": "turn_context",
+            "payload": {
+                "turn_id": "host-turn",
+                "current_date": "2026-08-13",
+            },
+        },
+        {
+            "type": "response_item",
+            "payload": {
+                "turn_id": "host-turn",
+                "type": "function_call",
+                "name": "harness_mem_hook",
+                "arguments": "{}",
+            },
+        },
+    ]
+    path.write_text(
+        "\n".join(json.dumps(item) for item in records) + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
 def _write_config(root: Path, *, enabled: bool, require_answer_packet: bool = True) -> None:
     root.joinpath(".harness-mem.toml").write_text(
         "[archive_distill]\n"
         f"enabled = {'true' if enabled else 'false'}\n"
-        "batch_size = 3\n"
-        "daily_limit = 20\n"
         "order = \"oldest_first\"\n"
         "project_scope = \"detected\"\n"
         "unresolved_project = \"defer\"\n"
@@ -145,12 +191,10 @@ def test_archive_run_limits_can_be_overridden_without_editing_config(tmp_path: P
             archive_dir=archive,
             data_dir=tmp_path / "data",
             batch_size=4,
-            daily_limit=4,
         )
     )
 
     assert result["policy"]["batch_size"] == 4
-    assert result["policy"]["daily_limit"] == 4
     assert len(result["selected"]) == 4
 
 
@@ -290,6 +334,50 @@ def test_archive_apply_reports_persisted_answer_packet_and_daily_ledger(
             promotion_summary={"promoted": 1, "answer_packet": packet},
             source_cleanup_status="retained",
         )
+        current = KnowledgeEntry(
+            project_name=project.name,
+            module_path=["Archive processing"],
+            title=candidate.trigger,
+            statement=candidate.pattern,
+            verified_at=datetime(2026, 8, 13, tzinfo=timezone.utc),
+        )
+        knowledge_candidate = KnowledgeCandidate(
+            id="candidate-session-reverify",
+            project_name=project.name,
+            candidate_type="rule",
+            statement=candidate.pattern,
+        )
+        decision = AssimilationDecision(
+            id="mutation-session-reverify",
+            project_name=project.name,
+            candidate_id=knowledge_candidate.id,
+            disposition="add",
+            canonical_truth_ids=[current.id],
+            reason="Archive re-verification fixture.",
+        )
+        store = backend.structured_store.knowledge_store
+        asyncio.run(store.save_candidate(knowledge_candidate))
+        asyncio.run(
+            store.apply_current_change(
+                candidate_before=knowledge_candidate,
+                candidate_after=knowledge_candidate.model_copy(
+                    update={"status": "assimilated"}
+                ),
+                decision=decision,
+                added_entries=[current],
+                predecessor_entries=[],
+                source_refs_by_entry={
+                    current.id: [
+                        ProjectKnowledgeSourceRef(
+                            label="Archived Codex session",
+                            target=f"session:{job.source_id}",
+                            kind="transcript",
+                        )
+                    ]
+                },
+            )
+        )
+        asyncio.run(store.cleanup_candidate(knowledge_candidate.id))
         stored = backend.transcript_store.get_distill_job(job.id)
         assert stored is not None
         note = materialize_session_note(stored, notes_dir=tmp_path / "notes")
@@ -378,7 +466,7 @@ def test_archive_apply_verify_emits_run_bound_direct_evidence(
     _write_config(control, enabled=True)
     project.joinpath(".harness-mem.toml").write_text(
         "[distill.autonomous]\nenabled = true\n"
-        "[distill]\ndelete_source_after_complete = false\n",
+        "[distill]\nauto = true\n",
         encoding="utf-8",
     )
     archive = tmp_path / "archives"
@@ -662,6 +750,50 @@ def test_archive_completed_job_is_reverified_without_provider_replay(
             promotion_summary={"promoted": 1, "answer_packet": packet},
             source_cleanup_status="retained",
         )
+        current = KnowledgeEntry(
+            project_name=project.name,
+            module_path=["Archive processing"],
+            title=candidate.trigger,
+            statement=candidate.pattern,
+            verified_at=datetime(2026, 8, 13, tzinfo=timezone.utc),
+        )
+        knowledge_candidate = KnowledgeCandidate(
+            id="candidate-completed-reverify",
+            project_name=project.name,
+            candidate_type="rule",
+            statement=candidate.pattern,
+        )
+        decision = AssimilationDecision(
+            id="mutation-completed-reverify",
+            project_name=project.name,
+            candidate_id=knowledge_candidate.id,
+            disposition="add",
+            canonical_truth_ids=[current.id],
+            reason="Archive re-verification fixture.",
+        )
+        store = backend.structured_store.knowledge_store
+        asyncio.run(store.save_candidate(knowledge_candidate))
+        asyncio.run(
+            store.apply_current_change(
+                candidate_before=knowledge_candidate,
+                candidate_after=knowledge_candidate.model_copy(
+                    update={"status": "assimilated"}
+                ),
+                decision=decision,
+                added_entries=[current],
+                predecessor_entries=[],
+                source_refs_by_entry={
+                    current.id: [
+                        ProjectKnowledgeSourceRef(
+                            label="Archived Codex session",
+                            target=f"session:{job.source_id}",
+                            kind="transcript",
+                        )
+                    ]
+                },
+            )
+        )
+        asyncio.run(store.cleanup_candidate(knowledge_candidate.id))
     finally:
         asyncio.run(backend.close())
 
@@ -690,7 +822,7 @@ def test_archive_completed_job_is_reverified_without_provider_replay(
     assert result["verification"]["outcomes"][0]["retrieval"]["status"] == "passed"
 
 
-def test_archive_sanitized_retrieval_includes_provisional_relations(
+def test_archive_verification_rejects_legacy_relation_without_current_knowledge(
     tmp_path: Path,
 ) -> None:
     from harness_mem.commands.archive_distill import _verify_promoted_items
@@ -724,17 +856,17 @@ def test_archive_sanitized_retrieval_includes_provisional_relations(
                     "kind": "relation",
                     "category": relation.relation_type,
                 }],
-                allow_sanitized_project_retrieval=True,
             )
         )
     finally:
         asyncio.run(backend.close())
 
-    assert result["status"] == "passed"
-    assert result["items"][0]["retrieval_mode"] == "legacy_project_truth"
+    assert result["status"] == "partial"
+    assert result["items"][0]["retrieval_mode"] == "normal_current_search"
+    assert result["items"][0]["retrieved"] is False
 
 
-def test_archive_repair_only_reverifies_deleted_partial_receipt_without_provider(
+def test_archive_repair_only_accepts_new_completed_job_for_same_revision(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -786,6 +918,42 @@ def test_archive_repair_only_reverifies_deleted_partial_receipt_without_provider
     payload["outcomes"][0]["status"] = "deferred"
     payload["outcomes"][0]["reason"] = "historical semantic review still pending"
     receipt_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+
+    backend = LocalMemoryBackend(data)
+    asyncio.run(backend.init())
+    old_job = backend.transcript_store.get_distill_job(entry["distill_job_id"])
+    assert old_job is not None
+    corrected_job = backend.transcript_store.enqueue_distill_job(
+        old_job.source_id,
+        pipeline_version="lossless-distill-v1-current-knowledge-v1",
+    )
+    for chunk, _checkpoint in backend.transcript_store.claim_distill_chunks(
+        corrected_job.id,
+        lease_owner="corrected-review",
+        limit=1000,
+    ):
+        backend.transcript_store.checkpoint_distill_chunk(
+            corrected_job.id,
+            chunk.id,
+            lease_owner="corrected-review",
+            result={"summary": "rechecked"},
+        )
+    corrected_job = backend.transcript_store.finalize_distill_job(
+        corrected_job.id,
+        semantic_review=old_job.semantic_review,
+        output_candidate_ids=old_job.output_candidate_ids,
+    )
+    corrected_job = backend.transcript_store.record_distill_completion_outcome(
+        corrected_job.id,
+        disposition=old_job.completion_disposition,
+        reason_codes=old_job.completion_reason_codes,
+        promotion_summary=old_job.promotion_summary,
+        source_cleanup_status="retained",
+    )
+    materialize_session_note(corrected_job, notes_dir=tmp_path / "notes")
+    asyncio.run(backend.close())
     source.unlink(missing_ok=True)
 
     def fail_if_provider_runs(*_args, **_kwargs):
@@ -812,11 +980,83 @@ def test_archive_repair_only_reverifies_deleted_partial_receipt_without_provider
     index = json.loads(terminal.read_text(encoding="utf-8"))
     entry = index["sessions"]["session-deleted-repair"]
     assert entry["disposition"] == "verified_completed"
+    assert entry["distill_job_id"] == corrected_job.id
     assert entry["repaired_from_partial_receipt"] is True
     assert entry["repair_kind"] == "completed_job_after_deferred_receipt"
 
 
-def test_archive_attempt_budget_is_durable_across_utc_days(
+def test_archive_repair_only_current_scope_does_not_repair_another_project(
+    tmp_path: Path,
+) -> None:
+    control = tmp_path / "control"
+    other_project = tmp_path / "other-project"
+    control.mkdir()
+    other_project.mkdir()
+    _write_config(control, enabled=True)
+    other_project.joinpath(".harness-mem.toml").write_text(
+        "[distill.autonomous]\nenabled = true\n",
+        encoding="utf-8",
+    )
+    archive = tmp_path / "archives"
+    source = _write_archive(archive, other_project, "session-other-project")
+    source.write_text(
+        source.read_text(encoding="utf-8").replace(
+            "Always run the related tests for small changes.",
+            "Return exactly: OK",
+        ),
+        encoding="utf-8",
+    )
+    data = tmp_path / "data"
+    notes = tmp_path / "notes"
+    first = asyncio.run(
+        run_archive_distill_batch(
+            control_root=control,
+            apply=True,
+            verify=True,
+            archive_dir=archive,
+            data_dir=data,
+            provider=None,
+            notes_dir=notes,
+        )
+    )
+    terminal = Path(str(first["terminal_index"]))
+    index = json.loads(terminal.read_text(encoding="utf-8"))
+    entry = index["sessions"]["session-other-project"]
+    entry["disposition"] = "quarantined"
+    entry["reason"] = (
+        "codex provider decision could not be bound to local evidence: "
+        "point cites unavailable exchange 2"
+    )
+    terminal.write_text(json.dumps(index), encoding="utf-8")
+    control.joinpath(".harness-mem.toml").write_text(
+        "[archive_distill]\n"
+        "enabled = true\n"
+        "order = \"oldest_first\"\n"
+        "project_scope = \"current\"\n"
+        "unresolved_project = \"defer\"\n"
+        "require_answer_packet = true\n",
+        encoding="utf-8",
+    )
+
+    repaired = asyncio.run(
+        run_archive_distill_batch(
+            control_root=control,
+            apply=True,
+            verify=True,
+            repair_only=True,
+            archive_dir=archive,
+            data_dir=data,
+            notes_dir=notes,
+        )
+    )
+
+    assert repaired["selected"] == []
+    assert repaired["partial_receipt_repair"]["count"] == 0
+    index = json.loads(terminal.read_text(encoding="utf-8"))
+    assert index["sessions"]["session-other-project"]["disposition"] == "quarantined"
+
+
+def test_archive_retries_are_not_capped_by_attempt_count(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -885,13 +1125,156 @@ def test_archive_attempt_budget_is_durable_across_utc_days(
     )
 
     assert first["quarantined"] == 0
-    assert second["quarantined"] == 1
-    assert third["selected"] == []
-    assert third["terminal"]["quarantined"] == 1
+    assert second["quarantined"] == 0
+    assert len(third["selected"]) == 1
+    assert third["terminal"]["quarantined"] == 0
     assert calls == 2
     index = json.loads(Path(second["terminal_index"]).read_text(encoding="utf-8"))
     assert index["attempts"]["session-bounded-retry"]["count"] == 2
-    assert index["sessions"]["session-bounded-retry"]["disposition"] == "quarantined"
+    assert "session-bounded-retry" not in index["sessions"]
+
+
+def test_archive_stops_batch_on_systemic_worker_error_and_preserves_error(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    control = tmp_path / "control"
+    project = tmp_path / "project"
+    control.mkdir()
+    project.mkdir()
+    _write_config(control, enabled=True)
+    project.joinpath(".harness-mem.toml").write_text(
+        "[distill.autonomous]\nenabled = true\n",
+        encoding="utf-8",
+    )
+    archive = tmp_path / "archives"
+    for index in range(3):
+        _write_archive(archive, project, f"session-system-{index}")
+    calls = 0
+
+    def auth_failure(backend, **kwargs):
+        nonlocal calls
+        calls += 1
+        job = backend.transcript_store.get_distill_job(kwargs["preferred_job_id"])
+        assert job is not None
+        return {
+            "success": False,
+            "state": "deferred",
+            "outcomes": [
+                {
+                    "job_id": job.id,
+                    "session_id": job.session_id,
+                    "status": "deferred",
+                    "error": {
+                        "kind": "auth_invalid",
+                        "message": "Codex CLI login expired.",
+                    },
+                }
+            ],
+        }
+
+    monkeypatch.setattr(
+        "harness_mem.commands.archive_distill.run_autonomous_distill_batch",
+        auth_failure,
+    )
+    result = asyncio.run(
+        run_archive_distill_batch(
+            control_root=control,
+            apply=True,
+            verify=True,
+            archive_dir=archive,
+            data_dir=tmp_path / "data",
+            notes_dir=tmp_path / "notes",
+        )
+    )
+
+    assert calls == 1
+    assert len(result["selected"]) == 1
+    assert len(result["outcomes"]) == 1
+    assert result["stopped_early"] is True
+    assert result["stop_error"] == {
+        "kind": "auth_invalid",
+        "message": "Codex CLI login expired.",
+    }
+    assert result["outcomes"][0]["error"] == result["stop_error"]
+    assert result["outcomes"][0]["reason"] == "Codex CLI login expired."
+    assert "answer_packet_missing" not in result["outcomes"][0]["warnings"]
+
+    print_archive_distill_result(result, as_json=False)
+    rendered = capsys.readouterr().out
+    assert "Error: auth_invalid: Codex CLI login expired." in rendered
+
+
+def test_archive_keeps_one_session_evidence_reference_error_retryable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    control = tmp_path / "control"
+    project = tmp_path / "project"
+    control.mkdir()
+    project.mkdir()
+    _write_config(control, enabled=True)
+    project.joinpath(".harness-mem.toml").write_text(
+        "[distill.autonomous]\nenabled = true\n",
+        encoding="utf-8",
+    )
+    archive = tmp_path / "archives"
+    for index in range(3):
+        _write_archive(archive, project, f"session-evidence-{index}")
+    calls = 0
+    message = (
+        "provider correction failed candidate validation: "
+        "candidate[0] cited an unavailable exchange index"
+    )
+
+    def invalid_evidence_reference(backend, **kwargs):
+        nonlocal calls
+        calls += 1
+        job = backend.transcript_store.get_distill_job(kwargs["preferred_job_id"])
+        assert job is not None
+        backend.transcript_store.defer_distill_job(
+            job.id,
+            error=f"unrecoverable: {message}",
+        )
+        return {
+            "success": False,
+            "state": "deferred",
+            "outcomes": [
+                {
+                    "job_id": job.id,
+                    "session_id": job.session_id,
+                    "status": "deferred",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(
+        "harness_mem.commands.archive_distill.run_autonomous_distill_batch",
+        invalid_evidence_reference,
+    )
+    result = asyncio.run(
+        run_archive_distill_batch(
+            control_root=control,
+            apply=True,
+            verify=True,
+            archive_dir=archive,
+            data_dir=tmp_path / "data",
+            notes_dir=tmp_path / "notes",
+        )
+    )
+
+    assert calls == 3
+    assert len(result["outcomes"]) == 3
+    assert result["stopped_early"] is False
+    assert all(
+        item["error"] == {"kind": "unrecoverable", "message": message}
+        for item in result["outcomes"]
+    )
+    assert all("answer_packet_missing" not in item["warnings"] for item in result["outcomes"])
+    assert result["quarantined"] == 0
+    ledger = json.loads(Path(result["ledger"]).read_text(encoding="utf-8"))
+    assert len(ledger["retryable_session_ids"]) == 3
 
 
 def test_archive_retry_backoff_does_not_consume_an_attempt(tmp_path: Path, monkeypatch) -> None:
@@ -1113,7 +1496,7 @@ def test_trivial_archive_apply_uses_zero_token_canonical_path(tmp_path: Path) ->
     _write_config(control, enabled=True)
     project.joinpath(".harness-mem.toml").write_text(
         "[distill.autonomous]\nenabled = true\n"
-        "[distill]\ndelete_source_after_complete = false\n",
+        "[distill]\nauto = true\n",
         encoding="utf-8",
     )
     archive = tmp_path / "archives"
@@ -1146,6 +1529,158 @@ def test_trivial_archive_apply_uses_zero_token_canonical_path(tmp_path: Path) ->
     assert result["outcomes"][0]["answer_packet"]["evaluated_at"]
     assert result["outcomes"][0]["answer_packet"]["verified_at"] is None
     assert result["verification"]["status"] == "passed"
+
+
+def test_empty_archive_has_verified_terminal_without_job_note_or_provider(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from harness_mem.commands.archive_distill import _verify_archive_distill_run
+    from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+
+    control = tmp_path / "control"
+    project = tmp_path / "project"
+    control.mkdir()
+    project.mkdir()
+    _write_config(control, enabled=True)
+    # Empty classification is deterministic and does not require model
+    # authorization, but it remains inside the explicitly enabled archive run.
+    project.joinpath(".harness-mem.toml").write_text(
+        "[distill.autonomous]\nenabled = false\n",
+        encoding="utf-8",
+    )
+    archive = tmp_path / "archives"
+    source = _write_empty_archive(archive, project, "session-empty")
+    data = tmp_path / "data"
+    notes = tmp_path / "notes"
+
+    def fail_if_provider_runs(*_args, **_kwargs):
+        raise AssertionError("empty archive must not run a semantic provider")
+
+    monkeypatch.setattr(
+        "harness_mem.commands.archive_distill.run_autonomous_distill_batch",
+        fail_if_provider_runs,
+    )
+    result = asyncio.run(
+        run_archive_distill_batch(
+            control_root=control,
+            apply=True,
+            verify=True,
+            archive_dir=archive,
+            data_dir=data,
+            notes_dir=notes,
+            provider=object(),
+        )
+    )
+
+    assert result["success"] is True
+    assert result["completed"] == 1
+    assert result["deferred"] == 0
+    outcome = result["outcomes"][0]
+    assert outcome["classification"] == "empty_archive"
+    assert outcome["execution"] == "deterministic_empty"
+    assert outcome["distill_job_id"] is None
+    assert outcome["note"] is None
+    assert outcome["promoted_items"] == []
+    assert outcome["provider"] == {
+        "used": False,
+        "total_tokens": 0,
+        "duration_seconds": 0.0,
+    }
+    assert outcome["knowledge_after"] == outcome["knowledge_before"]
+    assert source.is_file()
+    assert not notes.exists()
+    verified = result["verification"]["outcomes"][0]
+    assert verified["status"] == "passed"
+    assert verified["checks"] == {
+        "source_exists": True,
+        "source_revision_matches": True,
+        "no_user_or_assistant_messages": True,
+        "no_job_created": True,
+        "no_note_created": True,
+        "knowledge_unchanged": True,
+    }
+
+    backend = LocalMemoryBackend(data)
+    asyncio.run(backend.init())
+    try:
+        assert backend.transcript_store.list_distill_jobs(
+            project_name=project.name,
+            limit=100,
+        ) == []
+        assert asyncio.run(
+            backend.structured_store.knowledge_store.list_entries(project.name)
+        ) == []
+
+        # A later archive in the same batch may legitimately change current
+        # knowledge. Re-verifying the earlier empty result must stay bound to
+        # its immediate before/after snapshots instead of blaming that later
+        # write on the empty archive.
+        later_entry = KnowledgeEntry(
+            project_name=project.name,
+            module_path=["Archive processing"],
+            title="Later archive result",
+            statement="A later non-empty archive produced this current knowledge.",
+            verified_at=datetime(2026, 8, 13, tzinfo=timezone.utc),
+        )
+        later_candidate = KnowledgeCandidate(
+            id="candidate-after-empty",
+            project_name=project.name,
+            candidate_type="memory",
+            statement=later_entry.statement,
+        )
+        later_decision = AssimilationDecision(
+            id="mutation-after-empty",
+            project_name=project.name,
+            candidate_id=later_candidate.id,
+            disposition="add",
+            canonical_truth_ids=[later_entry.id],
+            reason="Exercise mixed empty and non-empty batch verification.",
+        )
+        store = backend.structured_store.knowledge_store
+        asyncio.run(store.save_candidate(later_candidate))
+        asyncio.run(
+            store.apply_current_change(
+                candidate_before=later_candidate,
+                candidate_after=later_candidate.model_copy(
+                    update={"status": "assimilated"}
+                ),
+                decision=later_decision,
+                added_entries=[later_entry],
+                predecessor_entries=[],
+                source_refs_by_entry={
+                    later_entry.id: [
+                        ProjectKnowledgeSourceRef(
+                            label="Later archive",
+                            target="session:later-archive",
+                            kind="transcript",
+                        )
+                    ]
+                },
+            )
+        )
+        reverified = asyncio.run(
+            _verify_archive_distill_run(backend, result=result)
+        )
+        assert reverified["status"] == "passed"
+        assert reverified["outcomes"][0]["checks"]["knowledge_unchanged"] is True
+        assert reverified["outcomes"][0]["current_knowledge"]["count"] == 1
+    finally:
+        asyncio.run(backend.close())
+
+    repeated = asyncio.run(
+        run_archive_distill_batch(
+            control_root=control,
+            apply=False,
+            archive_dir=archive,
+            data_dir=data,
+        )
+    )
+    assert repeated["selected"] == []
+    assert repeated["terminal"]["verified_completed"] == 1
+    assert repeated["terminal"]["pending_eligible"] == 0
+    assert repeated["terminal"]["inventory_total"] == 1
+    assert repeated["terminal"]["conserved"] is True
 
 
 def test_trivial_archive_provider_fails_closed_for_unexpected_assimilation() -> None:

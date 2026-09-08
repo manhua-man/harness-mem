@@ -1,4 +1,4 @@
-"""MemoryEntry schema — structured project knowledge."""
+"""Legacy MemoryEntry compatibility and historical processing record."""
 
 from datetime import datetime, timezone
 from typing import Literal
@@ -15,16 +15,10 @@ from harness_mem.core.schemas.assimilation import AssimilationDisposition
 
 
 MemoryType = Literal["episodic", "semantic", "procedural"]
-"""Three-layer memory typing used by search and wake selection.
+"""Historical classification retained only to read old ``MemoryEntry`` rows.
 
-- ``semantic`` — stable, structured project knowledge (rules, facts, decisions).
-  This is the default; existing entries auto-derive to ``semantic`` when
-  their ``category`` matches the registered set (architecture / convention /
-  api / bug / decision).
-- ``episodic`` — event-shaped recollections. Used for entries whose ``category``
-  is unknown or free-form when loaded from legacy data.
-- ``procedural`` — multi-step skills / how-tos. Accepted by the read model and
-  governed separately from ordinary semantic facts.
+It does not classify current long-term knowledge. Current knowledge is stored
+as ``KnowledgeEntry`` rows in ``knowledge_entries``.
 """
 
 
@@ -51,7 +45,12 @@ def _derive_memory_type(category: str | None) -> MemoryType:
 
 
 class MemoryEntry(BaseModel):
-    """Stable, structured, long-term reusable project knowledge.
+    """A legacy candidate/history row, never current long-term knowledge.
+
+    New session proposals use ``KnowledgeCandidate`` and current knowledge uses
+    ``KnowledgeEntry``.  This schema remains readable for 0.9.x data and
+    explicit audit/deep-recall paths only; its status must not drive normal
+    search, current-knowledge counts, or a successful write receipt.
 
     Category values:
     - architecture: project structure, tech stack decisions
@@ -74,9 +73,8 @@ class MemoryEntry(BaseModel):
     status: str = Field(
         default="pending",
         description=(
-            "Candidate layer: pending | deferred | rejected. "
-            "Truth layer: auto_confirmed | provisional | user_confirmed. "
-            "Historical: superseded."
+            "Legacy processing/history status only; it never makes this row "
+            "current long-term knowledge."
         ),
     )
     source: str = Field(
@@ -116,13 +114,14 @@ class MemoryEntry(BaseModel):
     verified_at: datetime | None = None
     assimilation_disposition: AssimilationDisposition | None = None
     assimilation_reason: str | None = None
+    assimilation_target_id: str | None = None
     canonical_title: str | None = None
     topic_path: list[str] = Field(default_factory=list)
     memory_type: MemoryType = Field(
         default="semantic",
         description=(
-            "Three-layer memory typing: episodic (events), semantic "
-            "(rules/facts), or procedural (ordered workflows)."
+            "Legacy compatibility classification; it does not partition "
+            "current long-term knowledge."
         ),
     )
     valid_from: datetime | None = Field(
@@ -131,7 +130,10 @@ class MemoryEntry(BaseModel):
     )
     valid_to: datetime | None = Field(
         default=None,
-        description="When this truth stops being current; None means current.",
+        description=(
+            "Legacy validity marker; None means open in the compatibility "
+            "record, not current long-term knowledge."
+        ),
     )
     recorded_at: datetime | None = Field(
         default=None,
@@ -180,6 +182,7 @@ class MemoryEntry(BaseModel):
             "verified_at": self.verified_at.isoformat() if self.verified_at else None,
             "assimilation_disposition": self.assimilation_disposition,
             "assimilation_reason": self.assimilation_reason,
+            "assimilation_target_id": self.assimilation_target_id,
             "canonical_title": self.canonical_title,
             "topic_path": list(self.topic_path),
             "memory_type": self.memory_type,
@@ -231,6 +234,7 @@ class MemoryEntry(BaseModel):
         data.setdefault("verified_at", None)
         data.setdefault("assimilation_disposition", None)
         data.setdefault("assimilation_reason", None)
+        data.setdefault("assimilation_target_id", None)
         data.setdefault("canonical_title", None)
         data.setdefault("topic_path", [])
         if "distill_job_id" not in data:

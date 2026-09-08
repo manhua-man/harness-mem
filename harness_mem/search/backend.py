@@ -1164,7 +1164,7 @@ def _source_coverage(results: list[BackendSearchResult]) -> dict[str, int]:
     return coverage
 
 
-def _drilldown_hint(result: BackendSearchResult, query: str) -> dict[str, Any]:
+def _drilldown_hint(result: BackendSearchResult, _query: str) -> dict[str, Any]:
     hint: dict[str, Any] = {
         "source_id": result.source_id,
         "source_kind": result.source_kind,
@@ -1174,29 +1174,6 @@ def _drilldown_hint(result: BackendSearchResult, query: str) -> dict[str, Any]:
     if isinstance(temporal_scope, str):
         hint["temporal_scope"] = temporal_scope
 
-    if result.source_kind in {"memory_entry", "relation_fact"}:
-        project_name = result.metadata.get("project_name")
-        mode = "history" if temporal_scope in {"historical", "superseded"} else "current"
-        hint.update(
-            {
-                "tool": "temporal_query",
-                "arguments": {
-                    "project_name": project_name,
-                    "query": query,
-                    "truth_type": result.source_kind,
-                    "mode": mode,
-                    "limit": 20,
-                },
-                "why": (
-                    "Use temporal_query to inspect current/history/as_of semantics "
-                    "for this structured truth hit."
-                ),
-            }
-        )
-        if result.metadata.get("valid_to"):
-            hint["valid_to"] = result.metadata["valid_to"]
-        if result.metadata.get("superseded_by"):
-            hint["superseded_by"] = list(result.metadata["superseded_by"])
     return hint
 
 

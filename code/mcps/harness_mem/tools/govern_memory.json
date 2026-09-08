@@ -1,6 +1,6 @@
 {
   "name": "govern_memory",
-  "description": "Composite write surface for candidate creation, review decisions, task handoffs, corrections, and supersede governance. Use action=suggest with arguments.kind=memory|rule|relation; action=decide with kind, decision=confirm|reject, and candidate_id; action=handoff; action=correct_rule; or action=supersede. This replaces the former family of low-level suggest_*/confirm_*/reject_* MCP tools. Distill-bound suggestions should include evidence_basis, verification_outcome, and content-free verification_refs so Dream can verify repository or explicit user-statement evidence. The runtime derives the Answer Gate status; only ANSWERED candidates may enter the truth layer.",
+  "description": "Composite write surface for candidate creation, review decisions, and task handoffs. Use action=suggest with arguments.kind=memory|rule|relation; action=decide with kind=knowledge, decision=confirm|reject, project_name, candidate_id, and an explicit disposition. To delete incorrect current knowledge, use action=decide with kind=knowledge, decision=delete, project_name, and exactly one target_knowledge_ids value; omit candidate_id and knowledge_items. Use action=handoff. Replacement is a normal knowledge decision that deletes the old current row; it is not a separate history action. Suggestions are stored as temporary knowledge candidates, not legacy MemoryEntry truth. Distill-bound suggestions should include evidence_basis, verification_outcome, and content-free verification_refs so Dream can verify repository or explicit user-statement evidence. The runtime derives the Answer Gate status; only ANSWERED candidates may enter the truth layer. Distill suggestions must include an assimilation_disposition and assimilation_reason; add/refine/replace also require canonical_title and topic_path, while confirm requires exactly one id in assimilation_target_ids; refine/replace may name one or more current targets from the current knowledge view.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -9,9 +9,7 @@
         "enum": [
           "suggest",
           "decide",
-          "handoff",
-          "correct_rule",
-          "supersede"
+          "handoff"
         ]
       },
       "arguments": {

@@ -169,7 +169,7 @@ class SessionDistillStore:
         *,
         project_name: str | None = None,
         status: str | None = None,
-        limit: int = 100,
+        limit: int | None = None,
     ) -> list[SessionDistillJob]:
         where: list[str] = []
         params: list[Any] = []
@@ -182,11 +182,27 @@ class SessionDistillStore:
         sql = "SELECT data FROM distill_jobs"
         if where:
             sql += " WHERE " + " AND ".join(where)
-        sql += " ORDER BY created_at ASC LIMIT ?"
-        params.append(max(1, limit))
+        sql += " ORDER BY created_at ASC"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(max(1, int(limit)))
         with self._lock:
             rows = self._conn.execute(sql, params).fetchall()
         return [SessionDistillJob.from_dict(json.loads(row["data"])) for row in rows]
+
+    def count_pending(self, project_name: str) -> int:
+        """Count unfinished jobs without loading their stored payloads."""
+
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT COUNT(*) FROM distill_jobs
+                WHERE project_name = ?
+                  AND status IN ('queued', 'processing', 'reviewing', 'retryable', 'parked')
+                """,
+                (project_name,),
+            ).fetchone()
+        return int(row[0]) if row is not None else 0
 
     def list_checkpoints(self, job_id: str) -> List[DistillChunkCheckpoint]:
         with self._lock:
@@ -529,7 +545,7 @@ class SessionDistillStore:
         *,
         offered_at: datetime | None = None,
     ) -> int:
-        """Record unique daily Agent offers for budget and throughput reporting."""
+        """Record Agent offers for queue observability without a daily quota."""
 
         selected: Set[str] = set(job_ids)
         if not selected:
@@ -549,9 +565,8 @@ class SessionDistillStore:
                     if job.id not in selected:
                         continue
                     if job.agent_offer_day != day:
-                        job.agent_offer_day = day
-                        job.agent_offer_count = 0
                         newly_offered += 1
+                    job.agent_offer_day = day
                     job.agent_offer_count += 1
                     job.last_agent_offered_at = now
                     job.updated_at = now
@@ -568,12 +583,7 @@ class SessionDistillStore:
         *,
         offered_at: datetime | None = None,
     ) -> SessionDistillJob:
-        """Activate one explicitly selected parked job and record its offer.
-
-        Automatic lane refill remains bounded.  This path is only for an Agent
-        call that names the exact durable job, such as a user asking to process
-        one known session instead of waiting for backlog rotation.
-        """
+        """Activate one explicitly selected parked job and record its offer."""
 
         now = offered_at or datetime.now(timezone.utc)
         day = now.date().isoformat()
@@ -590,9 +600,7 @@ class SessionDistillStore:
                     self._conn.rollback()
                     return job
                 job.status = "queued"
-                if job.agent_offer_day != day:
-                    job.agent_offer_day = day
-                    job.agent_offer_count = 0
+                job.agent_offer_day = day
                 job.agent_offer_count += 1
                 job.last_agent_offered_at = now
                 job.updated_at = now
@@ -608,7 +616,7 @@ class SessionDistillStore:
         job_id: str,
         *,
         lease_owner: str,
-        limit: int = 1,
+        limit: int | None = 1,
         lease_seconds: int = 300,
     ) -> List[tuple[TranscriptChunk, DistillChunkCheckpoint]]:
         """Atomically claim pending chunks and reclaim expired leases."""
@@ -652,7 +660,8 @@ class SessionDistillStore:
                 for checkpoint in checkpoints:
                     if checkpoint.status in {"pending", "retryable"}:
                         eligible.append(checkpoint)
-                for checkpoint in eligible[: max(1, limit)]:
+                selected = eligible if limit is None else eligible[: max(1, limit)]
+                for checkpoint in selected:
                     checkpoint.status = "processing"
                     checkpoint.attempt_count += 1
                     checkpoint.lease_owner = lease_owner

@@ -22,8 +22,8 @@ doctor, MCP contracts, release smoke).
 
 | Track | Weight | Acceptance one-liner |
 |-------|--------|----------------------|
-| **L1 Memory loop** | 20% | `wake → search → distill → review → dream` runs end-to-end with guided flow and Daily slash surfaces. |
-| **L2 Truth & governance** | 25% | Durable truth never silently overwritten; candidates, auto-promote, audit ledger, supersede, and finalize gates hold. |
+| **L1 Memory loop** | 20% | The single `hm` entry can remember, find, and correct knowledge while automatic wake and Dream use the same governed runtime. |
+| **L2 Current memory** | 25% | Every change is checked; replacement leaves only the new item, deletion removes the item, and finalize proves normal search can read the result. |
 | **L3 Retrieval & recall** | 15% | Filter-first hybrid recall with stable `recall.steps`, abstention, and vec0 KNN when sqlite-vec is available. |
 | **L4 Evidence & distillation** | 20% | Lossless transcript ledger, resumable distill jobs, revision idempotency, and multi-host adapters. |
 | **L5 Host integration** | 15% | Hooks, MCP entry, install drift checks, and per-host transcript ingest work for declared hosts. |
@@ -58,8 +58,8 @@ Binary yes/no: public docs and agent skills must stay inside verified capability
 
 ## Scoring rules
 
-1. **Anchor to evidence** — prefer pytest, contract tests, doctor, release smoke,
-   and `get_project_status` / `integration_health` over subjective guesses.
+1. **Anchor to evidence** — prefer pytest, contract tests, Doctor, and release
+   smoke over the short daily project check or subjective guesses.
 2. **Do not score deferred or out-of-product items** — list them in Scope Ledger.
 3. **Regressions lower the track** — a broken export CI lowers L6 even if L2 is strong.
 4. **WIP is explicit** — `in_progress` scope items may cap the related track (e.g. L5
@@ -125,7 +125,7 @@ percentile unless an explicit shared checklist exists.
 
 Autonomous isolation checks verify **current-release** unattended execution
 through the selected host CLI, including three real Hook calls that are blocked
-without creating a downstream job and an auditable receipt. Background work is
+without creating a downstream job and a matching runtime receipt. Background work is
 off by default; when enabled, it runs in Agent mode. See
 [`docs/background-memory.md`](background-memory.md) and
 `docs/roadmap.md`.
@@ -145,12 +145,12 @@ off by default; when enabled, it runs in Agent mode. See
 | ⑨ Maintenance | L1 dream + L4 distill maintenance |
 | ⑩ Evidence | L6 + per-track contract tests |
 
-## Current snapshot (v0.9.27)
+## Current snapshot (v0.9.28)
 
 See `canvases/harness-mem-readiness-v1.canvas.tsx` for the compact architecture panel and
 `canvases/harness-mem-convergence.canvas.tsx` for the convergence narrative. The full
 checklist and current-machine results are kept in the checked-in convergence
-canvas. The source facts are refreshed for `0.9.27`; published artifacts are
+canvas. The source facts are refreshed for `0.9.28`; published artifacts are
 listed on the GitHub Releases page, and individual device-throughput rows
 remain operational measurements rather than a release-quality claim.
 It deliberately does not merge repository release maturity with one device's live
@@ -161,16 +161,16 @@ Historical operator snapshot (2026-08-12; not a current throughput claim):
 
 | View | Evidence | Current result |
 |------|----------|----------------|
-| Release maturity | source package/plugin 0.9.27, exact 27-tool contract, archive cohort acceptance, and seven-host qualification | full Python and Rust release lanes must pass before the next tag CI qualifies built artifacts |
-| Runtime alignment | repository/plugin 0.9.27; installed MCPs may remain on an earlier package until upgraded | refresh and restart any older live installation after publication |
+| Release maturity | source package/plugin 0.9.28, exact 25-tool contract, archive cohort acceptance, and seven-host qualification | full Python and Rust release lanes must pass before the next tag CI qualifies built artifacts |
+| Runtime alignment | repository/plugin 0.9.28; installed MCPs may remain on an earlier package until upgraded | refresh and restart any older live installation after publication |
 | Distill operations | active 2, parked 198, 0.43 completed/day over seven days | `needs-distill`; throughput is the primary operational gap |
 | Retrieval feedback | 2 surfaced, no used/ignored/misleading outcomes | insufficient live feedback |
 
 The versioned 0.9.10 canvases remain historical snapshots; the unversioned v1
 panel carries the current source evidence.
 
-The public MCP contract currently contains 27 tools (~27.8 KiB compact
-`tools/list` JSON). The former low-level suggest/confirm/reject schemas and
+The public MCP contract currently contains 20 tools. The former low-level
+suggest/confirm/reject schemas and
 registry entries are retired; their private implementations remain behind
 `govern_memory` in `mcp/governance_handlers.py`. Read/status/dream/distill
 capability modules keep the facade below 900 lines.

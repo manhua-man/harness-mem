@@ -6,7 +6,7 @@ itself; normal runtime paths do not migrate legacy data.
 
 ## Current source and release line
 
-The current source package is `0.9.27`; published artifacts are listed on the
+The current source package is `0.9.28`; published artifacts are listed on the
 GitHub Releases page. This release line provides session lifecycle, lossless
 extraction, per-point verification, transactional SQLite current knowledge,
 job-scoped processing material, clean retrieval, and one governed Review/Dream
@@ -23,6 +23,21 @@ for each Agent app and leaves MCP ownership to the Agent, Router, or plugin
 already in use. Hooks only dispatch detached work; a failed dispatch or unknown
 host is reported without running model work inside the Hook or selecting a
 different host.
+
+## Release `0.9.28`
+
+`0.9.28` closes the gap between a successful distill job and usable current
+knowledge. Explicit distill suggestions now carry a complete assimilation
+decision, and finalize checks the ordinary search path after each write.
+`knowledge_entries` is the only current memory: replacement may remove one or
+more old items and write one or more new items in one transaction,
+and invalid memory is deleted. No knowledge versions, archived knowledge
+copies, knowledge change records, or undo chain are retained. Legacy
+`MemoryEntry` rows stay readable only for compatibility. The automatic project
+check now returns one short ready/failure message, while detailed diagnosis
+remains in Doctor. Historical version claims require matching current
+repository evidence, and host-event-only Codex archives finish as verified
+empty records without model work.
 
 ## Release `0.9.27`
 
@@ -52,7 +67,7 @@ receipts bind the selected non-secret provider configuration.
 ## Releases `0.9.23` and `0.9.24`
 
 `0.9.23` introduces an operator-owned, restricted semantic provider profile
-for unattended Dream work (superseded by the current `0.9.27` source:
+for unattended Dream work (superseded by the current `0.9.28` source:
 `distill.autonomous.enabled=true` + a project-selected CLI, defaulting to the
 current host; see
 [`docs/background-memory.md`](background-memory.md)). A project could select a
@@ -60,12 +75,11 @@ named profile from user configuration; repository configuration could not supply
 an endpoint or credential environment variable. Automatic model work still
 needed the separate project authorization `[distill.autonomous].enabled = true`.
 
-Dream now keeps a terminal ledger for every source recheck. It can refresh one
-current item when its complete, reopenable source still supports it, or
-reversibly retire that item when the source contradicts it. Multi-item
-comparison signals, unsupported external sources, missing providers, and
-bounded/truncated source excerpts leave current knowledge unchanged and close
-as audit records. This is not the unplanned external web/API revalidator.
+In `0.9.23`, Dream kept a terminal ledger for every source recheck and offered
+reversible retirement. That knowledge-history design was removed in `0.9.28`.
+The current design changes or deletes only the current item after rechecking a
+complete source; unsupported or incomplete sources leave current memory
+unchanged. This is not an external web/API revalidator.
 
 `0.9.24` adds the explicit `output_mode = "json"` profile setting for
 Anthropic-compatible gateways that reject forced tool output. It is still a
@@ -73,6 +87,10 @@ no-tool transport: the runtime accepts only JSON that validates against the
 same strict Pydantic schema, so malformed text fails closed.
 
 ## Released SQLite current-knowledge convergence
+
+Rows below `0.9.28` describe what those releases shipped. Their references to
+knowledge versions, archived knowledge, mutation history, or undo are historical
+only and were removed from the current `0.9.28` design.
 
 ```text
 canonical.sqlite / knowledge_entries
@@ -105,9 +123,10 @@ Markdown/JSON/text
 | `0.9.24` | Strict JSON-text compatibility for Anthropic-compatible gateways that reject forced tool output | 2--4 | Keep JSON schema validation and no-tool boundary; do not silently downgrade malformed output | Released |
 | `0.9.25` | Hook-started Dream execution and fail-closed source/provider/undo receipts | 0, 2--4 | Keep Hook non-semantic; reject truncated retirement; preserve real undo and retryable provider failure | Released |
 | `0.9.26` | Host CLI background authorization and honest `{host}_cli` receipts | 0, 2--4 | No HTTP impersonating Agent; profile not required for CLI path; Hook re-entry guard | Released |
-| `0.9.27` | One daily `hm` entry and honest Hook/host failure boundaries | 0--4 | Quickstart leaves MCP alone; no action-specific entries, inline Hook work, or guessed host | Current release line |
+| `0.9.27` | One daily `hm` entry and honest Hook/host failure boundaries | 0--4 | Quickstart leaves MCP alone; no action-specific entries, inline Hook work, or guessed host | Released |
+| `0.9.28` | One current-memory store and short automatic project check | 2--4 | Normal-search readback; direct replacement/deletion; no knowledge history or undo; legacy `MemoryEntry` is compatibility data only | Preparing release; not published |
 
-## Current `0.9.27` source
+## Current `0.9.28` source
 
 Since `0.9.26`, authorized background work uses **`distill.autonomous.enabled=true`**
 + a **project-selected CLI**. The default is the current host; a project may
@@ -121,6 +140,15 @@ Turn off background work with **`distill.autonomous.enabled=false` only**.
 Quickstart, and `hm`. When the current host cannot be identified, or detached
 Hook dispatch fails, the pending work stays local and no model command is run
 from the Hook process.
+
+`0.9.28` keeps that public path and requires completed distill work to become
+current SQLite knowledge that ordinary search can read. Replacing a current
+item deletes it and writes the new item; invalid memory is deleted. The current
+design does not keep knowledge versions, archived knowledge copies, knowledge
+change records, or undo. Compatibility `MemoryEntry` rows remain readable but
+do not count or appear as current knowledge. The automatic project check
+reports only readiness or one recovery action; operational detail belongs to
+Doctor.
 
 These versions are implementation slices, not additional product modules. The
 product architecture remains the five independently measurable modules:

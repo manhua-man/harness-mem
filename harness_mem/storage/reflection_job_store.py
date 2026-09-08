@@ -132,7 +132,7 @@ class ReflectionJobStore:
         project_name: str | None = None,
         status: str | None = None,
         kind: str | None = None,
-        limit: int = 100,
+        limit: int | None = None,
     ) -> list[ReflectionJob]:
         """List jobs newest-first, filtered by the supplied keys (Req 2.6).
 
@@ -154,8 +154,10 @@ class ReflectionJobStore:
         sql = "SELECT data FROM reflection_jobs"
         if where:
             sql += " WHERE " + " AND ".join(where)
-        sql += " ORDER BY created_at DESC LIMIT ?"
-        params.append(limit)
+        sql += " ORDER BY created_at DESC"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(max(1, int(limit)))
 
         with self._index.locked_connection() as conn:
             rows = conn.execute(sql, params).fetchall()

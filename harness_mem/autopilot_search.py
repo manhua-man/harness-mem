@@ -114,7 +114,7 @@ _CONFLICT_TERMS = (
     "contradiction",
     "inconsistent",
     "mismatch",
-    "supersede",
+    "replace",
     "changed",
     "replaced",
     "versus",
@@ -172,9 +172,6 @@ class AutopilotSearchDecision:
     query: str | None
     reason: str
     search_surface: str = "search_memory"
-    include_history: bool = False
-    deep_recall: bool = False
-    include_provisional: bool = False
     budget_tokens: int = 1600
     injection_target: str = "next_context"
     confidence: float = 0.0
@@ -187,9 +184,6 @@ class AutopilotSearchDecision:
             "query": self.query,
             "reason": self.reason,
             "search_surface": self.search_surface,
-            "include_history": self.include_history,
-            "deep_recall": self.deep_recall,
-            "include_provisional": self.include_provisional,
             "budget_tokens": self.budget_tokens,
             "injection_target": self.injection_target,
             "confidence": self.confidence,
@@ -209,7 +203,6 @@ def plan_autopilot_search(
     candidate_claims: list[str] | None = None,
     changed_files: list[str] | None = None,
     recent_queries: list[str] | None = None,
-    include_provisional: bool = False,
     budget_tokens: int = 1600,
 ) -> AutopilotSearchDecision:
     """Return the search decision for one host/agent runtime event."""
@@ -240,8 +233,6 @@ def plan_autopilot_search(
             trigger="prewrite_claim_grounding",
             query=query,
             reason="candidate durable truth needs evidence before automatic admission",
-            include_history=True,
-            include_provisional=include_provisional,
             budget_tokens=budget_tokens,
             confidence=0.9,
             recent_queries=recent_queries,
@@ -260,8 +251,6 @@ def plan_autopilot_search(
             trigger="tool_failure",
             query=query,
             reason="tool result failed or looked flaky; prior fixes may exist",
-            include_history=True,
-            include_provisional=include_provisional,
             budget_tokens=budget_tokens,
             confidence=0.85,
             recent_queries=recent_queries,
@@ -273,10 +262,7 @@ def plan_autopilot_search(
             normalized_event,
             trigger="conflict_or_contradiction",
             query=query,
-            reason="current evidence appears to conflict with a prior or historical claim",
-            include_history=True,
-            deep_recall=True,
-            include_provisional=include_provisional,
+            reason="current evidence appears to conflict with current project memory",
             budget_tokens=budget_tokens,
             confidence=0.8,
             recent_queries=recent_queries,
@@ -288,9 +274,7 @@ def plan_autopilot_search(
             normalized_event,
             trigger="explicit_recall_request",
             query=query,
-            reason="user or agent explicitly asked for previous memory/history",
-            include_history=True,
-            include_provisional=include_provisional,
+            reason="user or agent explicitly asked for project memory",
             budget_tokens=budget_tokens,
             confidence=0.85,
             recent_queries=recent_queries,
@@ -310,7 +294,6 @@ def plan_autopilot_search(
             trigger="project_convention_uncertainty",
             query=query,
             reason="task touches project conventions, rules, or boundaries",
-            include_provisional=include_provisional,
             budget_tokens=budget_tokens,
             confidence=confidence,
             recent_queries=recent_queries,
@@ -323,8 +306,6 @@ def plan_autopilot_search(
             trigger="long_horizon_task_switch",
             query=query,
             reason="task appears to cross release/module/architecture boundaries",
-            include_history=True,
-            include_provisional=include_provisional,
             budget_tokens=budget_tokens,
             confidence=0.7,
             recent_queries=recent_queries,
@@ -378,9 +359,6 @@ def _dedupe_or_search(
     trigger: SearchTrigger,
     query: str,
     reason: str,
-    include_history: bool = False,
-    deep_recall: bool = False,
-    include_provisional: bool = False,
     budget_tokens: int = 1600,
     confidence: float,
     recent_queries: list[str] | None,
@@ -397,9 +375,6 @@ def _dedupe_or_search(
             trigger=trigger,
             query=query,
             reason="duplicate_recent_search",
-            include_history=include_history,
-            deep_recall=deep_recall,
-            include_provisional=include_provisional,
             budget_tokens=budget_tokens,
             confidence=confidence,
         )
@@ -409,9 +384,6 @@ def _dedupe_or_search(
         trigger=trigger,
         query=query,
         reason=reason,
-        include_history=include_history,
-        deep_recall=deep_recall,
-        include_provisional=include_provisional,
         budget_tokens=budget_tokens,
         confidence=confidence,
     )

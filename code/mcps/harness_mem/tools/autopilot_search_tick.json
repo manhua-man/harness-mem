@@ -62,23 +62,10 @@
         },
         "description": "Recent autopilot queries to suppress duplicates."
       },
-      "include_provisional": {
-        "type": "boolean",
-        "description": "Allow provisional auto-promoted truth in the search path.",
-        "default": false
-      },
       "budget_tokens": {
         "type": "integer",
         "description": "Advisory budget for the bounded search tick.",
         "default": 1600
-      },
-      "retrieval_profile": {
-        "type": "string",
-        "enum": [
-          "light",
-          "quality"
-        ],
-        "description": "Optional retrieval profile passed through to search_memory."
       }
     },
     "required": [

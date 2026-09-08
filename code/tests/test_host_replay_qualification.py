@@ -98,9 +98,8 @@ def test_native_host_replay_reaches_dream_and_wake(
             assert candidate_evidence[0].evidence_basis == "repository"
             assert candidate_evidence[0].verification_outcome == "verified"
             assert await knowledge_store.list_decisions(candidates[0].id) == []
-            mutations = await knowledge_store.list_mutations(project_name)
-            assert len(mutations) == 1
-            assert mutations[0].disposition == "add"
+            entries = await knowledge_store.list_entries(project_name)
+            assert [entry.statement for entry in entries] == [fact]
             written = list((tmp_path / "artifacts").glob(f"{host}-*.json"))
             assert len(written) == 1
             artifact_text = written[0].read_text(encoding="utf-8")

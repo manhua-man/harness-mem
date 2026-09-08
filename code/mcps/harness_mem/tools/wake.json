@@ -1,6 +1,6 @@
 {
   "name": "wake",
-  "description": "Generate a recent-context index plus stable truth and active handoffs for the given project, or the active project when project_name is omitted. Returns the wake-up text in `output` so the agent can ingest it directly, plus a structured bounded distill maintenance offer when Agent work is eligible.",
+  "description": "Return current project memory and whether maintenance is waiting.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -8,46 +8,9 @@
         "type": "string",
         "description": "Project name (defaults to active project when omitted)"
       },
-      "no_auto_ingest": {
-        "type": "boolean",
-        "description": "Skip the auto-ingest pass before generating wake-up text.",
-        "default": false
-      },
-      "include_skill_hints": {
-        "type": "boolean",
-        "description": "Opt-in compact skill hints appended to wake output."
-      },
-      "skill_hint_limit": {
-        "type": "integer",
-        "description": "Maximum compact skill hints to append when include_skill_hints is enabled."
-      },
       "current_task": {
         "type": "string",
         "description": "Optional current task used to build a task-aware wake packet."
-      },
-      "budget_tokens": {
-        "type": "integer",
-        "description": "Advisory wake packet budget.",
-        "default": 6000
-      },
-      "deep_recall": {
-        "type": "boolean",
-        "description": "Include cold/archive memory in task-aware wake planning.",
-        "default": false
-      },
-      "detail_level": {
-        "type": "string",
-        "enum": [
-          "compact",
-          "full"
-        ],
-        "description": "Compact returns one authoritative answer-ready context; full retains all diagnostic projections.",
-        "default": "compact"
-      },
-      "include_provisional": {
-        "type": "boolean",
-        "description": "Include provisional auto-promoted truth in task-aware wake planning.",
-        "default": false
       }
     }
   }

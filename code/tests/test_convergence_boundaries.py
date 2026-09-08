@@ -12,9 +12,9 @@ from harness_mem.mcp.tool_specs import (
 from harness_mem.version import legacy_storage_support_policy
 
 
-def test_0_9_x_public_mcp_contract_is_exactly_27_tools() -> None:
+def test_public_mcp_contract_is_exactly_20_tools() -> None:
     expected = set(PUBLIC_MCP_TOOL_NAMES)
-    assert len(expected) == 27
+    assert len(expected) == 20
     assert set(_SCHEMAS) == expected
     assert set(TOOL_CLUSTERS) == expected
     assert set(build_tool_handlers()) == expected
@@ -40,9 +40,7 @@ def test_processed_cleanup_and_privacy_erase_keep_distinct_owners() -> None:
     assert "cleanup_processed_source(" in finalize
     assert "hard_delete(" in erase_cli
     assert 'native_source_mode="erase"' in erase_cli
-    assert [key for key in PUBLIC_CONFIG_KEY_PATHS if "delete" in key] == [
-        "distill.delete_source_after_complete"
-    ]
+    assert [key for key in PUBLIC_CONFIG_KEY_PATHS if "delete" in key] == []
 
 
 def test_legacy_storage_reader_exit_policy_has_dual_removal_gate() -> None:

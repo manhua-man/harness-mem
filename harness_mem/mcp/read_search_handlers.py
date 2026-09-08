@@ -4,35 +4,19 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from typing import Any, Literal
+from typing import Any
 
 from harness_mem.commands.support import get_active_project
 from harness_mem.autopilot_search import plan_autopilot_search
-from harness_mem.read_api import (
-    parse_relative_time_window,
-    serialize_memory_entry_search_result,
-    serialize_observation_search_result,
-    serialize_relation_fact_search_result,
-)
-from harness_mem.recall import build_search_recall_result
 from harness_mem.read_knowledge import search_current_knowledge
-from harness_mem.task_context_runtime import orchestrate_task_context
 
 from .handler_facade_proxy import tool_handlers_facade as _core
 from harness_mem.mcp.read_query_support import (
     _autopilot_dx_metadata,
-    _count_mainline_historical_exclusions,
     _new_retrieval_id,
     _record_search_quality_signals,
-    _resolve_retrieval_profile,
-    _search_dx_metadata,
-    _temporal_intent_mode,
-    _with_temporal_intent_hint,
 )
-from harness_mem.mcp.read_projection import (
-    project_memory_entries,
-    project_relation_facts,
-)
+from harness_mem.mcp.read_projection import project_memory_entries
 from harness_mem.mcp.read_feedback_handlers import (
     VALID_CONTEXT_OUTCOMES,
     tool_record_context_outcome as _tool_record_context_outcome,
@@ -43,49 +27,16 @@ def _get_backend():
     return _core._get_backend()
 
 
-def _observer_data_dir():
-    return _core._observer_data_dir()
-
-
-def _cost_surface_budgets(project_name):
-    return _core._cost_surface_budgets(project_name)
-
-
-def _record_state_event(*args, **kwargs):
-    return _core._record_state_event(*args, **kwargs)
-
-
-def _run_command_to_payload(coro):
-    return _core._run_command_to_payload(coro)
-
-
-async def _gather_project_status(*args, **kwargs):
-    return await _core._gather_project_status(*args, **kwargs)
-
-
-VALID_MEMORY_TYPES: frozenset[str] = frozenset({"episodic", "semantic", "procedural"})
-VALID_RETRIEVAL_PROFILES: frozenset[str] = frozenset({"light", "quality"})
-RetrievalProfile = Literal["light", "quality"]
-
-
 def tool_search_memory(
     query: str,
     project_name: str | None = None,
     scope: str = "project",
-    mode: str = "auto",
-    memory_type: list[str] | None = None,
-    include_history: bool = False,
-    include_provisional: bool = False,
-    deep_recall: bool = False,
-    retrieval_profile: str | None = None,
-    task: str | None = None,
-    budget_tokens: int = 6000,
     _include_diagnostics: bool = False,
 ) -> dict:
-    """Search current canonical memory; raw observations require deep recall.
+    """Search only current project memory.
 
-    v1.6.1: ``memory_type`` is an optional list filter ({episodic, semantic,
-    procedural}). Empty / None disables the filter; values are OR-ed.
+    Raw conversations and processing records have their own explicit tools and
+    never enter this result, including its internal diagnostic projection.
     """
     backend = _get_backend()
 
@@ -95,36 +46,13 @@ def tool_search_memory(
             "error": "project_name is required when scope=project",
         }
 
-    if memory_type:
-        normalized = [str(value).strip().lower() for value in memory_type]
-        invalid = [value for value in normalized if value not in VALID_MEMORY_TYPES]
-        if invalid:
-            return {
-                "success": False,
-                "error": (
-                    "unknown memory_type: "
-                    + ", ".join(sorted(set(invalid)))
-                    + ". Valid: episodic | semantic | procedural."
-                ),
-            }
-        memory_type = normalized
-    else:
-        memory_type = None
-
-    clean_current_search = (
-        not memory_type
-        and not include_history
-        and not include_provisional
-        and not deep_recall
-    )
-    if scope == "project" and project_name and clean_current_search:
+    if scope == "project" and project_name:
         try:
-            separated_entries = asyncio.run(
+            entries = asyncio.run(
                 search_current_knowledge(
                     backend,
                     project_name=project_name,
                     query=query,
-                    limit=20,
                 )
             )
         except ValueError as error:
@@ -135,63 +63,43 @@ def tool_search_memory(
                 "memories": [],
                 "reason": str(error),
             }
-        historical_excluded = asyncio.run(
-            _count_mainline_historical_exclusions(
-                backend,
-                query=query,
-                project_name=project_name,
-                mode=mode,
-                memory_type=None,
-                include_provisional=False,
-                time_window=None,
-            )
-        )
         retrieval_id = _new_retrieval_id()
-        clean_retrieval_receipt = asyncio.run(
+        receipt = asyncio.run(
             _record_search_quality_signals(
                 backend,
                 project_name=project_name,
                 query=query,
-                entries=separated_entries,
-                response=SimpleNamespace(results=separated_entries),
+                entries=entries,
+                response=SimpleNamespace(results=entries),
                 context_plan=None,
-                historical_excluded=historical_excluded,
+                historical_excluded=0,
                 retrieval_id=retrieval_id,
             )
         )
-        memories = project_memory_entries(separated_entries)
-        # Retrieval correlation remains in the internal signal ledger.  The
-        # normal knowledge response is deliberately presentation-clean: a
-        # caller asking for memory must not receive audit IDs or a feedback
-        # protocol beside the knowledge itself.
-        clean_payload = {
+        memories = project_memory_entries(entries)
+        payload = {
             "project_name": project_name,
             "query": query,
-            "status": "answered" if separated_entries else "empty",
+            "status": "answered" if entries else "empty",
             "memories": memories,
         }
         if not _include_diagnostics:
-            return clean_payload
+            return payload
 
-        source_ids = list(clean_retrieval_receipt.get("source_ids") or [])
-        answer_truth = [
+        source_ids = list(receipt.get("source_ids") or [])
+        truth = [
             {
                 "source_id": entry.id,
                 "reason": "current project knowledge matched the query",
                 "summary": f"{memory['title']}: {memory['statement']}",
             }
-            for entry, memory in zip(separated_entries, memories, strict=True)
+            for entry, memory in zip(entries, memories, strict=True)
         ]
         return {
-            **clean_payload,
+            **payload,
             "retrieval_id": retrieval_id,
-            "retrieval_receipt": clean_retrieval_receipt,
-            "memory_entries": memories,
-            "memory_entry_count": len(memories),
-            "relation_facts": [],
-            "relation_fact_count": 0,
-            "observations": [],
-            "observation_count": 0,
+            "retrieval_receipt": receipt,
+            "memory_count": len(memories),
             "context_plan": {
                 "project_name": project_name,
                 "query": query,
@@ -200,14 +108,13 @@ def tool_search_memory(
             "answer_ready_context": {
                 "project_name": project_name,
                 "query": query,
-                "current_task": task,
+                "current_task": None,
                 "safe_to_answer": bool(memories),
                 "sufficiency_status": "sufficient" if memories else "empty",
                 "support_level": "current_truth" if memories else "none",
-                "effective_deep_recall": False,
                 "orchestration_actions": ["current_knowledge_search"],
                 "project_profile": [],
-                "truth": answer_truth,
+                "truth": truth,
                 "active_task": [],
                 "topic_recall": [],
                 "supporting_evidence": [],
@@ -234,8 +141,8 @@ def tool_search_memory(
             ),
         }
 
-    if scope == "all" and clean_current_search:
-        separated_entries = []
+    if scope == "all":
+        entries = []
         entries_by_project: dict[str, list[Any]] = {}
         for known_project in asyncio.run(
             backend.structured_store.knowledge_store.known_projects()
@@ -246,7 +153,6 @@ def tool_search_memory(
                         backend,
                         project_name=known_project,
                         query=query,
-                        limit=20,
                     )
                 )
             except ValueError:
@@ -254,12 +160,12 @@ def tool_search_memory(
                 # to fall back to legacy rows from canonical SQLite.
                 continue
             entries_by_project[known_project] = project_entries
-            separated_entries.extend(project_entries)
-        separated_entries = sorted(
-            separated_entries,
+            entries.extend(project_entries)
+        entries = sorted(
+            entries,
             key=lambda entry: (entry.project_name, entry.title, entry.id),
-        )[:20]
-        surfaced_ids = {entry.id for entry in separated_entries}
+        )
+        surfaced_ids = {entry.id for entry in entries}
         retrieval_id = _new_retrieval_id()
         for known_project, project_entries in entries_by_project.items():
             surfaced = [entry for entry in project_entries if entry.id in surfaced_ids]
@@ -280,236 +186,16 @@ def tool_search_memory(
         return {
             "project_name": None,
             "query": query,
-            "status": "answered" if separated_entries else "empty",
+            "status": "answered" if entries else "empty",
             "memories": project_memory_entries(
-                separated_entries,
+                entries,
                 include_project=True,
             ),
         }
 
-    profile_info = asyncio.run(
-        _resolve_retrieval_profile(
-            backend,
-            project_name=project_name if scope == "project" else None,
-            requested=retrieval_profile,
-        )
-    )
-    if not profile_info["success"]:
-        return profile_info
-
-    parsed_time = parse_relative_time_window(query)
-    runtime = asyncio.run(
-        orchestrate_task_context(
-            backend,
-            query=parsed_time.query,
-            project_name=project_name,
-            scope=scope,
-            mode=mode,
-            memory_type=memory_type,
-            include_history=include_history,
-            include_provisional=include_provisional,
-            time_window=parsed_time.time_window,
-            deep_recall=deep_recall,
-            current_task=task,
-            budget_tokens=budget_tokens,
-            auto_deep_recall=False,
-            retrieval_profile=profile_info["active"],
-        )
-    )
-    response = runtime.response
-    entries = runtime.entries
-    obs_list = runtime.observations
-    relation_facts = runtime.relation_facts
-    retrieval_id = _new_retrieval_id()
-    retrieval_receipt: dict[str, Any] = {
-        "contract_version": "retrieval-signal-receipt-v1",
-        "retrieval_id": retrieval_id,
-        "surface": "search_memory",
-        "attempted": 0,
-        "recorded": 0,
-        "failed": 0,
-        "state": "not_applicable",
-        "source_ids": [],
-        "content_recorded": False,
-    }
-    if scope == "project" and project_name:
-        historical_excluded = 0
-        if not include_history and not deep_recall:
-            historical_excluded = asyncio.run(
-                _count_mainline_historical_exclusions(
-                    backend,
-                    query=parsed_time.query,
-                    project_name=project_name,
-                    mode=mode,
-                    memory_type=memory_type,
-                    include_provisional=include_provisional,
-                    time_window=parsed_time.time_window,
-                )
-            )
-        retrieval_receipt = asyncio.run(
-            _record_search_quality_signals(
-                backend,
-                project_name=project_name,
-                query=query,
-                entries=entries,
-                relation_facts=relation_facts,
-                observations=obs_list,
-                response=response,
-                context_plan=runtime.context_plan,
-                historical_excluded=historical_excluded,
-                retrieval_id=retrieval_id,
-            )
-        )
-    tech_stack_by_project = runtime.tech_stack_by_project
-    effective_mode = response.effective_mode
-    fallback_reason = response.fallback_metadata.get("fallback_reason")
-    temporal_intent = _temporal_intent_mode(query)
-    drilldown_hints = _with_temporal_intent_hint(
-        response.drilldown_hints,
-        project_name=project_name,
-        query=query,
-        mode=temporal_intent,
-    )
-    context_payload: dict[str, Any] = {}
-    if runtime.context_plan is not None:
-        context_plan = runtime.context_plan
-        context_plan_payload = context_plan.to_dict()
-        context_plan_payload["drilldown_hints"] = drilldown_hints
-        context_plan_payload["iterative_retrieval_trace"]["retrieval_quality"] = (
-            response.retrieval_quality
-        )
-        context_payload = {
-            "context_sufficiency": context_plan.context_sufficiency.to_dict(),
-            "retrieval_plan": context_plan.retrieval_plan.to_dict(),
-            "context_plan": context_plan_payload,
-            "iterative_retrieval_trace": (
-                context_plan.iterative_retrieval_trace.to_dict()
-            ),
-            "wake_packet": context_plan.wake_packet.to_dict(),
-        }
-    dx_metadata = _search_dx_metadata(
-        memory_entry_count=len(entries),
-        relation_fact_count=len(relation_facts),
-        observation_count=len(obs_list),
-        effective_mode=effective_mode,
-        fallback_reason=fallback_reason,
-        project_name=project_name,
-        query=query,
-        include_history=include_history,
-        deep_recall=deep_recall,
-        temporal_intent_mode=temporal_intent,
-    )
-    serialized_memory_entries = [
-        serialize_memory_entry_search_result(entry, mode, tech_stack_by_project)
-        for entry in entries
-    ]
-    serialized_relation_facts = [
-        serialize_relation_fact_search_result(fact, tech_stack_by_project)
-        for fact in relation_facts
-    ]
-    serialized_observations = [
-        serialize_observation_search_result(
-            observation,
-            mode,
-            query,
-            tech_stack_by_project,
-        )
-        for observation in obs_list
-    ]
-    recall_result = build_search_recall_result(
-        project_name=project_name,
-        query=query,
-        effective_query=parsed_time.query,
-        requested_mode=mode,
-        effective_mode=effective_mode,
-        memory_entries=serialized_memory_entries,
-        relation_facts=serialized_relation_facts,
-        observations=serialized_observations,
-        drilldown_hints=drilldown_hints,
-        context=context_payload or None,
-        answer_ready_context=runtime.answer_ready_context,
-        warnings=[fallback_reason] if fallback_reason else [],
-        effort="dynamic",
-    )
-    source_ids = list(retrieval_receipt.get("source_ids") or [])
-    record_outcome_call = (
-        {
-            "tool": "record_context_outcome",
-            "arguments": {
-                "project_name": project_name,
-                "surface": "search_memory",
-                "source_ids": source_ids,
-                "retrieval_id": retrieval_id,
-            },
-            "required_argument": "outcome",
-            "allowed_outcomes": sorted(VALID_CONTEXT_OUTCOMES),
-        }
-        if project_name and source_ids
-        else None
-    )
-
-    detailed_payload = {
-        "project_name": project_name,
-        "retrieval_id": retrieval_id,
-        "retrieval_receipt": retrieval_receipt,
-        "query": query,
-        "effective_query": parsed_time.query,
-        "scope": scope,
-        "requested_mode": mode,
-        "effective_mode": effective_mode,
-        "fallback_reason": fallback_reason,
-        "include_history": include_history,
-        "deep_recall": deep_recall,
-        "effective_deep_recall": runtime.effective_deep_recall,
-        "orchestration_actions": runtime.orchestration_actions,
-        "retrieval_profile": {
-            "active": profile_info["active"],
-            "configured": profile_info["configured"],
-            "source": profile_info["source"],
-        },
-        "retrieval_quality": {
-            **response.retrieval_quality,
-            "active": profile_info["active"],
-            "source": profile_info["source"],
-            "configured": profile_info["configured"],
-            "can_disable": True,
-        },
-        "time_window": (
-            {
-                "start": parsed_time.start.isoformat() if parsed_time.start else None,
-                "end": parsed_time.end.isoformat() if parsed_time.end else None,
-                "phrase": parsed_time.phrase,
-            }
-            if parsed_time.time_window
-            else None
-        ),
-        "memory_entries": serialized_memory_entries,
-        "relation_facts": serialized_relation_facts,
-        "observations": serialized_observations,
-        "memory_entry_count": len(entries),
-        "relation_fact_count": len(relation_facts),
-        "observation_count": len(obs_list),
-        "backend_budget": response.budget,
-        "backend_truncation": response.truncation,
-        "source_coverage": response.source_coverage,
-        "drilldown_hints": drilldown_hints,
-        **dx_metadata,
-        "supporting_evidence": runtime.supporting_evidence,
-        "answer_ready_context": runtime.answer_ready_context,
-        "recall": recall_result.to_dict(),
-        "record_outcome_call": record_outcome_call,
-        **context_payload,
-    }
-    if deep_recall or _include_diagnostics:
-        return detailed_payload
     return {
-        "project_name": project_name,
-        "query": query,
-        "status": recall_result.status,
-        "memories": [
-            *project_memory_entries(entries, include_project=scope == "all"),
-            *project_relation_facts(relation_facts, include_project=scope == "all"),
-        ],
+        "success": False,
+        "error": "scope must be project or all",
     }
 
 
@@ -526,9 +212,7 @@ def tool_autopilot_search_tick(
     candidate_claims: list[str] | None = None,
     changed_files: list[str] | None = None,
     recent_queries: list[str] | None = None,
-    include_provisional: bool = False,
     budget_tokens: int = 1600,
-    retrieval_profile: str | None = None,
 ) -> dict:
     """Decide whether an agent runtime event should trigger memory search.
 
@@ -550,7 +234,6 @@ def tool_autopilot_search_tick(
         candidate_claims=candidate_claims,
         changed_files=changed_files,
         recent_queries=recent_queries,
-        include_provisional=include_provisional,
         budget_tokens=budget_tokens,
     )
     decision_payload = decision.to_dict()
@@ -586,13 +269,6 @@ def tool_autopilot_search_tick(
         query=decision.query or "",
         project_name=resolved_project,
         scope="project",
-        mode="auto",
-        include_history=decision.include_history,
-        include_provisional=decision.include_provisional,
-        deep_recall=decision.deep_recall,
-        retrieval_profile=retrieval_profile,
-        task=current_task,
-        budget_tokens=decision.budget_tokens,
         _include_diagnostics=True,
     )
     source_ids = [

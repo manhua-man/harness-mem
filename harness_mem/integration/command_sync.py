@@ -110,7 +110,9 @@ def _remove_empty_parent(path: Path, destination: Path) -> None:
             pass
 
 
-def _render_primary_command(source: Path, client: CommandHost) -> str:
+def render_primary_command(source: Path, client: CommandHost) -> str:
+    """Render the canonical ``hm`` command for one host's native format."""
+
     body = source.read_text(encoding="utf-8").lstrip("\ufeff")
     if client not in _SKILL_HOSTS:
         return body
@@ -147,7 +149,7 @@ def sync_host_commands(
 
     destination = default_host_commands_dir(client)
     primary_target = _primary_target(destination, client)
-    rendered = _render_primary_command(primary_source, client)
+    rendered = render_primary_command(primary_source, client)
     removed: list[str] = []
     changed = False
     replaced = False

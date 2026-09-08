@@ -20,7 +20,6 @@ from harness_mem.config.errors import ConfigError
 from harness_mem.config.merge import MergedConfig, load_merged_config
 from harness_mem.runtime_health import runtime_health_report
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
-from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 from harness_mem.storage.local_structured_store import LocalStructuredStore
 from harness_mem.storage.local_verbatim_store import LocalVerbatimStore
 from harness_mem.governance_status import LEGACY_ACCEPTED_STATUS
@@ -537,13 +536,10 @@ async def local_health_summary(
 
     try:
         data_dir = backend.data_dir
-        profile = await LocalProjectProfileStore(data_dir).get(project_name)
         report["runtime_health"] = await runtime_health_report(
             backend,
             data_dir=data_dir,
             project_name=project_name,
-            profile=profile,
-            project_root=find_project_root(project_name),
             repo_root=Path(__file__).resolve().parents[2],
         )
     except Exception as exc:  # noqa: BLE001

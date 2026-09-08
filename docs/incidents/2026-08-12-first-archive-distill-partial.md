@@ -1,5 +1,9 @@
 # First Real Archive Distill Batch — Partial Incident Report
 
+> Historical incident record. Its references to an immutable Note describe the
+> old implementation. In `0.9.28`, a Note is only a readable session summary;
+> it is not current memory, a knowledge version, or an undo record.
+
 Date: 2026-08-12 to 2026-08-13
 
 Incident classification: partial

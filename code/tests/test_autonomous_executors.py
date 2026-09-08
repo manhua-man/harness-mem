@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from harness_mem.autonomous.executors import host_structured_cli
+from harness_mem.autonomous.executors import host_cli
 from harness_mem.autonomous.executors.host_structured_cli import HostStructuredCliProvider
 from harness_mem.autonomous.executors.registry import build_semantic_executor
 from harness_mem.autonomous.provider import ProviderError
@@ -15,8 +18,34 @@ from harness_mem.autonomous.models import AutonomousDecision
 from harness_mem.config.merge import MergedConfig, load_merged_config
 
 
+def test_coerce_json_text_accepts_json_with_trailing_cli_text() -> None:
+    raw = '{"points": []}\nHermes finished. usage={"total_tokens": 12}'
+    assert host_structured_cli._coerce_json_text(raw) == '{"points": []}'
+
+
 def _authorized_config() -> MergedConfig:
     return MergedConfig(distill_autonomous_enabled=True)
+
+
+def test_windows_hermes_shim_resolves_to_native_executable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if os.name != "nt":
+        pytest.skip("Windows launcher behavior")
+    native = (
+        Path.home()
+        / ".hermes"
+        / "hermes-agent"
+        / "venv"
+        / "Scripts"
+        / "hermes.exe"
+    )
+    if not native.is_file():
+        pytest.skip("Hermes native install is not present")
+    monkeypatch.delenv("HARNESS_MEM_HERMES_EXECUTABLE", raising=False)
+    importlib.reload(host_cli)
+    monkeypatch.setattr(host_cli.shutil, "which", lambda _name: r"C:\tools\hermes.CMD")
+    assert Path(host_cli._resolve_executable("hermes")) == native
 
 
 def _decision_payload() -> dict[str, Any]:
@@ -234,6 +263,7 @@ def test_host_cli_invokes_structured_command_for_each_host(
         assert captured["env"]["HERMES_SESSION_SOURCE"] == "tool"
         assert captured["prompt"].startswith("Read the complete session evidence")
         assert 'Use this shape: {"review"' in captured["prompt"]
+        assert "Every object key and every string value must use ASCII double quotes" in captured["prompt"]
         assert '"$defs"' not in captured["prompt"]
         assert len(captured["prompt"]) < 5000
         assert result.input_sha256 == hashlib.sha256(

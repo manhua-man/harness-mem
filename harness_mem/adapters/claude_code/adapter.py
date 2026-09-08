@@ -154,7 +154,7 @@ class ClaudeCodeAdapter:
     async def ingest_project(
         self,
         project_name: str,
-        limit: int = 10,
+        limit: int | None = None,
         min_size_kb: int = 100,
     ) -> dict:
         """Ingest recent sessions for a project.
@@ -206,7 +206,7 @@ class ClaudeCodeAdapter:
     async def ingest(
         self,
         project_name: str | None = None,
-        limit: int = 10,
+        limit: int | None = None,
         min_size_kb: int = 100,
     ) -> dict[str, Any]:
         """Shared adapter contract wrapper for project-scoped Claude ingestion."""

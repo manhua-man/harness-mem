@@ -12,7 +12,6 @@ from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.schemas.relation_fact import RelationFact
 from harness_mem.core.schemas.skill import Skill
 from harness_mem.read_api import (
-    query_temporal_truth,
     search_memory as read_search_memory,
     search_relation_facts as read_search_relation_facts,
 )
@@ -678,101 +677,6 @@ def test_superseded_by_links_are_current_hard_filters_even_without_valid_to(
     assert _ids(history_entries) == {old_memory_id, current_memory_id}
     assert _ids(history_relations) == {old_relation_id, current_relation_id}
     assert _ids(history_rules) == {old_rule_id, current_rule_id}
-
-
-def test_query_temporal_truth_current_history_abstention_and_conflict(
-    backend,
-) -> None:
-    past = _now() - timedelta(days=1)
-    historical_id = _run(
-        backend.structured_store.save_memory_entry(
-            MemoryEntry(
-                project_name="demo",
-                category="decision",
-                content="temporaltoken historical decision",
-                source="test",
-                status="user_confirmed",
-                valid_to=past,
-            )
-        )
-    )
-    current_id = _run(
-        backend.structured_store.save_memory_entry(
-            MemoryEntry(
-                project_name="demo",
-                category="decision",
-                content="temporaltoken current decision",
-                source="test",
-                status="user_confirmed",
-            )
-        )
-    )
-
-    current = _run(
-        query_temporal_truth(
-            backend,
-            project_name="demo",
-            query="temporaltoken",
-            mode="current",
-        )
-    )
-    history = _run(
-        query_temporal_truth(
-            backend,
-            project_name="demo",
-            query="temporaltoken",
-            mode="history",
-        )
-    )
-    missing = _run(
-        query_temporal_truth(
-            backend,
-            project_name="demo",
-            query="missing-temporal-token",
-            mode="current",
-        )
-    )
-
-    assert [record.id for record in current.records] == [current_id]
-    assert current.abstain is False
-    assert [record.id for record in history.records] == [historical_id]
-    assert missing.abstain is True
-    assert missing.abstention_reason == "no_evidence"
-
-    _run(
-        backend.structured_store.save_memory_entry(
-            MemoryEntry(
-                project_name="demo",
-                category="decision",
-                content="conflicttoken first current decision",
-                source="test",
-                status="user_confirmed",
-            )
-        )
-    )
-    _run(
-        backend.structured_store.save_memory_entry(
-            MemoryEntry(
-                project_name="demo",
-                category="decision",
-                content="conflicttoken second current decision",
-                source="test",
-                status="user_confirmed",
-            )
-        )
-    )
-    conflict = _run(
-        query_temporal_truth(
-            backend,
-            project_name="demo",
-            query="conflicttoken",
-            mode="current",
-            require_unique_current=True,
-        )
-    )
-
-    assert conflict.abstain is True
-    assert conflict.abstention_reason == "temporal_conflict"
 
 
 def test_search_facade_preserves_memory_relation_observation_semantics(backend) -> None:

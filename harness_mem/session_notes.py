@@ -137,6 +137,37 @@ def latest_session_note_path(notes_dir: Path, session_id: str) -> Path:
     return notes_dir / f"{session_id}.md"
 
 
+def delete_session_notes(notes_dir: Path, job: SessionDistillJob) -> dict[str, int]:
+    """Remove the selected job's Note and latest session view.
+
+    Active user processing is intentionally ephemeral after a successful
+    finalize. Dream keeps its Notes as an archive and never calls this helper.
+    Only the exact job/session paths are removed; no directory-wide cleanup is
+    performed.
+    """
+
+    paths = {
+        session_note_path(notes_dir, job),
+        latest_session_note_path(notes_dir, job.session_id),
+    }
+    removed = 0
+    failed = 0
+    for path in paths:
+        try:
+            if path.is_file():
+                path.unlink()
+                removed += 1
+        except OSError:
+            failed += 1
+    revision_dir = notes_dir / "revisions" / job.id
+    try:
+        if revision_dir.is_dir() and not any(revision_dir.iterdir()):
+            revision_dir.rmdir()
+    except OSError:
+        pass
+    return {"removed": removed, "failed": failed}
+
+
 def materialize_session_note(
     job: SessionDistillJob,
     *,

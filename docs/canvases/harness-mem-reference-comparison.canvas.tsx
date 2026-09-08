@@ -69,7 +69,7 @@ const TEN_DIMENSIONS = [
     hm: 83,
     peak: 91,
     peakProject: "hindsight",
-    note: "temporal_query read model；非图数据库",
+    note: "历史时序读取模型；temporal_query 已由 0.9.28 删除",
   },
   {
     id: "wiki",

@@ -162,6 +162,41 @@ def test_host_entry_blocks_autonomous_provider_hook_reentry(
     assert data["summary"]["hook_reentry_blocked"] is True
 
 
+def test_host_entry_does_not_dispatch_the_maintenance_sessions_own_stop_hook(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    from harness_mem.maintenance_lock import exclusive_maintenance_run
+
+    data_dir = tmp_path / "data"
+    monkeypatch.setattr(backend_module, "DEFAULT_DATA_DIR", data_dir)
+    monkeypatch.setattr(
+        hook_background,
+        "dispatch_post_turn",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("the maintenance session must not start a background writer")
+        ),
+    )
+    with exclusive_maintenance_run(
+        data_dir,
+        run_id="archive-run",
+        operation="archive-distill",
+        owner_session_ids=["turn-1"],
+    ):
+        pass
+    args = _args(tmp_path, "post-turn-maintenance")
+    args.client = "codex"
+
+    code, payload = asyncio.run(host_entry.run(args))
+
+    assert code == ExitCode.SUCCESS
+    data = json.loads(payload or "{}")
+    assert data["status"] == "skipped"
+    assert data["reason"] == "exclusive_maintenance_run_active"
+    assert data["summary"]["maintenance_excluded"] is True
+    assert data["summary"]["spawned"] is False
+
+
 def test_host_entry_post_turn_maintenance_outputs_combined_json(
     monkeypatch, tmp_path
 ) -> None:

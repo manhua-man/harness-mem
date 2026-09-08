@@ -41,20 +41,6 @@ CLI_ERROR_CODES: dict[str, CliErrorCode] = {
         ),
         note="Preview archival candidates before the wake-up payload grows further.",
     ),
-    "doctor_wake_bucket_quota_sum": CliErrorCode(
-        code="HM-101",
-        level="error",
-        summary="wake bucket quotas must sum to 1.0.",
-        fix_command="edit ~/.harness-mem/config.toml [wake] bucket_quota_* (default: 0.5 / 0.5 / 0.0)",
-        note="Three quota values for semantic / episodic / procedural buckets must total 1.0; tolerance is 0.001.",
-    ),
-    "doctor_wake_bucket_quota_range": CliErrorCode(
-        code="HM-102",
-        level="error",
-        summary="wake bucket quota out of range.",
-        fix_command="edit ~/.harness-mem/config.toml [wake] bucket_quota_* (each value in [0.0, 1.0])",
-        note="Each bucket_quota_* value must be a finite float in [0.0, 1.0].",
-    ),
     "doctor_unused_confirmed_rules": CliErrorCode(
         code="HM-401",
         level="warning",

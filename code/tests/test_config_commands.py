@@ -26,7 +26,7 @@ def _redirect_home(monkeypatch: pytest.MonkeyPatch, home: Path) -> None:
     monkeypatch.setattr(Path, "home", lambda: home)
 
 
-def test_automation_defaults_active_but_source_deletion_defaults_safe(
+def test_automation_defaults_active_without_source_deletion_setting(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -42,14 +42,8 @@ def test_automation_defaults_active_but_source_deletion_defaults_safe(
     assert config.capture_private_tags is True
     assert MergedConfig().distill_auto_enabled is True
     assert config.distill_auto_enabled is True
-    assert MergedConfig().distill_delete_source_after_complete is False
-    assert config.distill_delete_source_after_complete is False
     assert MergedConfig().distill_autonomous_enabled is False
     assert config.distill_autonomous_enabled is False
-    assert (
-        config.to_reflection_config()["distill"]["delete_source_after_complete"]
-        is False
-    )
 
 
 def test_legacy_semantic_profile_keys_are_stripped_on_load(
@@ -136,8 +130,6 @@ def test_archive_distill_defaults_are_public_and_typed(
     config = load_merged_config(project)
 
     assert config.archive_distill_enabled is False
-    assert config.archive_distill_batch_size == 3
-    assert config.archive_distill_daily_limit == 20
     assert config.archive_distill_order == "recent_first"
     assert config.archive_distill_project_scope == "current"
     assert config.archive_distill_unresolved_project == "defer"
@@ -147,8 +139,6 @@ def test_archive_distill_defaults_are_public_and_typed(
     assert config.archive_distill_report_promotions is True
     assert {
         "archive_distill.enabled",
-        "archive_distill.batch_size",
-        "archive_distill.daily_limit",
         "archive_distill.order",
         "archive_distill.project_scope",
         "archive_distill.unresolved_project",
@@ -159,32 +149,6 @@ def test_archive_distill_defaults_are_public_and_typed(
     } <= set(PUBLIC_CONFIG_KEY_PATHS)
 
 
-def test_only_project_delete_source_setting_can_authorize_cleanup(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    home = tmp_path / "home"
-    project = tmp_path / "project"
-    project.mkdir()
-    _redirect_home(monkeypatch, home)
-
-    set_value(
-        scope="user",
-        project_root=project,
-        key_path="distill.delete_source_after_complete",
-        value="true",
-    )
-    assert load_merged_config(project).distill_delete_source_after_complete is False
-
-    set_value(
-        scope="project",
-        project_root=project,
-        key_path="distill.delete_source_after_complete",
-        value="true",
-    )
-    assert load_merged_config(project).distill_delete_source_after_complete is True
-
-
 @pytest.mark.parametrize(
     ("key", "value", "expected"),
     [
@@ -193,10 +157,7 @@ def test_only_project_delete_source_setting_can_authorize_cleanup(
         ("distill.auto.enabled", "false", False),
         ("distill.autonomous.enabled", "false", False),
         ("distill.autonomous.cli", "hermes", "hermes"),
-        ("distill.delete_source_after_complete", "true", True),
         ("archive_distill.enabled", "true", True),
-        ("archive_distill.batch_size", "5", 5),
-        ("archive_distill.daily_limit", "30", 30),
         ("archive_distill.order", "oldest_first", "oldest_first"),
         ("archive_distill.project_scope", "current", "current"),
         ("archive_distill.unresolved_project", "skip", "skip"),
@@ -235,9 +196,7 @@ def test_config_writer_preserves_typed_values(
 @pytest.mark.parametrize(
     ("key", "value"),
     [
-        ("distill.auto.daily_job_budget", "12"),
         ("dream.auto.trigger", "idle"),
-        ("dream.handle.auto_apply", "false"),
         ("cost_budget.wake_tokens", "1500"),
     ],
 )
@@ -257,17 +216,19 @@ def test_config_set_rejects_internal_runtime_tuning(
     assert not (project / ".harness-mem.toml").exists()
 
 
-def test_config_set_rejects_unknown_public_policy_key(
+@pytest.mark.parametrize("key", ["dream.handle.auto_apply", "mystery.option"])
+def test_config_set_rejects_removed_or_unknown_public_policy_key(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
+    key: str,
 ) -> None:
     project = tmp_path / "project"
     project.mkdir()
 
-    assert cmd_config_set("mystery.option", "true", "project", str(project)) == 1
+    assert cmd_config_set(key, "true", "project", str(project)) == 1
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "mystery.option" in captured.err
+    assert key in captured.err
     assert not (project / ".harness-mem.toml").exists()
 
 
@@ -302,10 +263,6 @@ def test_removed_autopilot_key_is_ignored_by_loader_and_absent_from_cli(
 @pytest.mark.parametrize(
     ("key", "value"),
     [
-        ("archive_distill.batch_size", "0"),
-        ("archive_distill.batch_size", "101"),
-        ("archive_distill.daily_limit", "0"),
-        ("archive_distill.daily_limit", "10001"),
         ("archive_distill.order", "random"),
         ("archive_distill.project_scope", "mystery"),
         ("archive_distill.unresolved_project", "guess"),
@@ -328,103 +285,6 @@ def test_archive_distill_rejects_values_outside_public_contract(
             key_path=key,
             value=value,
         )
-
-
-def test_config_set_rejects_invalid_delete_source_boolean(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-
-    exit_code = cmd_config_set(
-        "distill.delete_source_after_complete",
-        "sometimes",
-        "project",
-        str(project),
-    )
-
-    assert exit_code == 1
-    captured = capsys.readouterr()
-    assert captured.out == ""
-    assert "allowed: {true, false}" in captured.err
-    assert not (project / ".harness-mem.toml").exists()
-
-
-def test_enabling_delete_source_requires_one_persistent_confirmation(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    home = tmp_path / "home"
-    project = tmp_path / "project"
-    project.mkdir()
-    _redirect_home(monkeypatch, home)
-
-    assert (
-        cmd_config_set(
-            "distill.delete_source_after_complete",
-            "true",
-            "project",
-            str(project),
-        )
-        == 1
-    )
-    captured = capsys.readouterr()
-    assert captured.out == ""
-    assert "rerun with --confirm" in captured.err
-    assert not (project / ".harness-mem.toml").exists()
-
-    assert (
-        cmd_config_set(
-            "distill.delete_source_after_complete",
-            "true",
-            "project",
-            str(project),
-            confirm=True,
-        )
-        == 0
-    )
-    assert load_merged_config(project).distill_delete_source_after_complete is True
-    capsys.readouterr()
-
-    # Re-applying an already enabled value is not a new destructive transition.
-    assert (
-        cmd_config_set(
-            "distill.delete_source_after_complete",
-            "true",
-            "project",
-            str(project),
-        )
-        == 0
-    )
-
-
-def test_disabling_delete_source_never_requires_confirmation(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    home = tmp_path / "home"
-    project = tmp_path / "project"
-    project.mkdir()
-    _redirect_home(monkeypatch, home)
-    set_value(
-        scope="project",
-        project_root=project,
-        key_path="distill.delete_source_after_complete",
-        value="true",
-    )
-
-    assert (
-        cmd_config_set(
-            "distill.delete_source_after_complete",
-            "false",
-            "project",
-            str(project),
-        )
-        == 0
-    )
-    assert load_merged_config(project).distill_delete_source_after_complete is False
 
 
 def test_enabling_autonomous_distill_requires_persistent_confirmation(
@@ -492,25 +352,12 @@ def test_config_get_and_list_include_only_public_policy_keys(
     project = tmp_path / "project"
     project.mkdir()
     _redirect_home(monkeypatch, home)
-    set_value(
-        scope="project",
-        project_root=project,
-        key_path="distill.delete_source_after_complete",
-        value="true",
-    )
-
-    assert cmd_config_get("distill.delete_source_after_complete", str(project)) == 0
-    assert capsys.readouterr().out == "true\n"
-
     assert cmd_config_list(str(project)) == 0
     output = capsys.readouterr().out
     assert "autopilot.enabled" not in output
     assert "capture.enabled = true  (default)" in output
     assert "distill.auto.enabled = true  (default)" in output
-    assert "distill.delete_source_after_complete = true  (project)" in output
     assert "archive_distill.enabled = false  (default)" in output
-    assert "archive_distill.batch_size = 3  (default)" in output
-    assert "archive_distill.daily_limit = 20  (default)" in output
     assert "archive_distill.order = recent_first  (default)" in output
     assert "archive_distill.project_scope = current  (default)" in output
     assert "archive_distill.unresolved_project = defer  (default)" in output
@@ -548,9 +395,6 @@ def test_config_list_runtime_detail_adds_read_only_tuning_and_sources(
     assert cmd_config_list(str(project), detail="runtime") == 0
     output = capsys.readouterr().out
     assert "runtime tuning (read-only):" in output
-    assert "distill.auto.max_jobs_per_wake = 2  (default)" in output
-    assert "distill.auto.target_backlog = 2  (default)" in output
-    assert "distill.auto.daily_job_budget = 8  (default)" in output
     assert "cost_budget.distill_tokens = 4500  (user)" in output
     assert "dream.auto.min_interval_hours = 24  (default)" in output
     assert "dream.auto.idle_seconds = 900  (default)" in output

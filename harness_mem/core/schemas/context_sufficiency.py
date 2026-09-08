@@ -263,7 +263,7 @@ def classify_query(query: str) -> str:
 
 
 def deterministic_query_rewrites(query: str, *, classifier: str | None = None) -> list[str]:
-    """Return bounded local rewrites used for audit, not silent truth mutation."""
+    """Return bounded local rewrites used for review, not silent truth changes."""
     normalized = " ".join(query.split())
     kind = classifier or classify_query(normalized)
     rewrites = [normalized]

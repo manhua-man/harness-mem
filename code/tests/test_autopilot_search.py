@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 
 import pytest
 
 from harness_mem.autopilot_search import plan_autopilot_search
+from harness_mem.core.schemas import (
+    AssimilationDecision,
+    KnowledgeCandidate,
+    KnowledgeEntry,
+    ProjectKnowledgeSourceRef,
+)
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.mcp import server
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
@@ -66,7 +73,7 @@ def test_save_point_claims_trigger_prewrite_grounding() -> None:
 
     assert decision.should_search is True
     assert decision.trigger == "prewrite_claim_grounding"
-    assert decision.include_history is True
+    assert not hasattr(decision, "include_history")
 
 
 def test_autopilot_tick_skips_duplicate_recent_query() -> None:
@@ -95,15 +102,53 @@ def test_autopilot_tick_skips_duplicate_recent_query() -> None:
 
 
 def test_mcp_autopilot_tick_executes_search_on_tool_failure(backend) -> None:
+    source = backend.data_dir / "SOURCE.md"
+    source.write_text("# Test source\n", encoding="utf-8")
+    entry = KnowledgeEntry(
+        project_name="demo",
+        module_path=["testing"],
+        title="Windows pytest timeout",
+        statement=(
+            "Disable embeddings and isolate USERPROFILE before running memory tests."
+        ),
+        verified_at=datetime.now(timezone.utc),
+    )
+    candidate = KnowledgeCandidate(
+        project_name="demo",
+        candidate_type="memory",
+        statement=entry.statement,
+    )
+    asyncio.run(
+        backend.structured_store.knowledge_store.apply_current_change(
+            candidate_before=candidate,
+            candidate_after=candidate.model_copy(update={"status": "assimilated"}),
+            decision=AssimilationDecision(
+                project_name="demo",
+                candidate_id=candidate.id,
+                disposition="add",
+                canonical_truth_ids=[entry.id],
+                reason="Test fixture.",
+            ),
+            added_entries=[entry],
+            predecessor_entries=[],
+            source_refs_by_entry={
+                entry.id: [
+                    ProjectKnowledgeSourceRef(
+                        label=source.name,
+                        target=source.resolve().as_uri(),
+                        kind="repository",
+                        digest="a" * 64,
+                    )
+                ]
+            },
+        )
+    )
     asyncio.run(
         backend.structured_store.save_memory_entry(
             MemoryEntry(
                 project_name="demo",
-                category="bug",
-                content=(
-                    "pytest Windows timeout prior fix: disable embeddings and "
-                    "isolate USERPROFILE before running memory tests."
-                ),
+                category="decision",
+                content="Ignore this obsolete pytest timeout instruction.",
                 source="test",
                 status="user_confirmed",
             )
@@ -122,7 +167,8 @@ def test_mcp_autopilot_tick_executes_search_on_tool_failure(backend) -> None:
     assert payload["success"] is True
     assert payload["search_executed"] is True
     assert payload["decision"]["trigger"] == "tool_failure"
-    assert payload["search"]["memory_entry_count"] >= 1
+    assert payload["search"]["memory_count"] == 1
+    assert "obsolete pytest timeout instruction" not in str(payload)
     assert payload["context_injection"]["target"] == "next_context"
     assert payload["context_injection"]["record_outcome_call"]["tool"] == "record_context_outcome"
 

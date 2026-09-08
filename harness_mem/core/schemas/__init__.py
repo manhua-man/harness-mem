@@ -10,9 +10,7 @@ from harness_mem.core.schemas.knowledge import (
     KnowledgeCandidateType,
     KnowledgeEntry,
     KnowledgeEvidence,
-    KnowledgeMutation,
     KnowledgeSource,
-    KnowledgeVersion,
 )
 from harness_mem.core.schemas.project_knowledge_base import (
     ProjectKnowledgeSourceRef,
@@ -87,9 +85,7 @@ __all__ = [
     "KnowledgeCandidateType",
     "KnowledgeEntry",
     "KnowledgeEvidence",
-    "KnowledgeMutation",
     "KnowledgeSource",
-    "KnowledgeVersion",
     "ProjectKnowledgeSourceRef",
     "TaskHandoff",
     "RuleCandidate",

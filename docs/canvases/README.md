@@ -4,8 +4,8 @@ Cursor Canvas 交互面板源码。当前架构与检查结果以本目录的 v1
 
 | 文件 | 用途 |
 |------|------|
-| `harness-mem-readiness-v1.canvas.tsx` | **当前源码**：0.9.27 五模块边界、双执行入口、SQLite truth 与 Scope Ledger |
-| `harness-mem-convergence.canvas.tsx` | **当前**：产品边界、实际结果检查、reference-projects 形态对比与 adopt/adapt/reject |
+| `harness-mem-readiness-v1.canvas.tsx` | **当前源码**：0.9.28 五模块、20 个 MCP 工具和一份当前记忆 |
+| `harness-mem-convergence.canvas.tsx` | **当前**：产品边界、待重新运行的实际检查，以及直接替换/删除且不留知识历史的存储设计 |
 | `harness-mem-readiness-0-9-10.canvas.tsx` | 历史快照：0.9.10 仓库成熟度与当时本机运营状态 |
 | `harness-mem-how-it-works-0-9-10.canvas.tsx` | 历史快照：0.9.10 七宿主、7 Daily、27 MCP tools 与 distill/Dream 主链 |
 | `harness-mem-reference-comparison.canvas.tsx` | 历史快照：v5.6 十维参考对比 |

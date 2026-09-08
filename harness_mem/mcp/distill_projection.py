@@ -500,7 +500,7 @@ def render_distill_exchange_windows(
     """Return complete v1 semantic windows for selected one-based exchanges."""
 
     _header, exchanges, _summary = _parse_exchanges(value)
-    selected = sorted({int(index) for index in indexes if int(index) >= 1})[:8]
+    selected = sorted({int(index) for index in indexes if int(index) >= 1})
     windows: list[dict[str, Any]] = []
     for index in selected:
         if index > len(exchanges):
@@ -783,7 +783,7 @@ def _memory_signals(value: str) -> list[str]:
 def _zero_candidate_challenge_manifest(
     exchanges: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Select a bounded, deterministic proof set for a no-candidate verdict."""
+    """Select every relevant proof exchange for a no-candidate verdict."""
 
     if not exchanges:
         return {
@@ -825,17 +825,14 @@ def _zero_candidate_challenge_manifest(
     selected = [final_index]
     for signal in priority:
         indexes = by_signal.get(signal, [])
-        if indexes and indexes[-1] not in selected and len(selected) < 8:
+        if indexes and indexes[-1] not in selected:
             selected.append(indexes[-1])
     for index in (failure_indexes[:1] + failure_indexes[-1:]):
-        if index not in selected and len(selected) < 8:
+        if index not in selected:
             selected.append(index)
-    if len(selected) < 8:
-        for index in sorted(reasons, reverse=True):
-            if index not in selected:
-                selected.append(index)
-            if len(selected) >= 8:
-                break
+    for index in sorted(reasons, reverse=True):
+        if index not in selected:
+            selected.append(index)
     selected = sorted(selected)
     return {
         "zero_candidate_challenge_version": "v1",

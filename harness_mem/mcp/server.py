@@ -9,14 +9,12 @@ Tools:
   timeline               — observation timeline
   get_observations      — fetch observations by session or observation IDs
   get_task_handoffs     — recent task handoffs
-  get_confirmed_rules   — confirmed rules for a project
   get_project_profile   — project profile
-  get_project_status    — current project memory status and active project
+  get_project_status    — prepare the current project and report readiness
   dream_ledger          — inspect dream maintenance ledger
   dream_run             — explicitly run one audited dream pass
   prepare_session_distill — remember-request backend: sync + evidence packet
   list_candidates       — pending/deferred/rejected governance candidates
-  auto_review_candidates — audited candidate review pass (preview or apply)
   govern_memory         — composite suggestion, decision, handoff, and correction boundary
 
 Current module boundary:
@@ -28,12 +26,12 @@ Current module boundary:
   read_handlers.py — compatibility facade for split read-side handlers
   read_query_support.py — query interpretation and retrieval metadata
   read_search_handlers.py — search and retrieval-feedback tools
-  read_evidence_handlers.py — evidence, timeline, skill, and relation reads
+  read_evidence_handlers.py — evidence, timeline, profile, and file reads
   read_wake_handlers.py — wake orchestration
   status_handlers.py — project status, runtime health, host bootstrap
-  dream_handlers.py — audited maintenance ledger, execution, and undo
+  dream_handlers.py — background maintenance status and execution
   distill_handlers.py — lossless evidence, checkpoints, review, finalization
-  governance_handlers.py — candidate/truth/supersede/handoff write implementations
+  governance_handlers.py — candidate/current-memory/handoff write implementations
 """
 
 import os

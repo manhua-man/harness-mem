@@ -255,7 +255,7 @@ class AntigravityAdapter:
     async def ingest(
         self,
         project_name: str | None = None,
-        limit: int = 10,
+        limit: int | None = None,
         min_size_kb: int = 0,
     ) -> dict[str, Any]:
         if self.backend is None:

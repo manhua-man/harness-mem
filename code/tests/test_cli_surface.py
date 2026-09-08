@@ -423,49 +423,6 @@ def test_flat_maintenance_dispatch_routes(monkeypatch: pytest.MonkeyPatch) -> No
     ]
 
 
-def test_config_set_dispatches_persistent_policy_confirmation(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls: list[tuple[str, str, str, str | None, bool]] = []
-
-    def fake_config_set(
-        key: str,
-        value: str,
-        scope: str,
-        project_root: str | None,
-        *,
-        confirm: bool = False,
-    ) -> int:
-        calls.append((key, value, scope, project_root, confirm))
-        return 0
-
-    monkeypatch.setattr(cli, "cmd_config_set", fake_config_set)
-
-    assert (
-        cli.main(
-            [
-                "config",
-                "set",
-                "distill.delete_source_after_complete",
-                "true",
-                "--scope",
-                "user",
-                "--confirm",
-            ]
-        )
-        == 0
-    )
-    assert calls == [
-        (
-            "distill.delete_source_after_complete",
-            "true",
-            "user",
-            None,
-            True,
-        )
-    ]
-
-
 def test_config_list_dispatches_runtime_detail(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -1,10 +1,7 @@
-"""Token estimator for v2.3.1 content-based replay-window cap.
+"""Small optional token estimator used by bounded background work.
 
-The metabolism replay-window selector (task 3.2) calls
-:func:`count_tokens` once per selected id's content to compute a
-content-aware ``soft_token_budget``. This module is the only place
-that touches ``tiktoken`` so the selector stays free of the optional
-dependency's import noise.
+This module is the only place that touches ``tiktoken`` so callers stay free
+of the optional dependency's import noise.
 
 Tokenizer choice: ``cl100k_base`` (GPT-4 / GPT-4o family). cl100k stays the
 default until the runtime is re-anchored on a different consumer.
@@ -82,11 +79,8 @@ def count_tokens(text: str) -> int:
     ``len(text) // 4`` heuristic when tiktoken can't be imported or
     the encoding fails to load.
 
-    The caller can inspect the module-level flag :data:`tokenizer_kind`
-    after the first call to learn which path was taken — used by
-    ``select_replay_window`` (task 3.2) to attach a
-    ``tokenizer_fallback: char-heuristic`` audit note when the
-    fallback fired.
+    Callers can inspect the module-level flag :data:`tokenizer_kind`
+    after the first call to report which counting path was used.
     """
     global tokenizer_kind
     if not text:

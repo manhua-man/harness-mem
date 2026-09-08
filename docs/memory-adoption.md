@@ -3,17 +3,16 @@
 This document owns the conceptual contract for turning session evidence into
 usable long-term memory. The full product path starts before extraction: it
 must first safely receive, version, and finish a native session. The current
-source is `0.9.27`; published artifacts are listed on the GitHub Releases page. SQLite truth
-separation landed in `0.9.20` and was extended and hardened through `0.9.27`.
+source is `0.9.28`; published artifacts are listed on the GitHub Releases page. SQLite truth
+separation landed in `0.9.20` and was extended and hardened through `0.9.28`.
 Since `0.9.26`, authorized background
 work moved to `enabled=true` plus the selected host CLI; legacy HTTP provider
 profiles no longer authorize the product path. See `docs/background-memory.md`.
 The runtime implements lifecycle, lossless extraction, content-addressed evidence
-validation, governed truth, and normal retrieval. It isolates raw
-Observation content and internal audit metadata behind explicit deep recall or
-diagnostic views. Legacy `MemoryEntry` remains a compatibility/manual Review
-path, while SQLite `knowledge_entries` is the authority for new current
-long-term knowledge.
+validation, current knowledge, and normal retrieval. Raw Observation content
+and internal processing details appear only in explicit diagnostic views.
+Legacy `MemoryEntry` remains readable only for compatibility, while SQLite
+`knowledge_entries` is the only authority for current long-term knowledge.
 Candidate, evidence, and proposed-decision records are job-scoped processing
 material retained only for retry, unresolved work, and bounded diagnosis.
 Current search reads SQLite deterministically; optional FTS/vector data remains
@@ -67,13 +66,14 @@ It owns:
   checks;
 - queueing, leases, retries, concurrency control, and idempotency;
 - distill-job creation, terminal receipts, and Hook/provider binding; and
-- retained-source policy and fail-closed safe cleanup.
+- retained-source policy and cleanup that stops when safety cannot be proved.
 
-When a user asks for status, this module must also provide a bounded,
-human-readable pending-session view: project, source host, capture time,
-per-session lifecycle state, progress, and the responsible Agent class. It
-must not require the user to interpret a bare queue count or expose session/job
-IDs, lease tokens, transcript text, or filesystem paths.
+Stage 0 diagnostics may provide a bounded, human-readable pending-session view
+through operator surfaces: project, source host, capture time,
+per-session lifecycle state, progress, and the responsible Agent class. The
+daily project check does not carry that diagnostic object; it only reports
+whether memory is ready or which short recovery action is needed. Neither
+surface exposes lease tokens, transcript text, or filesystem paths by default.
 
 **Does not own:** deciding what the project should remember. It supplies
 complete, authorized source revisions and durable receipts to later stages.
@@ -94,7 +94,7 @@ session and job.
 
 ## 1. Extraction
 
-**Unit:** zero to twelve independently addressable candidate promotion points
+**Unit:** every independently addressable candidate promotion point found in the session
 from one session.
 
 **Owns:** high-recall discovery from the complete source and a source location
@@ -106,7 +106,7 @@ The existing lossless session path remains:
 
 ```text
 native session -> immutable revision -> ordered chunks -> coverage-first
-manifest -> semantic/raw drilldown -> final-session review -> 0..12 candidates
+manifest -> semantic/raw drilldown -> final-session review -> every independently useful candidate
 ```
 
 One session may contain more than one promotion point. The candidates remain
@@ -146,7 +146,7 @@ candidate claim
 | `PARTIAL` | Some evidence exists, but the proof is incomplete | Defer or handoff |
 | `UNANSWERED` | No qualifying proof | No durable write |
 | `CONTRADICTED` | Evidence conflicts with the claim | Reject or route to conflict handling |
-| `STALE` | A content-addressed source changed after the claim was formed | Reject or supersede |
+| `STALE` | A content-addressed source changed after the claim was formed | Reject or replace |
 | `NOT_APPLICABLE` | The question does not establish durable truth | No durable write |
 
 `ANSWERED` means only that the evidence question is answered. It does not mean
@@ -172,6 +172,11 @@ This protects the knowledge layer from preflight, scope, and one-off execution
 instructions; a separately stated continuing design requirement still follows
 the ordinary per-point verification path.
 
+A version number described as current inside a historical session proves only
+what that session reported at the time. It becomes current project knowledge
+only when a current repository file still proves the same version; otherwise
+the runtime assigns `NOT_APPLICABLE`.
+
 Verification is independent per promotion point. A session may therefore have
 several ANSWERED points, one contradiction, and one unfinished handoff. The
 session-level `promotion_decision` is derived from those outcomes; it is not a
@@ -194,16 +199,17 @@ knowledge.
 Assimilation is the semantic and governance boundary between verified claims
 and SQLite current knowledge. It owns durable-value judgment,
 knowledge-language rewriting, atomic splitting, semantic deduplication, natural
-project-module organization, transactional current-knowledge mutation, and the
-bounded version state needed for replacement/undo. It does not acquire original
-sources or expose processing provenance through normal retrieval.
+project-module organization, and transactional current-knowledge changes. A
+replacement deletes the old item and writes the new item; invalid knowledge is
+deleted. It does not acquire original sources, keep knowledge history, or
+expose processing details through normal retrieval.
 
 ```text
 ANSWERED candidate
   -> durability and destination decision
   -> knowledge-language rewrite
   -> project knowledge-base semantic match
-  -> add | refine | confirm | supersede | no_write | handoff | defer | conflict
+  -> add | refine | confirm | replace | no_write | handoff | defer | conflict
 ```
 
 It must answer all of these questions:
@@ -215,17 +221,16 @@ It must answer all of these questions:
 3. Can it be stated as one complete, independently useful fact or rule?
 4. Does an equivalent, broader, narrower, older, or conflicting current truth
    already exist?
-5. Which mutation, if any, preserves one current knowledge statement and full
-   historical auditability?
+5. Which action, if any, leaves one clear current knowledge statement?
 
 Normal outcomes are:
 
 | Outcome | Effect |
 |---|---|
 | `add` | Add one atomic item to SQLite current knowledge |
-| `refine` | Replace one named item with a narrower or more complete statement |
+| `refine` | Replace one or more named items with narrower or more complete statements |
 | `confirm` | Keep the named current item; create no duplicate |
-| `supersede` | Replace one named current item and keep only the bounded predecessor state required for undo |
+| `replace` | Delete one or more named current items and write their replacements |
 | `no_write` | Keep no long-term knowledge; the session may still have a Note/Packet |
 | `handoff` | Persist unfinished state outside long-term truth |
 | `defer` | Keep the job-scoped candidate until proof/scope is resolved or TTL expires |
@@ -246,7 +251,7 @@ source explicitly establishes a durable preference, the assimilated statement
 describes the future behavior instead, for example:
 
 ```text
-When presenting a memory audit, provide a complete itemized list rather than
+When presenting the current memory list, provide every item rather than
 only aggregate counts.
 ```
 
@@ -269,7 +274,7 @@ it.
 **Owns:** project isolation, relevance ranking, current-validity preference,
 duplicate collapse, a clean default projection, and bounded outcome feedback.
 **Does not own:** displaying transcripts, candidates, Notes, Answer Packets,
-audit reasons, identifiers, hashes, or historical versions in normal results.
+internal reasons, identifiers, hashes, or old knowledge in normal results.
 
 Normal wake/search reads current rows from SQLite, directly or through a
 derived index whose generation matches the current database state, and returns
@@ -281,27 +286,37 @@ title + knowledge body
 
 Default results do not include session/job/candidate/knowledge/evidence/source
 IDs, hashes, locators, reason codes, provider receipts, or storage-kind names.
-Rejected, deferred, provisional, and superseded rows are not normal retrieval
-truth. Equivalent current statements collapse to one result before the final
+Rejected, deferred, and unfinished processing rows are not current memory and
+are never read by current-memory surfaces. Equivalent current statements collapse to one result before the final
 ranking.
 
 This is also a candidate-source rule: normal memory search and wake select from
 SQLite current knowledge or its validated derived index,
 while verbatim observations remain available through explicit raw, timeline,
-observation, and audit paths. Raw evidence does not compete with long-term
+observation, and diagnostic paths. Raw evidence does not compete with long-term
 knowledge in the same default top-k set.
 
-Explicit source or session-history requests may join a knowledge result to its
-minimal source locator, retained job receipt, Session Note/Packet, or bounded
-undo version when those records still exist. Processing detail is not another
-memory product and is not retained forever merely because a job once ran.
+Explicit source or session requests may join a knowledge result to its minimal
+source locator, retained job receipt, or Session Note/Packet when those records
+still exist. These are processing details, not another memory product. Old
+knowledge versions and knowledge change records are not kept.
+
+For multiple sessions, the normal user-facing result reports only actual
+knowledge changes and ordinary reasons for content that was not written. When a
+user explicitly requests a full audit, the result may expand to the in-scope
+sessions, topics, formed knowledge, supporting session/code/document evidence,
+and unfinished items. That report does not claim source cleanup, host-history
+cleanup, host restart, or complete code-path verification unless those separate
+operations were explicitly authorized and actually performed. Active user
+processing may remove the selected session after a successful result; Dream
+keeps its source as an archive.
 
 Retrieval feedback (`used`, `ignored`, `misleading`, stale/conflict signals)
 feeds later maintenance and assimilation decisions. Missing feedback is never
 interpreted as approval.
 
 **Quality signals:** recall, precision, deduplication, minimum sufficient
-context cost, and zero audit-noise or obsolete-knowledge leakage by default.
+context cost, and zero internal-noise or obsolete-knowledge leakage by default.
 
 ### Quality attribution
 
@@ -339,36 +354,37 @@ feedback checks. One restricted Dream semantic executor may serve both queues,
 but they are not the same processing chain. Manual explicit distill bypasses
 both background queues and remains in the active host.
 
-- **Review** is the human correction and adjudication path: confirm, reject,
-  undo, correct, or supersede a memory when the evidence or product boundary
-  requires a person to decide.
+- **Review** is the human correction path: confirm, correct, replace, or delete
+  a memory when the evidence or product boundary requires a person to decide.
 - **Dream** is the only unattended semantic executor. A Hook-started Dream run
   may first process its triggering session, then compare its evidence with the
   whole project's current knowledge, sources, and feedback. It writes only the
   verified result of that extraction/verification/assimilation loop, never an
-  unverified discovery. A source-backed single-item recheck may refresh or
-  reversibly retire current knowledge only after local harness-mem reopens a
+  unverified discovery. A source-backed recheck may refresh, replace, or
+  delete current knowledge only after local harness-mem reopens every named
   complete supported source and explicit background authorization
   (`distill.autonomous.enabled=true`) under the host CLI executor contract
   (`provider.name=<host>_cli` plus a successful Hook re-entry challenge; see
   `docs/background-memory.md`).
-  Unsupported, missing, or truncated
-  sources, and multi-item comparisons, close without changing current truth.
-- **Bounded session assimilation** may initially assess independently verified
-  points one at a time. If those preliminary decisions would reuse one current
-  truth for a `refine` or `supersede`, Dream reopens the small conflict set as
-  one source-verified semantic decision before any write. That decision may
-  target the current truth at most once and must close the remaining points as
-  `no_write` or `reject`; it cannot use `defer`, `conflict`, or `handoff` to
-  avoid choosing. A provider or transaction failure remains a failed,
-  retryable job rather than being relabelled as a harmless terminal result.
+  Unsupported, missing, or truncated sources close without changing current
+  truth.
+- **Session assimilation** evaluates each independently verified point, but a
+  single refine or replace decision may remove several current entries and
+  write several new entries together. The same current entry may not be reused
+  by two separate mutating points in one plan. A provider or transaction
+  failure remains a failed, retryable job rather than being relabelled as a
+  harmless terminal result.
 
-Audit receipts cross all five modules rather than forming a sixth stage:
+Runtime checks support all five modules without becoming memory:
 
 ```text
 0 intake receipt -> 1 extraction coverage -> 2 verification evidence
--> 3 assimilation decision and lineage -> 4 retrieval/use feedback
+-> 3 current-memory decision -> 4 retrieval/use feedback
 ```
+
+Receipts, idempotency keys, retry state, and unfinished work exist only to run
+the process safely. They are not knowledge history and do not restore replaced
+or deleted memory.
 
 The public actions map to the modules as follows:
 
@@ -378,11 +394,11 @@ The public actions map to the modules as follows:
 | `distill` | Explicit human path, orchestrated by the active host across stages 1--3 |
 | `wake`, `search`, `search-all` | Stage 4: retrieval/use |
 | `dream` | Unattended Hook path and project governance across stages 1--3 and 3--4 |
-| `review` | Human correction, conflict resolution, and undo across stages 3--4 |
-| `status` | Summarizes actual state across stages 0--4 |
+| `review` | Human correction, conflict resolution, replacement, and deletion across stages 3--4 |
+| `get_project_status` | Automatic first-use project and Hook preparation, followed by a short ready/failure message; full diagnosis belongs to `harness-mem doctor` |
 
-Raw/timeline/audit reads, runtime reset, and storage repair remain explicit
-operator or audit actions. They do not redefine the long-term knowledge model.
+Raw/timeline reads, runtime reset, and storage repair remain explicit operator
+actions. They do not redefine the long-term knowledge model.
 
 ## Public and storage boundaries
 
@@ -399,7 +415,7 @@ operator or audit actions. They do not redefine the long-term knowledge model.
   them; successful terminal jobs clean them only after durable outcome proof.
 - A minimal source relation is durable only so Review/Dream can re-open the
   actual source. It is not a copy of the full job evidence envelope.
-- Revalidation reopens the current underlying source. An old audit result or
+- Revalidation reopens the current underlying source. An old check result or
   hash explains how to find that source; it cannot prove the source still says
   the same thing.
 - Dream's unattended semantic work uses the **selected host CLI** when
@@ -407,16 +423,17 @@ operator or audit actions. They do not redefine the long-term knowledge model.
   host's CLI configuration, not in harness-mem project config. A manually
   requested `distill` remains in its active host and is never silently
   rerouted through background execution.
-- Review undo retains at most the newest 32 project mutations and the version
-  snapshots they still reference. Older mutation/version rows are removed in
-  the same SQLite transaction as the new mutation; they are not an unlimited
-  audit history.
-- Session Notes are readable processing records, not truth.
+- New databases do not create `knowledge_versions` or `knowledge_mutations`.
+  Existing compatibility tables are not read or written as current memory.
+- Session Notes are readable session summaries, not current knowledge or
+  knowledge history. Successful user-requested processing removes the selected
+  session's Note and source; Dream keeps both as an archive. No session backup
+  is created, and the rest of the host history is never cleared.
 - FTS, vector data, compact views, Markdown, JSON, and text summaries are
   rebuildable projections of SQLite current knowledge. They cannot overwrite
   SQLite truth.
-- Human review remains an audit, correction, conflict-resolution, and undo
-  surface, not the default write gate for ordinary verified memory.
+- Human review remains a correction, conflict-resolution, replacement, and
+  deletion surface, not the default write gate for ordinary verified memory.
 
 This keeps the useful upstream separation of claim extraction, evidence
 verification, stable knowledge editing, and final use without restoring packet

@@ -4,7 +4,11 @@ This page explains how the 0.9.7-0.9.9 plan was derived. It is deliberately
 separate from the project pages: project pages describe upstream architecture;
 this page records the decision boundary for harness-mem.
 
-## Current harness-mem baseline
+## Historical harness-mem baseline
+
+This section records the 0.9.7-0.9.9 planning baseline. It is not the current
+user path; current behavior is defined by the root README and `AGENTS.md`.
+In particular, `0.9.28` has 25 public MCP tools and no knowledge history or undo.
 
 The following are already shipped and therefore are not new roadmap items:
 
@@ -13,7 +17,7 @@ The following are already shipped and therefore are not new roadmap items:
 | Agent-active distill leases, backoff, and bounded refill | `harness_mem/storage/session_distill_store.py:227-462`, `harness_mem/commands/distill_lifecycle.py` | shipped; needs reconciliation/soak evidence |
 | Native source cleanup and receipt states | `harness_mem/native_source_cleanup.py:97-556`, `harness_mem/processed_source_cleanup.py` | shipped; adapter replay remains incomplete |
 | Storage v2 snapshot/staging/compare-before-swap | `harness_mem/storage/canonical_store.py`, `code/tests/test_canonical_store_migration.py` | shipped; derived-index generation is separate |
-| Compact/full MCP views and drilldown | `harness_mem/mcp/response_views.py`, `harness_mem/mcp/distill_projection.py` | shipped; budget telemetry is missing |
+| Bounded session evidence and drilldown | `harness_mem/mcp/distill_handlers.py`, `harness_mem/mcp/distill_projection.py` | shipped; budget telemetry is missing |
 | Two-stage semantic distill | `harness_mem/mcp/distill_handlers.py:170-230`, `code/tests/test_distill_projection.py` | shipped; quality needs independent fixtures |
 | Scale profiles and retrieval signals | `code/tests/benchmarks/test_retrieval_scale.py`, `harness_mem/retrieval_signals.py` | shipped; fixture diversity and index integrity remain gaps |
 | Seven-host synthetic memory test | `code/tests/test_cross_host_memory_e2e.py` | shipped; it bypasses real adapter scan and Dream admission |
@@ -48,9 +52,10 @@ The following are already shipped and therefore are not new roadmap items:
 
 The order prevents a host replay from becoming a visual smoke test with no
 quality baseline, and prevents index hardening from being judged only by
-latency. Every version keeps the existing `wake -> search -> distill -> review
--> dream` loop, exactly 27 public MCP tools, one local SQLite truth path, and
-Agent-mediated semantic work.
+latency. Those versions kept the then-current `wake -> search -> distill ->
+review -> dream` internal loop, exactly 27 public MCP tools, one local SQLite
+truth path, and Agent-mediated semantic work. Current users use the single
+`hm` entry rather than that internal action list.
 
 ## Rejected alternatives
 

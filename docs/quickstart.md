@@ -9,8 +9,8 @@ Install the release:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.27 \
-  harness-mem==0.9.27
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.28 \
+  harness-mem==0.9.28
 ```
 
 The package is distributed through GitHub Releases rather than PyPI. Optional
@@ -18,8 +18,8 @@ local vector or hybrid search dependencies use the same index:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.27 \
-  "harness-mem[hybrid]==0.9.27"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.28 \
+  "harness-mem[hybrid]==0.9.28"
 ```
 
 Run Quickstart once for each Agent app you actually use, not once per project.

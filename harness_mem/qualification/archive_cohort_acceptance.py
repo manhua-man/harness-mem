@@ -552,7 +552,7 @@ def _evaluate_promotion_oracle(
             str(truth_id)
             for point in points
             if str(point.get("disposition") or "")
-            in {"add", "refine", "confirm", "supersede"}
+            in {"add", "refine", "confirm", "replace"}
             for truth_id in point.get("canonical_truth_ids") or []
         }
         unresolved_truth_ids = sorted(promoted_truth_ids - lineage_ids)
@@ -740,7 +740,6 @@ async def _inspect_isolated_result(
     try:
         store = backend.structured_store.knowledge_store
         entries = await store.list_entries(project_name)
-        versions = await store.list_versions(project_name)
         markdown = await store.render_markdown(project_name, include_details=False)
         known_projects = await store.known_projects()
         source_counts = {
@@ -815,10 +814,7 @@ async def _inspect_isolated_result(
             "job_promotions": {
                 job.session_id: job.promotion_summary for job in jobs
             },
-            "truth_lineage": [
-                *[entry.to_dict() for entry in entries],
-                *[version.to_dict() for version in versions],
-            ],
+            "truth_lineage": [entry.to_dict() for entry in entries],
             "answer_packet_sessions": sorted(
                 job.session_id
                 for job in jobs
@@ -980,7 +976,6 @@ async def run_acceptance(
             notes_dir=notes_dir,
             verify=True,
             batch_size=count,
-            daily_limit=count,
         )
     inspected = await _inspect_isolated_result(
         data_dir=data_dir,

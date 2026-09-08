@@ -28,8 +28,7 @@ FileContextItemKind = Literal[
     "code_symbol",
     "module_dependency",
     "observation",
-    "memory_entry",
-    "confirmed_rule",
+    "knowledge_entry",
     "task_handoff",
     "skill_hint",
 ]

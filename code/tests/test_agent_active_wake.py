@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 from harness_mem.adapters.snapshot import persist_session_snapshot
 from harness_mem.commands import wake
@@ -28,32 +29,36 @@ def test_wake_returns_machine_readable_distill_maintenance_offer(
         },
     }
 
-    def fake_cmd_wake_up(
-        _project_name,
-        _no_auto_ingest=False,
-        *,
-        maintenance_capture,
-        **_kwargs,
-    ):
-        maintenance_capture.update(offer)
-        return asyncio.sleep(0, result=1)
+    def fake_offer(*_args, **_kwargs):
+        return offer
+
+    async def no_knowledge(*_args, **_kwargs):
+        return []
 
     monkeypatch.setattr(
         read_wake_handlers,
-        "cmd_wake_up",
-        fake_cmd_wake_up,
+        "_build_distill_maintenance_offer",
+        fake_offer,
+    )
+    monkeypatch.setattr(read_wake_handlers, "list_current_knowledge", no_knowledge)
+    monkeypatch.setattr(
+        read_wake_handlers,
+        "_get_backend",
+        lambda: SimpleNamespace(runtime_state="ready", runtime_error=None),
     )
 
     payload = read_wake_handlers.tool_wake(project_name="demo")
 
-    assert payload["success"] is False
-    assert payload["distill_maintenance"] == offer
-    assert payload["distill_maintenance"]["job_ids"] == ["job-1", "job-2"]
-    assert payload["distill_maintenance"]["distill_job_id"] == "job-1"
-    assert payload["distill_maintenance"]["prepare_arguments"]["run_ingest"] is False
+    assert payload == {
+        "success": True,
+        "project_name": "demo",
+        "long_term_memory": [],
+        "active_context": [],
+        "maintenance_available": True,
+    }
 
 
-def test_wake_uses_default_two_job_batch_and_configured_distill_budget(
+def test_wake_offers_all_jobs_and_configured_distill_budget(
     tmp_path: Path,
 ) -> None:
     project = tmp_path / "project"
@@ -92,8 +97,8 @@ def test_wake_uses_default_two_job_batch_and_configured_distill_budget(
             )
 
             assert offer["contract_version"] == "agent-distill-offer-v2"
-            assert offer["process_limit"] == 2
-            assert len(offer["job_ids"]) == 2
+            assert offer["process_limit"] == 3
+            assert len(offer["job_ids"]) == 3
             assert offer["prepare_arguments"]["budget_tokens"] == 6400
             assert "budget_tokens=6400" in offer["instruction"]
         finally:

@@ -349,64 +349,6 @@ def test_promotion_oracle_normalizes_harmless_token_separators() -> None:
     assert result["passed"] is True
 
 
-def test_promotion_oracle_resolves_predecessor_knowledge_id_from_version() -> None:
-    result = _evaluate_promotion_oracle(
-        oracle={
-            "sessions": [
-                {
-                    "session_id": "session-1",
-                    "point_count": 1,
-                    "allowed_answer_statuses": ["ANSWERED"],
-                    "allowed_dispositions": ["add"],
-                    "promotion_count": 1,
-                }
-            ],
-            "promotion_groups": [
-                {
-                    "name": "review lineage",
-                    "session_ids": ["session-1"],
-                    "expected_points": [
-                        {
-                            "key": "review",
-                            "match_any": [["session", "review"]],
-                        }
-                    ],
-                }
-            ],
-        },
-        job_promotions={
-            "session-1": {
-                "points": [
-                    {
-                        "answer_status": "ANSWERED",
-                        "disposition": "add",
-                        "canonical_truth_ids": ["old-knowledge"],
-                    }
-                ],
-                "answer_packet": {
-                    "promoted_items": [
-                        {
-                            "title": "Session review",
-                            "fact": "Complete session review before promotion.",
-                        }
-                    ]
-                },
-            }
-        },
-        truth_lineage=[
-            {
-                "id": "version-snapshot",
-                "knowledge_id": "old-knowledge",
-                "title": "Session review",
-                "statement": "Complete session review before promotion.",
-            }
-        ],
-    )
-
-    assert result["passed"] is True
-    assert result["sessions"][0]["assimilated"]["unresolved_truth_ids"] == []
-
-
 def test_promotion_oracle_does_not_reuse_one_item_for_multiple_expected_points() -> None:
     result = _evaluate_promotion_oracle(
         oracle={

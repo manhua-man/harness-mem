@@ -28,13 +28,20 @@ graph TD
     I --> J["Hook-started Dream"]
     J --> K["process triggering session -> verify -> assimilate"]
     K --> M["project governance: recheck current knowledge"]
-    M --> L["user correction -> audit and undo"]
+    M --> L["user correction -> replace or delete current memory"]
 ```
 
-The product principle is the same shape as Constitutional AI: the human moves
-from reviewing every item to defining and auditing the principles. The runtime
-and Agent client apply those principles automatically, keep provenance, and let
-the user inspect or undo outcomes later.
+The user does not review every item before it can help. The runtime applies the
+project rules, keeps the minimum source link needed for checks, and lets the
+user correct, replace, or delete current memory later.
+
+The `hm` entry also tells the active Agent to run this scheduler at live task
+checkpoints: when a project task starts, before a project-changing action,
+after a tool failure or conflict, and before a durable memory write. Ordinary
+questions still skip the scheduler's actual search. Host Hooks provide the
+session-start `wake` and end-of-turn maintenance; the active Agent provides
+these task-time checks even when a host has no separate context or tool-result
+Hook.
 
 ## Loop Contract
 
@@ -45,8 +52,8 @@ save_point/session_end -> snapshot an immutable source revision + create/advance
 Hook-started Dream -> read the triggering session + project sources/feedback -> verify + assimilate
 explicit "remember this session" -> active host checkpoints chunks -> extract + verify + assimilate
 finalize_session_distill -> completeness check + commit for that explicit job only
-review -> post-hoc audit, correction, undo, supersede
-dream -> discover stale / duplicate / conflicting knowledge -> re-verify and assimilate with reversible audit
+review -> correction, replacement, or deletion
+dream -> discover stale / duplicate / conflicting knowledge -> re-verify and update current memory
 ```
 
 There are no action-specific daily commands. Operator diagnosis and repair stay
@@ -114,7 +121,7 @@ Default triggers:
 |---|---|---|
 | Explicit recall request | User words plus project name. | The user asked for prior context. |
 | Project convention uncertainty | Current task, files, and terms like "convention", "rule", "boundary". | Prevents violating durable repo norms. |
-| Conflict or contradiction | Claimed fact plus conflicting current observation. | Finds supersede history or prior decisions. |
+| Conflict or contradiction | Claimed fact plus conflicting current observation. | Finds the current decision that may need correction. |
 | Tool failure or flaky result | Tool name, error summary, failing file/test. | Recovers prior fixes and known environment issues. |
 | Pre-write durable claim | Candidate memory text plus evidence ids. | Grounds distill before auto-promotion. |
 | Long-horizon task switch | New module, branch, feature, release boundary. | Refreshes only the relevant slice, not the whole memory set. |
@@ -131,8 +138,8 @@ The Agent/client should make a small policy decision before calling
 ```text
 1. What am I uncertain about?
 2. Can current repo/tool evidence answer it cheaply?
-3. Is the uncertainty likely to have durable project history?
-4. What bounded query would retrieve only that history?
+3. Is the uncertainty likely to be covered by current project memory?
+4. What bounded query would retrieve only that memory?
 5. What budget should the result use in the next context?
 ```
 
@@ -142,16 +149,15 @@ specific historical decision that still applies.
 
 ## Read Path
 
-Search should prefer current project knowledge from SQLite `knowledge_entries`.
+Search reads current project knowledge from SQLite `knowledge_entries`.
 Job-scoped candidate, evidence, proposed-decision, and pending material never
-appear in normal wake/search. Superseded or rejected history appears only in an
-explicit audit or conflict analysis.
+appear in normal wake/search. Replaced or deleted knowledge is not retained as
+searchable history.
 
-The runtime binds each injected result to canonical source IDs and an inclusion
-reason internally. User-facing wake/search projections show only long-term
-memory prose; the binding remains available only through explicit audit paths
-so `record_context_outcome` and later Dream maintenance can learn whether the
-context helped, was ignored, or misled the Agent.
+The runtime binds each injected result to its current source link and inclusion
+reason internally. User-facing wake/search shows only current memory prose;
+internal feedback can still record whether the context helped, was ignored, or
+misled the Agent.
 
 ## Write Path
 
@@ -170,7 +176,8 @@ session, processes its durable chunks, verifies claims, and assimilates only
 governed results. It also checks the project's current knowledge, sources, and
 feedback for stale, duplicate, or conflicting truth. A “remember this session”
 request through `$hm` or `/hm` remains the explicit immediate path in the active
-host; it may process up to three jobs. That pipeline continues:
+host; it processes the jobs selected by the caller or current queue. There is no
+implicit batch or daily quota. That pipeline continues:
 
 1. Claim each offered job by passing its `distill_job_id` to
    `prepare_session_distill` with `run_ingest=false`, preserving bounded
@@ -180,7 +187,7 @@ host; it may process up to three jobs. That pipeline continues:
 3. After every expected chunk is checkpointed and the source revision is still
    current, extract narrow promotion points and verify each one.
 4. Run assimilation against current project knowledge. A verified point may
-   `add`, `refine`, `confirm`, or `supersede`; incomplete or unsafe points end
+   `add`, `refine`, `confirm`, or `replace`; incomplete or unsafe points end
    as `no_write`, `handoff`, `defer`, `conflict`, or `reject` outside normal
    current knowledge.
 5. Call `finalize_session_distill`; it verifies completeness and commits only
@@ -191,9 +198,13 @@ host; it may process up to three jobs. That pipeline continues:
 When a user tells `$hm` or `/hm` that a memory is wrong, the Agent uses the
 existing review path to:
 
-- inspect, correct, reject, or undo a governed truth mutation
-- supersede stale truth with visible lineage
-- inspect why a memory appeared in `wake` or `search`
+- find the current item and check its source;
+- replace it directly when the corrected statement is known;
+- delete it when it is no longer valid;
+- confirm through ordinary search that the old wording is gone.
+
+The runtime does not keep the old item as a knowledge version, archived copy,
+change record, or undo target.
 
 The user should not have to approve every low-risk memory before future Agents
 can benefit from it.
@@ -204,6 +215,5 @@ This policy is informed by:
 
 - Pi `AgentHarness` event design: context transforms, tool-call hooks, tool
   result hooks, save points, and turn snapshots.
-- Constitutional AI's oversight pattern: humans write/audit principles while
-  AI applies them at scale.
-- `harness-mem` 0.8.8 governance statuses and state-event audit log.
+- Human-defined project rules that automated processing applies consistently.
+- `harness-mem` runtime events used for retry and diagnosis, not as memory.

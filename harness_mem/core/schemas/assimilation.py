@@ -9,13 +9,12 @@ AssimilationDisposition = Literal[
     "add",
     "refine",
     "confirm",
-    "supersede",
+    "replace",
     "no_write",
     "handoff",
     "defer",
     "conflict",
     "reject",
-    "archive",
 ]
 
 

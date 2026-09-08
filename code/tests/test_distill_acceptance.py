@@ -23,7 +23,7 @@ from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.schemas.session_distill import SessionDistillJob
 from harness_mem.core.schemas.task_handoff import TaskHandoff
-from harness_mem.mcp import governance_handlers, tool_handlers
+from harness_mem.mcp import governance_handlers, read_search_handlers, tool_handlers
 from harness_mem.mcp.distill_projection import (
     build_distill_compact_outline,
     build_distill_semantic_outline,
@@ -500,24 +500,36 @@ def _suggest_preference(
     project_name: str = "acceptance",
 ) -> dict:
     ref = packet["zero_candidate_exchange_refs"][0]
-    return governance_handlers.tool_suggest_memory_entry(
-        project_name=project_name,
-        category="preference",
-        content="Use less time and fewer tokens without reducing distill result quality.",
-        source=f"distill-job:{snapshot.distill_job_id}",
-        confidence=0.99,
-        tags=["performance", "distill"],
-        distill_job_id=snapshot.distill_job_id,
-        evidence_basis="user_statement",
-        verification_outcome="verified",
-        verification_refs=[
-            {
-                "kind": "user_statement",
-                "exchange_index": ref["exchange_index"],
-                "role": "user",
-                "content_sha256": ref["content_sha256"],
-            }
-        ],
+    return governance_handlers.tool_govern_memory(
+        action="suggest",
+        arguments={
+            "kind": "memory",
+            "project_name": project_name,
+            "category": "preference",
+            "content": (
+                "Use less time and fewer tokens without reducing distill result quality."
+            ),
+            "source": f"distill-job:{snapshot.distill_job_id}",
+            "confidence": 0.99,
+            "tags": ["performance", "distill"],
+            "distill_job_id": snapshot.distill_job_id,
+            "evidence_basis": "user_statement",
+            "verification_outcome": "verified",
+            "verification_refs": [
+                {
+                    "kind": "user_statement",
+                    "exchange_index": ref["exchange_index"],
+                    "role": "user",
+                    "content_sha256": ref["content_sha256"],
+                }
+            ],
+            "assimilation_disposition": "add",
+            "assimilation_reason": (
+                "The user stated a durable preference that applies to future work."
+            ),
+            "canonical_title": "Keep distillation efficient",
+            "topic_path": ["performance"],
+        },
     )
 
 
@@ -584,7 +596,7 @@ def test_a3_drilldown_restores_begin_middle_end_and_rejects_out_of_range() -> No
     assert [window["exchange_index"] for window in windows] == [1, 30, 60]
     for anchor, window in zip(item["expected"]["anchors"], windows, strict=True):
         assert anchor in window["content"]
-    assert len(render_distill_exchange_windows(item["transcript"], list(range(1, 10)))) == 8
+    assert len(render_distill_exchange_windows(item["transcript"], list(range(1, 10)))) == 9
     assert render_distill_exchange_windows(item["transcript"], [999]) == []
 
 
@@ -621,13 +633,30 @@ def test_b1_f2_user_preference_promotes_once_and_is_retrievable(tmp_path: Path) 
                 job_id=snapshot.distill_job_id,
                 semantic_review=_preference_review(),
             )
-        readable = asyncio.run(
-            backend.structured_store.search_memory_entries(
-                "tokens result quality", project_name="acceptance"
+            readable = read_search_handlers.tool_search_memory(
+                query="tokens result quality",
+                project_name="acceptance",
+            )
+        assert finalized["promotion"]["promoted"] == 1
+        assert readable["memories"] == [
+            {
+                "title": "Keep distillation efficient",
+                "statement": (
+                    "Use less time and fewer tokens without reducing distill result "
+                    "quality."
+                ),
+            }
+        ]
+        compatibility = asyncio.run(
+            backend.structured_store.get_memory_entry(candidate["entry_id"])
+        )
+        separated = asyncio.run(
+            backend.structured_store.knowledge_store.get_candidate(
+                candidate["entry_id"]
             )
         )
-        assert finalized["promotion"]["promoted"] == 1
-        assert [item.id for item in readable] == [candidate["entry_id"]]
+        assert compatibility is None
+        assert separated is None
     finally:
         asyncio.run(backend.close())
 
@@ -931,34 +960,49 @@ def test_d2_assistant_role_cannot_impersonate_user_statement(tmp_path: Path) -> 
         with _bound(backend):
             snapshot, packet = _prepare(backend, root=tmp_path, fixture_id="F2")
             ref = packet["zero_candidate_exchange_refs"][0]
-            candidate = governance_handlers.tool_suggest_memory_entry(
-                project_name="acceptance",
-                category="preference",
-                content="Assistant text must not become a user preference.",
-                source=f"distill-job:{snapshot.distill_job_id}",
-                confidence=0.99,
-                distill_job_id=snapshot.distill_job_id,
-                evidence_basis="user_statement",
-                verification_outcome="verified",
-                verification_refs=[
-                    {
-                        "kind": "user_statement",
-                        "exchange_index": ref["exchange_index"],
-                        "role": "assistant",
-                        "content_sha256": ref["content_sha256"],
-                    }
-                ],
+            candidate = governance_handlers.tool_govern_memory(
+                action="suggest",
+                arguments={
+                    "kind": "memory",
+                    "project_name": "acceptance",
+                    "category": "preference",
+                    "content": "Assistant text must not become a user preference.",
+                    "source": f"distill-job:{snapshot.distill_job_id}",
+                    "confidence": 0.99,
+                    "distill_job_id": snapshot.distill_job_id,
+                    "evidence_basis": "user_statement",
+                    "verification_outcome": "verified",
+                    "verification_refs": [
+                        {
+                            "kind": "user_statement",
+                            "exchange_index": ref["exchange_index"],
+                            "role": "assistant",
+                            "content_sha256": ref["content_sha256"],
+                        }
+                    ],
+                    "assimilation_disposition": "add",
+                    "assimilation_reason": "This claim was presented as reusable.",
+                    "canonical_title": "Reject assistant impersonation",
+                    "topic_path": ["evidence"],
+                },
             )
             finalized = tool_handlers.tool_finalize_session_distill(
                 project_name="acceptance",
                 job_id=snapshot.distill_job_id,
                 semantic_review=_preference_review(),
             )
-        stored = asyncio.run(
+        compatibility = asyncio.run(
             backend.structured_store.get_memory_entry(candidate["entry_id"])
         )
+        stored = asyncio.run(
+            backend.structured_store.knowledge_store.get_candidate(
+                candidate["entry_id"]
+            )
+        )
         assert finalized["promotion"]["promoted"] == 0
-        assert stored.status == "rejected"
+        assert compatibility is None
+        assert stored is not None
+        assert stored.status == "deferred"
     finally:
         asyncio.run(backend.close())
 
@@ -980,7 +1024,9 @@ def test_e1_finalize_replay_keeps_note_hash_and_truth_count(tmp_path: Path) -> N
                 job_id=snapshot.distill_job_id,
                 semantic_review=_preference_review(),
             )
-        truths = asyncio.run(backend.structured_store.list_memory_entries("acceptance"))
+        truths = asyncio.run(
+            backend.structured_store.knowledge_store.list_entries("acceptance")
+        )
         assert second["idempotent_replay"] is True
         assert first["completion"] == second["completion"]
         assert first["promotion"] == second["promotion"]

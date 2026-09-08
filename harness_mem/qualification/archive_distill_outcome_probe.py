@@ -196,15 +196,13 @@ def run_archive_distill_outcome_probe() -> dict[str, Any]:
             "[archive_distill]\n"
             "enabled = true\n"
             "project_scope = \"all\"\n"
-            "batch_size = 1\n"
-            "daily_limit = 2\n"
             "require_answer_packet = true\n"
             "report_promotions = true\n",
             encoding="utf-8",
         )
         project.joinpath(".harness-mem.toml").write_text(
             "[distill]\n"
-            "delete_source_after_complete = true\n\n"
+            "auto = true\n\n"
             "[distill.autonomous]\n"
             "enabled = true\n",
             encoding="utf-8",

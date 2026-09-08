@@ -300,7 +300,7 @@ def run_memory_assimilation_outcome_probe() -> dict[str, Any]:
                 backend.structured_store.knowledge_store.save_candidate(seed_candidate)
             )
             asyncio.run(
-                backend.structured_store.knowledge_store.apply_truth_mutation(
+                backend.structured_store.knowledge_store.apply_current_change(
                     candidate_before=seed_candidate,
                     candidate_after=seed_candidate.model_copy(
                         update={"status": "assimilated"}

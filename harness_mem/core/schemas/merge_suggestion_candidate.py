@@ -1,12 +1,8 @@
-"""MergeSuggestionCandidate — pending merge proposal between two truths.
+"""Legacy merge proposal retained for reading existing processing records.
 
-v2.3.1 metabolism pass produces these as candidates when two confirmed
-truths in the replay window have embedding similarity above the
-configured threshold (default 0.85). The pass writes
-``proposed_content=""``; the merged content is generated at confirm
-time by the Agent calling ``confirm_merge_candidate`` (or by
-``auto_review_candidates`` apply branch). This keeps the metabolism
-pass a pure local algorithm with no LLM dependency.
+Current knowledge replacement uses ``knowledge_entries`` transactions and
+does not create this object. The class remains only so older local data and
+cleanup operations stay readable during the 0.9.x support window.
 
 Contract:
 * Pair ordering: ``target_a_id < target_b_id`` enforced at construction.
@@ -26,10 +22,8 @@ from pydantic import BaseModel, Field, model_validator
 class MergeSuggestionCandidate(BaseModel):
     """Pending request to merge two truths into one new truth.
 
-    Apply path: confirming this candidate sets ``valid_to=now`` on both
-    ``target_a`` and ``target_b``, then creates a new ``MemoryEntry``
-    with ``content=proposed_content`` whose ``supersedes`` chain points
-    back to both targets.
+    This is a legacy processing record. Current replacement deletes the old
+    ``knowledge_entries`` rows and writes the new current entry directly.
     """
 
     id: str = Field(default_factory=lambda: str(uuid4()))

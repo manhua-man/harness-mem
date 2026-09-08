@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,7 +15,7 @@ from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.schemas.relation_fact import RelationFact
 from harness_mem.event_log import iter_state_events
-from harness_mem.mcp import server
+from harness_mem.mcp import read_wake_handlers, server
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
@@ -85,7 +86,7 @@ def _replace_current_knowledge(
     )
     asyncio.run(backend.structured_store.knowledge_store.save_candidate(candidate))
     asyncio.run(
-        backend.structured_store.knowledge_store.apply_truth_mutation(
+        backend.structured_store.knowledge_store.apply_current_change(
             candidate_before=candidate,
             candidate_after=candidate.model_copy(update={"status": "assimilated"}),
             decision=decision,
@@ -137,6 +138,274 @@ def test_search_memory_returns_clean_canonical_prose_by_default(backend) -> None
     assert signals[0].context["retrieval_id"]
 
 
+def test_search_memory_and_wake_do_not_hide_current_entries_behind_default_count(
+    backend,
+) -> None:
+    entries = [
+        f"unboundedrecalltoken current decision {index}."
+        for index in range(25)
+    ]
+    _replace_current_knowledge(backend, "demo", entries)
+
+    search = server.tool_search_memory(
+        query="unboundedrecalltoken",
+        project_name="demo",
+    )
+    assert len(search["memories"]) == 25
+
+    wake = server.tool_wake(
+        project_name="demo",
+        current_task="unboundedrecalltoken",
+    )
+    assert len(wake["long_term_memory"]) == 25
+
+
+def test_search_memory_cannot_revive_legacy_rows(
+    backend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio
+
+    _replace_current_knowledge(
+        backend,
+        "demo",
+        ["authorityfiltertoken current project decision."],
+    )
+    asyncio.run(
+        backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                project_name="demo",
+                category="decision",
+                content="authorityfiltertoken obsolete compatibility decision.",
+                source="test",
+                status="user_confirmed",
+            )
+        )
+    )
+
+    async def fail_legacy_read(*_args, **_kwargs):
+        raise AssertionError("ordinary search must not inspect compatibility stores")
+
+    monkeypatch.setattr(
+        backend.structured_store,
+        "search_memory_entries",
+        fail_legacy_read,
+    )
+    monkeypatch.setattr(
+        backend.structured_store,
+        "search_relation_facts",
+        fail_legacy_read,
+    )
+
+    payload = server.tool_search_memory(
+        query="authorityfiltertoken",
+        project_name="demo",
+    )
+
+    assert payload["memories"] == [
+        {
+            "title": "Project memory",
+            "statement": "authorityfiltertoken current project decision.",
+        }
+    ]
+    assert "obsolete compatibility decision" not in str(payload)
+    exclusions = asyncio.run(
+        backend.structured_store.query_retrieval_signals(
+            "demo",
+            signal_type="retrieval_excluded",
+            limit=20,
+        )
+    )
+    assert exclusions == []
+
+
+def test_search_all_cached_type_filter_uses_only_current_knowledge(backend) -> None:
+    import asyncio
+
+    for project_name in ("demo", "second"):
+        _replace_current_knowledge(
+            backend,
+            project_name,
+            [f"allauthoritytoken {project_name} current decision."],
+        )
+        asyncio.run(
+            backend.structured_store.save_memory_entry(
+                MemoryEntry(
+                    project_name=project_name,
+                    category="decision",
+                    content=f"allauthoritytoken {project_name} obsolete decision.",
+                    source="test",
+                    status="user_confirmed",
+                )
+            )
+        )
+
+    payload = server.tool_search_memory(
+        query="allauthoritytoken",
+        scope="all",
+    )
+
+    assert {
+        (item["project_name"], item["statement"])
+        for item in payload["memories"]
+    } == {
+        ("demo", "allauthoritytoken demo current decision."),
+        ("second", "allauthoritytoken second current decision."),
+    }
+    assert "obsolete decision" not in str(payload)
+
+
+def test_wake_uses_only_current_knowledge(
+    backend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio
+
+    _replace_current_knowledge(
+        backend,
+        "demo",
+        ["wakeauthoritytoken current project decision."],
+    )
+    asyncio.run(
+        backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                project_name="demo",
+                category="decision",
+                content="wakeauthoritytoken obsolete compatibility decision.",
+                source="test",
+                status="user_confirmed",
+            )
+        )
+    )
+
+    current_search_calls = 0
+    search_current = read_wake_handlers.search_current_knowledge
+
+    async def count_current_search(*args, **kwargs):
+        nonlocal current_search_calls
+        current_search_calls += 1
+        return await search_current(*args, **kwargs)
+
+    monkeypatch.setattr(
+        read_wake_handlers,
+        "search_current_knowledge",
+        count_current_search,
+    )
+
+    async def fail_legacy_read(*_args, **_kwargs):
+        raise AssertionError("ordinary wake must not inspect compatibility stores")
+
+    monkeypatch.setattr(
+        backend.structured_store,
+        "list_memory_entries",
+        fail_legacy_read,
+    )
+    monkeypatch.setattr(
+        backend.structured_store,
+        "get_memory_entry",
+        fail_legacy_read,
+    )
+    monkeypatch.setattr(
+        backend.structured_store,
+        "search_memory_entries",
+        fail_legacy_read,
+    )
+    monkeypatch.setattr(
+        backend.structured_store,
+        "search_relation_facts",
+        fail_legacy_read,
+    )
+
+    payload = server.tool_wake(
+        project_name="demo",
+        current_task="wakeauthoritytoken",
+    )
+
+    assert "current project decision" in str(payload)
+    assert "obsolete compatibility decision" not in str(payload)
+    assert current_search_calls == 1
+    assert set(payload) == {
+        "success",
+        "project_name",
+        "long_term_memory",
+        "active_context",
+        "maintenance_available",
+    }
+
+
+def test_wake_reports_degraded_storage_instead_of_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        read_wake_handlers,
+        "_get_backend",
+        lambda: SimpleNamespace(
+            runtime_state="degraded_fallback",
+            runtime_error="canonical store unavailable",
+        ),
+    )
+
+    assert read_wake_handlers.tool_wake(project_name="demo") == {
+        "success": False,
+        "project_name": "demo",
+        "message": "Project memory storage is not ready.",
+        "action": "Run harness-mem doctor.",
+    }
+
+
+def test_file_context_reads_current_knowledge_not_legacy_memory(
+    backend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio
+
+    _replace_current_knowledge(
+        backend,
+        "demo",
+        ["filecontextauthoritytoken harness_mem/file_context.py current guidance."],
+    )
+    asyncio.run(
+        backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                project_name="demo",
+                category="decision",
+                content=(
+                    "filecontextauthoritytoken harness_mem/file_context.py "
+                    "obsolete compatibility guidance."
+                ),
+                source="test",
+                status="user_confirmed",
+            )
+        )
+    )
+
+    async def fail_legacy_read(*_args, **_kwargs):
+        raise AssertionError("file context must not inspect compatibility memory")
+
+    for method_name in (
+        "list_memory_entries",
+        "get_memory_entry",
+        "search_memory_entries",
+        "list_confirmed_rules",
+    ):
+        monkeypatch.setattr(
+            backend.structured_store,
+            method_name,
+            fail_legacy_read,
+        )
+
+    payload = server.tool_file_context(
+        path="harness_mem/file_context.py",
+        project_name="demo",
+        project_root=str(backend.data_dir / "demo"),
+    )
+
+    assert payload["success"] is True, payload
+    assert any(item["kind"] == "knowledge_entry" for item in payload["items"])
+    assert "current guidance" in str(payload)
+    assert "obsolete compatibility guidance" not in str(payload)
+
+
 def test_search_all_returns_clean_current_knowledge_without_feedback_protocol(backend) -> None:
     import asyncio
 
@@ -163,7 +432,7 @@ def test_search_all_returns_clean_current_knowledge_without_feedback_protocol(ba
         assert len(hits) == 1
 
 
-def test_search_memory_hides_raw_observations_until_deep_recall(backend) -> None:
+def test_search_memory_never_mixes_in_raw_observations(backend) -> None:
     import asyncio
 
     _replace_current_knowledge(
@@ -187,10 +456,9 @@ def test_search_memory_hides_raw_observations_until_deep_recall(backend) -> None
         query="canonicalretrievaltoken",
         project_name="demo",
     )
-    deep_payload = server.tool_search_memory(
-        query="canonicalretrievaltoken",
+    raw_payload = server.tool_search_raw(
+        pattern="canonicalretrievaltoken",
         project_name="demo",
-        deep_recall=True,
     )
 
     assert default_payload["memories"] == [
@@ -200,8 +468,8 @@ def test_search_memory_hides_raw_observations_until_deep_recall(backend) -> None
         }
     ]
     assert "raw session evidence" not in str(default_payload)
-    assert [item["id"] for item in deep_payload["observations"]] == [observation_id]
-    assert deep_payload["observation_count"] == 1
+    assert [item["id"] for item in raw_payload["matches"]] == [observation_id]
+    assert raw_payload["count"] == 1
 
 
 def test_cross_project_search_keeps_only_the_needed_project_scope(backend) -> None:
@@ -261,21 +529,15 @@ def test_context_outcome_keeps_retrieval_correlation_without_prefilling_use(
 ) -> None:
     import asyncio
 
-    asyncio.run(
-        backend.structured_store.save_memory_entry(
-            MemoryEntry(
-                project_name="demo",
-                category="decision",
-                content="Correlated retrieval feedback remains content free.",
-                source="test",
-                status="user_confirmed",
-            )
-        )
+    _replace_current_knowledge(
+        backend,
+        "demo",
+        ["Correlated retrieval feedback remains content free."],
     )
     search = server.tool_search_memory(
         query="correlated retrieval",
         project_name="demo",
-        deep_recall=True,
+        _include_diagnostics=True,
     )
     call = search["record_outcome_call"]
 
@@ -308,22 +570,15 @@ def test_context_outcome_keeps_retrieval_correlation_without_prefilling_use(
 def test_context_outcome_rejects_unmatched_sources_when_correlated(backend) -> None:
     import asyncio
 
-    asyncio.run(
-        backend.structured_store.save_memory_entry(
-            MemoryEntry(
-                id="legacy-memory",
-                project_name="demo",
-                category="decision",
-                content="Legacy search feedback remains correlated.",
-                source="test",
-                status="user_confirmed",
-            )
-        )
+    _replace_current_knowledge(
+        backend,
+        "demo",
+        ["Current search feedback remains correlated."],
     )
     search = server.tool_search_memory(
-        query="legacy search feedback",
+        query="current search feedback",
         project_name="demo",
-        deep_recall=True,
+        _include_diagnostics=True,
     )
     arguments = {
         **search["record_outcome_call"]["arguments"],
@@ -342,36 +597,6 @@ def test_context_outcome_rejects_unmatched_sources_when_correlated(backend) -> N
     assert outcomes == []
 
 
-def test_trace_relations_adds_weighted_recall(backend) -> None:
-    import asyncio
-
-    asyncio.run(
-        backend.structured_store.save_relation_fact(
-            RelationFact(
-                project_name="demo",
-                source_entity="incident",
-                target_entity="root_cause",
-                relation_type="caused_by",
-                evidence="Incident was caused by root cause.",
-                source="test",
-                confidence=0.9,
-                status="user_confirmed",
-            )
-        )
-    )
-
-    payload = server.tool_trace_relations(
-        project_name="demo",
-        source_entity="incident",
-    )
-
-    assert payload["path_count"] == 1
-    assert payload["paths"][0]["score"] > 0
-    assert payload["paths"][0]["edges"][0]["relation_family"] == "causal"
-    assert payload["recall"]["contract"] == "harness_mem.recall_result"
-    assert payload["recall"]["evidence"][0]["source_kind"] == "relation_fact"
-
-
 def test_mcp_review_writes_state_audit_events(backend) -> None:
     suggested = server.tool_govern_memory(
         action="suggest",
@@ -383,22 +608,25 @@ def test_mcp_review_writes_state_audit_events(backend) -> None:
             "source": "test",
         },
     )
-    confirmed = server.tool_govern_memory(
+    reviewed = server.tool_govern_memory(
         action="decide",
         arguments={
-            "kind": "memory",
-            "decision": "confirm",
+            "kind": "knowledge",
+            "decision": "reject",
+            "project_name": "demo",
             "candidate_id": suggested["entry_id"],
+            "disposition": "reject",
+            "reason": "This audit fixture is not durable project knowledge.",
         },
     )
 
     events = list(iter_state_events(backend.data_dir, project_name="demo"))
 
     assert suggested["state_event_id"]
-    assert confirmed["state_event_id"]
+    assert reviewed["state_event_id"]
     assert [event["type"] for event in events] == [
         "candidate_created",
-        "truth_confirmed",
+        "candidate_reviewed",
     ]
     assert [event["target_id"] for event in events] == [
         suggested["entry_id"],
@@ -406,11 +634,11 @@ def test_mcp_review_writes_state_audit_events(backend) -> None:
     ]
 
 
-def test_mcp_search_memory_deep_recall_surfaces_history_opt_in(backend) -> None:
+def test_mcp_search_memory_diagnostics_never_surface_legacy_rows(backend) -> None:
     import asyncio
 
     past = datetime.now(timezone.utc) - timedelta(days=1)
-    entry_id = asyncio.run(
+    asyncio.run(
         backend.structured_store.save_memory_entry(
             MemoryEntry(
                 project_name="demo",
@@ -427,15 +655,15 @@ def test_mcp_search_memory_deep_recall_surfaces_history_opt_in(backend) -> None:
         query="mcpdeeprecalltoken",
         project_name="demo",
     )
-    deep_payload = server.tool_search_memory(
+    diagnostic_payload = server.tool_search_memory(
         query="mcpdeeprecalltoken",
         project_name="demo",
-        deep_recall=True,
+        _include_diagnostics=True,
     )
 
     assert default_payload["memories"] == []
-    assert [entry["id"] for entry in deep_payload["memory_entries"]] == [entry_id]
-    assert deep_payload["recall"]["evidence"][0]["metadata"]["valid_to"] is not None
+    assert diagnostic_payload["memories"] == []
+    assert "historical memory" not in str(diagnostic_payload)
     exclusions = asyncio.run(
         backend.structured_store.query_retrieval_signals(
             "demo",
@@ -443,61 +671,10 @@ def test_mcp_search_memory_deep_recall_surfaces_history_opt_in(backend) -> None:
             limit=20,
         )
     )
-    assert len(exclusions) == 1
-    assert exclusions[0].value == 1.0
-    assert exclusions[0].context == {
-        "surface": "search_memory",
-        "reason": "historical",
-        "retrieval_id": exclusions[0].context["retrieval_id"],
-    }
+    assert exclusions == []
 
 
-def test_temporal_query_emits_historical_and_conflict_exclusions(backend) -> None:
-    import asyncio
-
-    past = datetime.now(timezone.utc) - timedelta(days=1)
-    for content, valid_to in (
-        ("historical architecture", past),
-        ("current architecture a", None),
-        ("current architecture b", None),
-    ):
-        asyncio.run(
-            backend.structured_store.save_memory_entry(
-                MemoryEntry(
-                    project_name="demo",
-                    category="architecture",
-                    content=content,
-                    source="test",
-                    status="user_confirmed",
-                    valid_to=valid_to,
-                )
-            )
-        )
-
-    payload = server.tool_temporal_query(
-        project_name="demo",
-        subject="architecture",
-        predicate="memory_entry",
-        truth_type="memory_entry",
-        mode="current",
-        require_unique_current=True,
-    )
-    signals = asyncio.run(
-        backend.structured_store.query_retrieval_signals(
-            "demo",
-            signal_type="retrieval_excluded",
-            limit=20,
-        )
-    )
-
-    assert payload["abstain"] is True
-    assert payload["abstention_reason"] == "temporal_conflict"
-    reasons = {(signal.context or {}).get("reason"): signal for signal in signals}
-    assert reasons["temporal_conflict"].value == 2.0
-    assert reasons["historical"].value == 1.0
-
-
-def test_mcp_confirm_supersede_writes_audit_and_links_truth(backend) -> None:
+def test_mcp_does_not_supersede_legacy_memory_rows(backend) -> None:
     import asyncio
 
     old_id = asyncio.run(
@@ -535,30 +712,12 @@ def test_mcp_confirm_supersede_writes_audit_and_links_truth(backend) -> None:
             "evidence": "test evidence",
         },
     )
-    confirmed = server.tool_govern_memory(
-        action="supersede",
-        arguments={
-            "decision": "confirm",
-            "candidate_id": suggested["candidate_id"],
-        },
-    )
-
     old_entry = asyncio.run(backend.structured_store.get_memory_entry(old_id))
     new_entry = asyncio.run(backend.structured_store.get_memory_entry(new_id))
-    events = list(iter_state_events(backend.data_dir, project_name="demo"))
 
-    assert confirmed["success"] is True
-    assert confirmed["status"] == "user_confirmed"
+    assert suggested["success"] is False
     assert old_entry is not None
-    assert old_entry.valid_to is not None
-    assert old_entry.superseded_by == [new_id]
+    assert old_entry.valid_to is None
+    assert old_entry.superseded_by == []
     assert new_entry is not None
-    assert new_entry.supersedes == [old_id]
-    assert [event["type"] for event in events] == [
-        "candidate_created",
-        "supersede_completed",
-    ]
-    assert [event["target_id"] for event in events] == [
-        suggested["candidate_id"],
-        suggested["candidate_id"],
-    ]
+    assert new_entry.supersedes == []

@@ -1,6 +1,6 @@
 {
   "name": "get_project_status",
-  "description": "Return active project, memory counts, bounded ID-free pending-session and responsible-Agent status, concise integration health, and slash-native next-step triage hints without requiring CLI status. Always pass the current workspace root and the calling IDE/Agent host so a global MCP router can bootstrap the correct project hooks.",
+  "description": "Prepare the current project and its host Hook when needed, then return one short readiness message. Always pass the current workspace root and calling IDE/Agent host. Use harness-mem doctor for diagnostics.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -24,15 +24,6 @@
           "antigravity"
         ],
         "description": "IDE/Agent making the call; used to install that host's native hooks when MCP is running behind a global router."
-      },
-      "detail_level": {
-        "type": "string",
-        "enum": [
-          "compact",
-          "full"
-        ],
-        "description": "Response detail. compact is the default decision view; full returns complete health and integration diagnostics.",
-        "default": "compact"
       }
     },
     "required": [

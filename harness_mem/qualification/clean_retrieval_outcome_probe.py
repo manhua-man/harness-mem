@@ -19,8 +19,13 @@ from harness_mem.core.schemas import (
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.embedding.model_loader import temporarily_disable_embeddings
+from harness_mem.commands.dream import dream_once
 from harness_mem.mcp import server
-from harness_mem.mcp.read_search_handlers import tool_search_memory
+from harness_mem.mcp.read_evidence_handlers import tool_file_context, tool_search_raw
+from harness_mem.mcp.read_search_handlers import (
+    tool_autopilot_search_tick,
+    tool_search_memory,
+)
 from harness_mem.mcp.read_wake_handlers import tool_wake
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
@@ -41,7 +46,9 @@ def run_clean_retrieval_outcome_probe() -> dict[str, bool]:
                 id="current-memory",
                 project_name=project_name,
                 title="Current canonical memory",
-                statement="cleanretrievaltoken current canonical memory.",
+                statement=(
+                    "cleanretrievaltoken README.md current canonical memory."
+                ),
                 module_path=["Retrieval"],
                 verified_at=datetime.now(timezone.utc),
             )
@@ -80,7 +87,7 @@ def run_clean_retrieval_outcome_probe() -> dict[str, bool]:
             )
             asyncio.run(backend.structured_store.knowledge_store.save_candidate(seed))
             asyncio.run(
-                backend.structured_store.knowledge_store.apply_truth_mutation(
+                backend.structured_store.knowledge_store.apply_current_change(
                     candidate_before=seed,
                     candidate_after=seed.model_copy(update={"status": "assimilated"}),
                     decision=decision,
@@ -121,40 +128,61 @@ def run_clean_retrieval_outcome_probe() -> dict[str, bool]:
                     query="cleanretrievaltoken",
                     project_name=project_name,
                 )
-                deep = tool_search_memory(
+                diagnostic = tool_search_memory(
                     query="cleanretrievaltoken",
                     project_name=project_name,
-                    deep_recall=True,
+                    _include_diagnostics=True,
+                )
+                raw = tool_search_raw(
+                    pattern="cleanretrievaltoken",
+                    project_name=project_name,
                 )
                 wake = tool_wake(
                     project_name=project_name,
                     current_task="cleanretrievaltoken",
-                    detail_level="compact",
                 )
-                deep_wake = tool_wake(
+                file_context = tool_file_context(
+                    path="README.md",
                     project_name=project_name,
-                    current_task="cleanretrievaltoken",
-                    deep_recall=True,
-                    detail_level="full",
+                    project_root=str(project_root),
                 )
+                autopilot = tool_autopilot_search_tick(
+                    event_name="PostToolUse",
+                    project_name=project_name,
+                    current_task="Fix cleanretrievaltoken failure.",
+                    tool_name="pytest",
+                    tool_result="cleanretrievaltoken failure",
+                    is_error=True,
+                )
+                dream = asyncio.run(
+                    dream_once(
+                        backend,
+                        project_name=project_name,
+                        project_root=project_root,
+                        config=None,
+                        source="agent",
+                    )
+                ).to_dict()
             finally:
                 os.chdir(previous_cwd)
 
             default_statements = {
                 str(item.get("statement")) for item in default.get("memories") or []
             }
-            deep_observation_ids = {
-                str(item.get("id")) for item in deep.get("observations") or []
+            raw_observation_ids = {
+                str(item.get("id")) for item in raw.get("matches") or []
             }
             fields = {
-                "default_current_truth_retrievable": current.statement in default_statements,
-                "default_excludes_provisional_and_historical": (
+                "current_memory_retrievable": current.statement in default_statements,
+                "legacy_rows_never_searchable": (
                     provisional.content not in default_statements
                     and historical.content not in default_statements
+                    and provisional.content not in json.dumps(diagnostic)
+                    and historical.content not in json.dumps(diagnostic)
                 ),
-                "default_has_no_raw_observation": "raw session evidence"
+                "memory_search_has_no_raw_observation": "raw session evidence"
                 not in json.dumps(default),
-                "default_has_no_audit_metadata": all(
+                "memory_search_has_no_internal_metadata": all(
                     set(item) == {"title", "statement"}
                     for item in default.get("memories") or []
                 )
@@ -165,15 +193,29 @@ def run_clean_retrieval_outcome_probe() -> dict[str, bool]:
                     "status",
                     "memories",
                 },
-                "deep_recall_returns_raw_observation": observation_id in deep_observation_ids,
-                "wake_default_has_no_raw_observation": (
+                "raw_search_returns_source": observation_id in raw_observation_ids,
+                "wake_has_no_raw_observation": (
                     "raw session evidence" not in json.dumps(wake)
                     and "source_coverage" not in wake
                 ),
-                "wake_deep_recall_returns_raw_observation": (
-                    int((deep_wake.get("source_coverage") or {}).get("observation", 0))
-                    == 1
-                    and deep_wake.get("effective_deep_recall") is True
+                "file_context_uses_only_current_memory": (
+                    any(
+                        item.get("kind") == "knowledge_entry"
+                        for item in file_context.get("items") or []
+                    )
+                    and provisional.content not in json.dumps(file_context)
+                    and historical.content not in json.dumps(file_context)
+                ),
+                "autopilot_uses_only_current_memory": (
+                    autopilot.get("search_executed") is True
+                    and current.statement in json.dumps(autopilot)
+                    and provisional.content not in json.dumps(autopilot)
+                    and historical.content not in json.dumps(autopilot)
+                ),
+                "dream_ignores_legacy_memory": (
+                    dream.get("items") == []
+                    and provisional.content not in json.dumps(dream)
+                    and historical.content not in json.dumps(dream)
                 ),
             }
             fields["verified"] = all(fields.values())

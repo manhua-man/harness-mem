@@ -5,18 +5,20 @@ from __future__ import annotations
 import asyncio
 import hashlib
 from datetime import datetime, timezone
+from uuid import NAMESPACE_URL, uuid5
 
 import pytest
 
 from harness_mem.commands.knowledge_assimilation import (
+    assimilation_decision_id,
     record_assimilation_result,
     resolve_separated_review,
-    undo_separated_review,
 )
 from harness_mem.commands.separated_assimilation import (
     _is_session_scope_clarification,
     apply_separated_assimilation,
     create_separated_candidates,
+    prepare_separated_assimilation,
     separated_job_candidate_ids,
 )
 from harness_mem.core.schemas import (
@@ -24,13 +26,14 @@ from harness_mem.core.schemas import (
     KnowledgeCandidate,
     KnowledgeEntry,
     KnowledgeEvidence,
+    ProjectProfile,
     ProjectKnowledgeSourceRef,
 )
 from harness_mem.core.schemas.evidence import EvidenceRef
 from harness_mem.mcp import governance_handlers
 from harness_mem.read_knowledge import search_current_knowledge
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
-from harness_mem.storage import knowledge_store as knowledge_store_module
+from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 
 
 def _run(coro):
@@ -201,6 +204,288 @@ def test_apply_revalidates_answer_gate_before_writing_current_knowledge(
         _run(backend.close())
 
 
+def test_apply_accepts_multiple_atomic_results_for_one_candidate(tmp_path) -> None:
+    project_root = _project_root(tmp_path)
+    backend = LocalMemoryBackend(tmp_path / "data")
+    _run(backend.init())
+    try:
+        store = backend.structured_store.knowledge_store
+        candidate = KnowledgeCandidate(
+            id="multi-result-candidate",
+            project_name="demo",
+            candidate_type="memory",
+            statement=(
+                "The session established independent ingestion and retrieval rules."
+            ),
+        )
+        _run(store.save_candidate(candidate))
+        _run(
+            store.save_evidence(
+                _verified_evidence(candidate, "multi-result-evidence", project_root)
+            )
+        )
+        points = [
+            {
+                "candidate_id": candidate.id,
+                "answer_status": "ANSWERED",
+                "disposition": "add",
+                "matched_truth_ids": [],
+                "knowledge_items": [
+                    {
+                        "title": "Ingestion rule",
+                        "statement": "Ingestion uses its own current rule.",
+                        "topic_path": ["Ingestion"],
+                        "claim_kind": "procedure",
+                    }
+                ],
+                "reason": "The session established an independent ingestion rule.",
+            },
+            {
+                "candidate_id": candidate.id,
+                "answer_status": "ANSWERED",
+                "disposition": "add",
+                "matched_truth_ids": [],
+                "knowledge_items": [
+                    {
+                        "title": "Retrieval rule",
+                        "statement": "Retrieval uses its own current rule.",
+                        "topic_path": ["Retrieval"],
+                        "claim_kind": "procedure",
+                    }
+                ],
+                "reason": "The session established an independent retrieval rule.",
+            },
+        ]
+
+        result = _run(
+            apply_separated_assimilation(
+                backend,
+                project_name="demo",
+                project_root=str(project_root),
+                candidate_ids=[candidate.id],
+                plan={
+                    "version": "separated-v1",
+                    "candidate_ids": [candidate.id],
+                    "point_count": 2,
+                    "provider_candidate_ids": [candidate.id],
+                    "points": points,
+                },
+            )
+        )
+
+        assert result["promoted"] == 2
+        assert len(result["points"]) == 2
+        assert {entry.title for entry in _run(store.list_entries("demo"))} == {
+            "Ingestion rule",
+            "Retrieval rule",
+        }
+    finally:
+        _run(backend.close())
+
+
+def test_missing_later_candidate_blocks_all_results_before_mutation(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project_root = _project_root(tmp_path)
+    backend = LocalMemoryBackend(tmp_path / "data")
+    _run(backend.init())
+    try:
+        store = backend.structured_store.knowledge_store
+        candidates = [
+            KnowledgeCandidate(
+                id=f"candidate-{index}",
+                project_name="demo",
+                candidate_type="memory",
+                statement=f"Unverified candidate {index} stays outside current knowledge.",
+            )
+            for index in (1, 2)
+        ]
+        for candidate in candidates:
+            _run(store.save_candidate(candidate))
+            _run(
+                store.save_evidence(
+                    KnowledgeEvidence(
+                        id=f"evidence-{candidate.id}",
+                        project_name="demo",
+                        candidate_id=candidate.id,
+                        distill_job_id="missing-job",
+                        evidence_basis="transcript",
+                        verification_outcome="unverified",
+                    )
+                )
+            )
+        prepared = _run(
+            prepare_separated_assimilation(
+                backend,
+                project_name="demo",
+                project_root=str(project_root),
+                candidate_ids=[candidate.id for candidate in candidates],
+            )
+        )
+        plan = {
+            "version": "separated-v1",
+            "candidate_ids": list(prepared.candidate_ids),
+            "provider_candidate_ids": list(prepared.eligible_candidate_ids),
+            "point_count": len(prepared.automatic_points),
+            "points": [dict(point) for point in prepared.automatic_points],
+        }
+        original_get = store.get_candidate
+        reads: dict[str, int] = {}
+
+        async def disappear_after_prepare(candidate_id: str):
+            reads[candidate_id] = reads.get(candidate_id, 0) + 1
+            if candidate_id == candidates[1].id and reads[candidate_id] >= 2:
+                return None
+            return await original_get(candidate_id)
+
+        monkeypatch.setattr(store, "get_candidate", disappear_after_prepare)
+        with pytest.raises(ValueError, match="separated candidate is missing"):
+            _run(
+                apply_separated_assimilation(
+                    backend,
+                    project_name="demo",
+                    project_root=str(project_root),
+                    candidate_ids=[candidate.id for candidate in candidates],
+                    plan=plan,
+                )
+            )
+        for candidate in candidates:
+            stored = _run(original_get(candidate.id))
+            assert stored is not None
+            assert stored.status == "pending"
+        assert _run(store.list_entries("demo")) == []
+    finally:
+        _run(backend.close())
+
+
+def test_apply_does_not_report_success_when_normal_search_cannot_read_write(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_root = _project_root(tmp_path)
+    backend = LocalMemoryBackend(tmp_path / "data")
+    _run(backend.init())
+    try:
+        store = backend.structured_store.knowledge_store
+        candidate = KnowledgeCandidate(
+            id="search-readback-required",
+            project_name="demo",
+            candidate_type="memory",
+            statement="A current knowledge write must be readable through normal search.",
+        )
+        _run(store.save_candidate(candidate))
+        _run(
+            store.save_evidence(
+                _verified_evidence(candidate, "search-readback-evidence", project_root)
+            )
+        )
+
+        async def missing_from_normal_search(*_args, **_kwargs):
+            return []
+
+        monkeypatch.setattr(
+            "harness_mem.read_knowledge.search_current_knowledge",
+            missing_from_normal_search,
+        )
+        with pytest.raises(
+            RuntimeError,
+            match="not readable through normal search",
+        ):
+            _run(
+                apply_separated_assimilation(
+                    backend,
+                    project_name="demo",
+                    project_root=str(project_root),
+                    candidate_ids=[candidate.id],
+                    plan={
+                        "version": "separated-v1",
+                        "candidate_ids": [candidate.id],
+                        "point_count": 1,
+                        "provider_candidate_ids": [candidate.id],
+                        "points": [
+                            {
+                                "candidate_id": candidate.id,
+                                "answer_status": "ANSWERED",
+                                "disposition": "add",
+                                "matched_truth_ids": [],
+                                "knowledge_items": [
+                                    {
+                                        "title": "Search readback is required",
+                                        "statement": candidate.statement,
+                                        "topic_path": ["Memory consistency"],
+                                        "claim_kind": "procedure",
+                                    }
+                                ],
+                                "reason": "The verified write must be visible to its normal reader.",
+                            }
+                        ],
+                    },
+                )
+            )
+        assert _run(store.get_candidate(candidate.id)).status == "pending"
+    finally:
+        _run(backend.close())
+
+
+def test_review_does_not_report_success_when_normal_search_cannot_read_write(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_root = _project_root(tmp_path)
+    backend = LocalMemoryBackend(tmp_path / "data")
+    _run(backend.init())
+    try:
+        store = backend.structured_store.knowledge_store
+        candidate = KnowledgeCandidate(
+            id="review-search-readback-required",
+            project_name="demo",
+            candidate_type="memory",
+            statement="Review writes must be readable through normal search.",
+        )
+        _run(store.save_candidate(candidate))
+        _run(
+            store.save_evidence(
+                _verified_evidence(
+                    candidate,
+                    "review-search-readback-evidence",
+                    project_root,
+                )
+            )
+        )
+
+        async def missing_from_normal_search(*_args, **_kwargs):
+            return []
+
+        monkeypatch.setattr(
+            "harness_mem.read_knowledge.search_current_knowledge",
+            missing_from_normal_search,
+        )
+        with pytest.raises(
+            RuntimeError,
+            match="not readable through normal search",
+        ):
+            _run(
+                resolve_separated_review(
+                    backend,
+                    candidate_id=candidate.id,
+                    disposition="add",
+                    reason="Review must prove the user-visible write.",
+                    knowledge_items=[
+                        {
+                            "title": "Review search readback",
+                            "statement": candidate.statement,
+                            "topic_path": ["Memory consistency"],
+                            "claim_kind": "procedure",
+                        }
+                    ],
+                    project_root=project_root,
+                )
+            )
+        assert _run(store.get_candidate(candidate.id)).status == "pending"
+    finally:
+        _run(backend.close())
+
+
 def test_apply_rejects_processing_labels_in_untrusted_knowledge_payload(
     tmp_path,
 ) -> None:
@@ -296,7 +581,7 @@ def _publish_entry(
     )
     _run(store.save_candidate(candidate))
     _run(
-        store.apply_truth_mutation(
+        store.apply_current_change(
             candidate_before=candidate,
             candidate_after=candidate.model_copy(update={"status": "assimilated"}),
             decision=decision,
@@ -310,50 +595,129 @@ def _publish_entry(
     return current[0]
 
 
-def test_archive_current_knowledge_keeps_a_reversible_snapshot(tmp_path) -> None:
+def test_govern_memory_deletes_current_knowledge_and_sources(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     project_root = _project_root(tmp_path)
     backend = LocalMemoryBackend(tmp_path / "data")
     _run(backend.init())
     try:
+        monkeypatch.setattr(governance_handlers, "_get_backend", lambda: backend)
         store = backend.structured_store.knowledge_store
         current = _publish_entry(
             store,
             project_root,
-            title="One-time migration note",
-            statement="This statement belongs only to an old one-time migration.",
-            topic_path=["migration"],
+            title="Obsolete current fact",
+            statement="This fact is no longer current.",
+            topic_path=["review"],
+        )
+        assert _run(store.list_sources(current.id))
+
+        deleted = governance_handlers.tool_govern_memory(
+            "decide",
+            {
+                "kind": "knowledge",
+                "decision": "delete",
+                "project_name": "demo",
+                "target_knowledge_ids": [current.id],
+            },
         )
 
-        archived = _run(
-            store.archive_current_entry(
+        assert deleted == {
+            "governance_action": "decide",
+            "success": True,
+            "deleted_knowledge_ids": [current.id],
+        }
+        assert _run(store.get_entry(current.id, project_name="demo")) is None
+        assert _run(store.list_sources(current.id)) == []
+        assert _run(
+            search_current_knowledge(
+                backend,
                 project_name="demo",
-                entry_id=current.id,
-                mutation_id="archive-one-time-migration-note",
-                reason="The entry is historical task progress, not current knowledge.",
+                query="obsolete current fact",
+                limit=10,
+                project_root=project_root,
             )
+        ) == []
+    finally:
+        _run(backend.close())
+
+
+def test_govern_memory_delete_rejects_cross_project_and_missing_targets(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_root = _project_root(tmp_path)
+    backend = LocalMemoryBackend(tmp_path / "data")
+    _run(backend.init())
+    try:
+        monkeypatch.setattr(governance_handlers, "_get_backend", lambda: backend)
+        store = backend.structured_store.knowledge_store
+        current = _publish_entry(
+            store,
+            project_root,
+            title="Project-owned fact",
+            statement="Only the owning project may delete this fact.",
+            topic_path=["review"],
         )
 
-        assert archived["mutation_count"] > 0
-        assert _run(store.list_entries("demo", project_root=project_root)) == []
-        decision = _run(store.get_decision("archive-one-time-migration-note"))
-        assert decision is not None
-        assert decision.disposition == "archive"
-        assert decision.reason == "The entry is historical task progress, not current knowledge."
-
-        restored = _run(
-            store.undo_truth_mutation(
-                mutation_id="archive-one-time-migration-note",
-                reversal_id="undo-archive-one-time-migration-note",
+        for project_name, target_id in (
+            ("other-project", current.id),
+            ("demo", "missing-current-knowledge"),
+        ):
+            result = governance_handlers.tool_govern_memory(
+                "decide",
+                {
+                    "kind": "knowledge",
+                    "decision": "delete",
+                    "project_name": project_name,
+                    "target_knowledge_ids": [target_id],
+                },
             )
-        )
-        assert restored["restored_knowledge_ids"] == [current.id]
+            assert result["success"] is False
+            assert "not current project knowledge" in result["error"]
+
         assert [entry.id for entry in _run(store.list_entries("demo"))] == [current.id]
     finally:
         _run(backend.close())
 
 
-def test_refine_assimilation_replays_after_predecessor_was_retired(
+@pytest.mark.parametrize(
+    "invalid_arguments",
+    [
+        {},
+        {"target_knowledge_ids": ["one", "two"]},
+        {
+            "target_knowledge_ids": ["one"],
+            "candidate_id": "candidate-one",
+        },
+        {
+            "target_knowledge_ids": ["one"],
+            "knowledge_items": [],
+        },
+    ],
+)
+def test_govern_memory_delete_rejects_invalid_argument_shapes(
+    invalid_arguments,
+) -> None:
+    result = governance_handlers.tool_govern_memory(
+        "decide",
+        {
+            "kind": "knowledge",
+            "decision": "delete",
+            "project_name": "demo",
+            **invalid_arguments,
+        },
+    )
+
+    assert result["success"] is False
+    assert "exactly one target_knowledge_ids value" in result["error"]
+
+
+def test_refine_assimilation_replays_after_predecessor_was_deleted(
     tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project_root = _project_root(tmp_path)
     backend = LocalMemoryBackend(tmp_path / "data")
@@ -403,15 +767,35 @@ def test_refine_assimilation_replays_after_predecessor_was_retired(
             ],
         }
 
-        first = _run(
-            apply_separated_assimilation(
-                backend,
-                project_name="demo",
-                project_root=str(project_root),
-                candidate_ids=[candidate.id],
-                plan=plan,
-            )
+        from harness_mem.read_knowledge import search_current_knowledge
+
+        search_calls = 0
+
+        async def fail_first_readback(*args, **kwargs):
+            nonlocal search_calls
+            search_calls += 1
+            if search_calls == 1:
+                return []
+            return await search_current_knowledge(*args, **kwargs)
+
+        monkeypatch.setattr(
+            "harness_mem.read_knowledge.search_current_knowledge",
+            fail_first_readback,
         )
+        with pytest.raises(
+            RuntimeError,
+            match="not readable through normal search",
+        ):
+            _run(
+                apply_separated_assimilation(
+                    backend,
+                    project_name="demo",
+                    project_root=str(project_root),
+                    candidate_ids=[candidate.id],
+                    plan=plan,
+                )
+            )
+        assert _run(store.get_candidate(candidate.id)).status == "pending"
         second = _run(
             apply_separated_assimilation(
                 backend,
@@ -422,13 +806,111 @@ def test_refine_assimilation_replays_after_predecessor_was_retired(
             )
         )
 
-        assert second == first
+        assert second["promoted"] == 1
+        assert search_calls == 2
         current = _run(store.list_entries("demo", project_root=project_root))
         assert [(entry.title, entry.statement) for entry in current] == [
             ("Evidence retention", "Keep original evidence for fourteen days.")
         ]
-        mutations = _run(store.list_mutations("demo"))
-        assert len([item for item in mutations if item.disposition == "refine"]) == 1
+        assert _run(store.get_entry(old.id, project_name="demo")) is None
+        assert _run(store.list_sources(old.id)) == []
+    finally:
+        _run(backend.close())
+
+
+def test_refine_retry_requires_its_committed_transaction_receipt(tmp_path) -> None:
+    project_root = _project_root(tmp_path)
+    backend = LocalMemoryBackend(tmp_path / "data")
+    _run(backend.init())
+    try:
+        store = backend.structured_store.knowledge_store
+        old = _publish_entry(
+            store,
+            project_root,
+            title="Evidence retention",
+            statement="Keep original evidence for seven days.",
+            topic_path=["Ingestion"],
+        )
+        candidate = KnowledgeCandidate(
+            id="uncommitted-refine-candidate",
+            project_name="demo",
+            candidate_type="memory",
+            statement="The verified retention requirement changed to fourteen days.",
+        )
+        _run(store.save_candidate(candidate))
+        point = {
+            "disposition": "refine",
+            "matched_truth_ids": [old.id],
+            "knowledge_items": [
+                {
+                    "title": "Evidence retention",
+                    "statement": "Keep original evidence for fourteen days.",
+                    "topic_path": ["Ingestion"],
+                    "claim_kind": "design_requirement",
+                }
+            ],
+            "reason": "The verified retention requirement changed.",
+        }
+        identity = "\0".join(
+            [
+                "demo",
+                "Ingestion",
+                "Evidence retention",
+                "Keep original evidence for fourteen days.",
+            ]
+        )
+        replacement = KnowledgeEntry(
+            id=str(uuid5(NAMESPACE_URL, f"harness-mem:knowledge:{identity}")),
+            project_name="demo",
+            module_path=["Ingestion"],
+            title="Evidence retention",
+            statement="Keep original evidence for fourteen days.",
+            verified_at=VERIFIED_AT,
+        )
+        decision_id = assimilation_decision_id(
+            candidate_id=candidate.id,
+            disposition="refine",
+            knowledge_ids=[replacement.id],
+            predecessor_ids=[old.id],
+            reason=point["reason"],
+        )
+
+        # Simulate unrelated/corrupt state that merely resembles a completed retry:
+        # the predecessor disappeared and the deterministic replacement ID exists,
+        # but this decision never committed its canonical transaction.
+        backend.structured_store.delete_record_payload("knowledge_entries", old.id)
+        backend.structured_store.write_record_payload(
+            "knowledge_entries",
+            replacement.id,
+            replacement.to_dict(),
+        )
+        assert _run(store.current_change_committed(decision_id)) is False
+
+        with pytest.raises(
+            ValueError,
+            match="replacement target is not current knowledge",
+        ):
+            _run(
+                record_assimilation_result(
+                    backend,
+                    candidate=candidate,
+                    point=point,
+                    project_root=project_root,
+                    source_refs=[
+                        ProjectKnowledgeSourceRef(
+                            label="README.md",
+                            target=(project_root / "README.md").resolve().as_uri(),
+                            kind="repository",
+                            digest=hashlib.sha256(
+                                (project_root / "README.md").read_bytes()
+                            ).hexdigest(),
+                        )
+                    ],
+                )
+            )
+
+        assert _run(store.get_candidate(candidate.id)).status == "pending"
+        assert _run(store.get_entry(replacement.id, project_name="demo")) == replacement
     finally:
         _run(backend.close())
 
@@ -584,6 +1066,84 @@ def test_mcp_self_reported_verified_evidence_cannot_write_separated_truth(
         _run(backend.close())
 
 
+def test_mcp_repository_suggestion_uses_saved_project_root(tmp_path, monkeypatch) -> None:
+    project_root = _project_root(tmp_path)
+    backend = LocalMemoryBackend(tmp_path / "data")
+    _run(backend.init())
+    try:
+        _run(
+            LocalProjectProfileStore(backend.data_dir).save(
+                ProjectProfile(project_name="demo", project_root=str(project_root))
+            )
+        )
+        monkeypatch.setattr(governance_handlers, "_get_backend", lambda: backend)
+        monkeypatch.setattr(
+            governance_handlers, "_record_state_event", lambda *_args, **_kwargs: None
+        )
+        source = project_root / "README.md"
+        suggested = governance_handlers.tool_govern_memory(
+            "suggest",
+            {
+                "kind": "memory",
+                "project_name": "demo",
+                "category": "decision",
+                "content": "Repository-backed maintenance can write current knowledge.",
+                "source": "README.md",
+                "evidence_basis": "repository",
+                "verification_outcome": "verified",
+                "verification_refs": [
+                    {
+                        "kind": "repository",
+                        "locator": "README.md",
+                        "content_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+                    }
+                ],
+            },
+        )
+        candidate_id = suggested["entry_id"]
+        evidence = _run(
+            backend.structured_store.knowledge_store.list_evidence(candidate_id)
+        )
+        assert evidence[0].verification_outcome == "verified"
+
+        decided = governance_handlers.tool_govern_memory(
+            "decide",
+            {
+                "kind": "knowledge",
+                "project_name": "demo",
+                "decision": "confirm",
+                "candidate_id": candidate_id,
+                "disposition": "add",
+                "reason": "Exercise the project-scoped repository maintenance path.",
+                "knowledge_items": [
+                    {
+                        "title": "Repository-backed maintenance",
+                        "statement": (
+                            "Repository-backed maintenance can write current knowledge."
+                        ),
+                        "topic_path": ["governance"],
+                        "claim_kind": "procedure",
+                    }
+                ],
+            },
+        )
+        assert decided["success"] is True
+        assert [
+            item.statement
+            for item in _run(
+                search_current_knowledge(
+                    backend,
+                    project_name="demo",
+                    project_root=project_root,
+                    query="repository-backed maintenance",
+                    limit=10,
+                )
+            )
+        ] == ["Repository-backed maintenance can write current knowledge."]
+    finally:
+        _run(backend.close())
+
+
 def test_retry_retires_unfinalized_job_candidates_before_fresh_extraction(
     tmp_path,
 ) -> None:
@@ -663,6 +1223,55 @@ def test_retry_retires_unfinalized_job_candidates_before_fresh_extraction(
         _run(backend.close())
 
 
+def test_retry_reuses_terminal_candidate_from_failed_finalization(tmp_path) -> None:
+    backend = LocalMemoryBackend(tmp_path / "data")
+    _run(backend.init())
+    try:
+        arguments = {
+            "kind": "memory",
+            "content": "A retry must finish a candidate already applied before finalization failed.",
+            "evidence_basis": "transcript",
+            "verification_outcome": "unverified",
+            "verification_refs": [],
+        }
+        first = _run(
+            create_separated_candidates(
+                backend,
+                project_name="demo",
+                distill_job_id="job-terminal-retry",
+                candidate_arguments=[arguments],
+            )
+        )
+        store = backend.structured_store.knowledge_store
+        candidate = _run(store.get_candidate(first[0]))
+        assert candidate is not None
+        _run(
+            record_assimilation_result(
+                backend,
+                candidate=candidate,
+                point={
+                    "disposition": "no_write",
+                    "reason": "The unverified point cannot enter current knowledge.",
+                },
+            )
+        )
+        assert _run(store.get_candidate(candidate.id)).status == "assimilated"
+
+        replay = _run(
+            create_separated_candidates(
+                backend,
+                project_name="demo",
+                distill_job_id="job-terminal-retry",
+                candidate_arguments=[arguments],
+            )
+        )
+
+        assert replay == first
+        assert len(_run(store.list_evidence(candidate.id))) == 1
+    finally:
+        _run(backend.close())
+
+
 def test_scope_clarification_is_not_treated_as_durable_knowledge() -> None:
     scope = KnowledgeEvidence(
         id="scope-evidence",
@@ -688,146 +1297,7 @@ def test_scope_clarification_is_not_treated_as_durable_knowledge() -> None:
     assert _is_session_scope_clarification(workflow) is False
 
 
-def test_review_refinement_records_lineage_and_undo_restores_only_predecessor(
-    tmp_path,
-) -> None:
-    project_root = _project_root(tmp_path)
-    backend = LocalMemoryBackend(tmp_path / "data")
-    _run(backend.init())
-    try:
-        store = backend.structured_store.knowledge_store
-        old = _publish_entry(
-            store,
-            project_root,
-            title="Evidence retention",
-            statement="Keep original evidence for seven days.",
-            topic_path=["ingestion"],
-        )
-        candidate = KnowledgeCandidate(
-            id="refinement-candidate",
-            project_name="demo",
-            candidate_type="memory",
-            statement="The retention period changed.",
-        )
-        _run(store.save_candidate(candidate))
-        _run(
-            store.save_evidence(
-                _verified_evidence(candidate, "refinement-evidence", project_root)
-            )
-        )
-
-        result = _run(
-            resolve_separated_review(
-                backend,
-                candidate_id=candidate.id,
-                disposition="refine",
-                reason="Current repository verification changed the retention period.",
-                target_knowledge_ids=[old.id],
-                knowledge_items=[
-                    {
-                        "title": "Evidence retention",
-                        "statement": "Keep original evidence for thirty days.",
-                        "topic_path": ["ingestion"],
-                        "claim_kind": "implementation_fact",
-                    }
-                ],
-                project_root=project_root,
-            )
-        )
-        replacement_id = result["canonical_truth_ids"][0]
-        decision = _run(store.get_decision(result["mutation_id"]))
-        assert decision is not None
-        assert decision.predecessor_truth_ids == [old.id]
-        assert decision.predecessor_entries[0].id == old.id
-        assert decision.predecessor_entries[0].statement == old.statement
-        assert (
-            _run(
-                store.get_entry(old.id, project_name="demo", project_root=project_root)
-            )
-            is None
-        )
-        assert (
-            _run(
-                store.get_entry(
-                    replacement_id, project_name="demo", project_root=project_root
-                )
-            )
-            is not None
-        )
-        assert [
-            entry.id
-            for entry in _run(
-                search_current_knowledge(
-                    backend,
-                    project_name="demo",
-                    query="evidence retention",
-                    limit=10,
-                    project_root=project_root,
-                )
-            )
-        ] == [replacement_id]
-
-        with pytest.raises(ValueError, match="belongs to another project"):
-            _run(
-                undo_separated_review(
-                    backend,
-                    decision_id=decision.id,
-                    reason="A different project cannot undo this decision.",
-                    project_root=project_root,
-                    expected_project_name="other-project",
-                )
-            )
-
-        undo = _run(
-            undo_separated_review(
-                backend,
-                decision_id=decision.id,
-                reason="Repository check was rolled back.",
-                project_root=project_root,
-            )
-        )
-        assert undo["restored_truth_ids"] == [old.id]
-        assert undo["retired_truth_ids"] == [replacement_id]
-        restored = _run(
-            store.get_entry(old.id, project_name="demo", project_root=project_root)
-        )
-        assert restored is not None
-        assert restored.statement == old.statement
-        assert restored.revision == old.revision + 1
-        assert (
-            _run(
-                store.get_entry(
-                    replacement_id, project_name="demo", project_root=project_root
-                )
-            )
-            is None
-        )
-        assert [
-            entry.id
-            for entry in _run(
-                search_current_knowledge(
-                    backend,
-                    project_name="demo",
-                    query="evidence retention",
-                    limit=10,
-                    project_root=project_root,
-                )
-            )
-        ] == [old.id]
-        with pytest.raises(ValueError, match="already been undone"):
-            _run(
-                undo_separated_review(
-                    backend,
-                    decision_id=decision.id,
-                    reason="A duplicate undo must fail.",
-                    project_root=project_root,
-                )
-            )
-    finally:
-        _run(backend.close())
-
-
-def test_review_supersede_splits_a_broad_current_entry_without_overlap(
+def test_review_replace_splits_a_broad_current_entry_without_overlap(
     tmp_path,
 ) -> None:
     project_root = _project_root(tmp_path)
@@ -859,7 +1329,7 @@ def test_review_supersede_splits_a_broad_current_entry_without_overlap(
             resolve_separated_review(
                 backend,
                 candidate_id=candidate.id,
-                disposition="supersede",
+                disposition="replace",
                 reason="The current entry mixes independent publication and API rules.",
                 target_knowledge_ids=[broad.id],
                 knowledge_items=[
@@ -881,8 +1351,6 @@ def test_review_supersede_splits_a_broad_current_entry_without_overlap(
         )
 
         current = _run(store.list_entries("demo", project_root=project_root))
-        decision = _run(store.get_decision(result["mutation_id"]))
-        assert decision is not None
         assert (
             _run(
                 store.get_entry(
@@ -895,8 +1363,9 @@ def test_review_supersede_splits_a_broad_current_entry_without_overlap(
             "Transactional publication",
             "Final API validation",
         }
-        assert decision.predecessor_truth_ids == [broad.id]
-        assert decision.canonical_truth_ids == result["canonical_truth_ids"]
+        assert result["changed"] is True
+        assert len(result["canonical_truth_ids"]) == 2
+        assert _run(store.list_sources(broad.id)) == []
     finally:
         _run(backend.close())
 
@@ -1067,7 +1536,7 @@ def test_truth_transaction_failure_keeps_candidate_retryable(
         async def fail_transaction(**_kwargs):
             raise RuntimeError("simulated SQLite failure")
 
-        monkeypatch.setattr(store, "apply_truth_mutation", fail_transaction)
+        monkeypatch.setattr(store, "apply_current_change", fail_transaction)
         with pytest.raises(RuntimeError, match="simulated SQLite failure"):
             _run(
                 resolve_separated_review(
@@ -1185,7 +1654,9 @@ def test_identical_refine_fails_before_duplicate_target_mutation(tmp_path) -> No
         _run(backend.close())
 
 
-def test_review_reopens_target_source_before_confirmation(tmp_path) -> None:
+def test_review_blocks_stale_confirmation_but_allows_verified_replacement(
+    tmp_path,
+) -> None:
     project_root = _project_root(tmp_path)
     candidate_path = project_root / "CURRENT.md"
     candidate_path.write_text("The candidate source remains current.\n", encoding="utf-8")
@@ -1249,177 +1720,27 @@ def test_review_reopens_target_source_before_confirmation(tmp_path) -> None:
                 )
             )
         assert _run(store.get_candidate(candidate.id)).status == "pending"
-    finally:
-        _run(backend.close())
 
-
-def test_review_undo_history_is_bounded_with_its_version_snapshots(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        knowledge_store_module,
-        "_MAX_UNDO_MUTATIONS_PER_PROJECT",
-        2,
-    )
-    project_root = _project_root(tmp_path)
-    backend = LocalMemoryBackend(tmp_path / "data")
-    _run(backend.init())
-    try:
-        store = backend.structured_store.knowledge_store
-        current = _publish_entry(
-            store,
-            project_root,
-            title="Bounded policy",
-            statement="Policy revision zero.",
-            topic_path=["review"],
-        )
-        refinement_results = []
-        oldest_version_id = None
-        for index in range(1, 4):
-            candidate = KnowledgeCandidate(
-                id=f"bounded-candidate-{index}",
-                project_name="demo",
-                candidate_type="memory",
-                statement=f"Policy revision {index} is now current.",
-            )
-            _run(store.save_candidate(candidate))
-            _run(
-                store.save_evidence(
-                    _verified_evidence(
-                        candidate,
-                        f"bounded-evidence-{index}",
-                        project_root,
-                    )
-                )
-            )
-            result = _run(
-                resolve_separated_review(
-                    backend,
-                    candidate_id=candidate.id,
-                    disposition="refine",
-                    reason=f"Apply bounded revision {index}.",
-                    target_knowledge_ids=[current.id],
-                    knowledge_items=[
-                        {
-                            "title": "Bounded policy",
-                            "statement": f"Policy revision {index}.",
-                            "topic_path": ["review"],
-                            "claim_kind": "procedure",
-                        }
-                    ],
-                    project_root=project_root,
-                )
-            )
-            refinement_results.append(result)
-            if index == 1:
-                oldest_mutation = _run(store.get_mutation(result["mutation_id"]))
-                assert oldest_mutation is not None
-                oldest_version_id = oldest_mutation.predecessor_version_ids[0]
-            current = _run(
-                store.get_entry(
-                    result["canonical_truth_ids"][0],
-                    project_name="demo",
-                )
-            )
-            assert current is not None
-
-        mutations = _run(store.list_mutations("demo"))
-        assert [item.id for item in mutations] == [
-            refinement_results[1]["mutation_id"],
-            refinement_results[2]["mutation_id"],
-        ]
-        oldest_refinement = refinement_results[0]["mutation_id"]
-        assert _run(store.get_mutation(oldest_refinement)) is None
-        assert oldest_version_id is not None
-        assert _run(store.get_version(oldest_version_id)) is None
-    finally:
-        _run(backend.close())
-
-
-def test_review_undo_rejects_a_replacement_that_has_a_successor(tmp_path) -> None:
-    project_root = _project_root(tmp_path)
-    backend = LocalMemoryBackend(tmp_path / "data")
-    _run(backend.init())
-    try:
-        store = backend.structured_store.knowledge_store
-        original = _publish_entry(
-            store,
-            project_root,
-            title="Current policy",
-            statement="Keep the original policy.",
-            topic_path=["review"],
-        )
-
-        def verified_candidate(candidate_id: str, statement: str) -> KnowledgeCandidate:
-            candidate = KnowledgeCandidate(
-                id=candidate_id,
-                project_name="demo",
-                candidate_type="memory",
-                statement=statement,
-            )
-            _run(store.save_candidate(candidate))
-            _run(
-                store.save_evidence(
-                    _verified_evidence(
-                        candidate,
-                        f"{candidate_id}-evidence",
-                        project_root,
-                    )
-                )
-            )
-            return candidate
-
-        middle_candidate = verified_candidate("undo-middle-candidate", "Middle policy.")
-        middle = _run(
+        replacement = _run(
             resolve_separated_review(
                 backend,
-                candidate_id=middle_candidate.id,
+                candidate_id=candidate.id,
                 disposition="refine",
-                reason="The first verified replacement is current.",
-                target_knowledge_ids=[original.id],
+                reason="Fresh evidence may replace truth whose old source is stale.",
                 knowledge_items=[
                     {
-                        "title": "Current policy",
-                        "statement": "Keep the middle policy.",
+                        "title": "Source-bound truth",
+                        "statement": "Current truth now follows the fresh candidate source.",
                         "topic_path": ["review"],
-                        "claim_kind": "procedure",
+                        "claim_kind": "implementation_fact",
                     }
                 ],
+                target_knowledge_ids=[current.id],
                 project_root=project_root,
             )
         )
-        newest_candidate = verified_candidate("undo-newest-candidate", "Newest policy.")
-        _run(
-            resolve_separated_review(
-                backend,
-                candidate_id=newest_candidate.id,
-                disposition="refine",
-                reason="The second verified replacement is current.",
-                target_knowledge_ids=middle["canonical_truth_ids"],
-                knowledge_items=[
-                    {
-                        "title": "Current policy",
-                        "statement": "Keep the newest policy.",
-                        "topic_path": ["review"],
-                        "claim_kind": "procedure",
-                    }
-                ],
-                project_root=project_root,
-            )
-        )
-        first_decision = _run(store.get_decision(middle["mutation_id"]))
-        assert first_decision is not None
-        with pytest.raises(ValueError, match="later replacement"):
-            _run(
-                undo_separated_review(
-                    backend,
-                    decision_id=first_decision.id,
-                    reason="The successor must be undone first.",
-                    project_root=project_root,
-                )
-            )
-        current = _run(store.list_entries("demo", project_root=project_root))
-        assert [entry.statement for entry in current] == ["Keep the newest policy."]
+        assert replacement["changed"] is True
+        assert len(replacement["canonical_truth_ids"]) == 1
+        assert _run(store.get_entry(current.id, project_name="demo")) is None
     finally:
         _run(backend.close())

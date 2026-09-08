@@ -8,7 +8,7 @@ from pathlib import Path
 
 from harness_mem import __version__
 
-PUBLIC_RELEASE_VERSION = "0.9.27"
+RELEASE_TARGET_VERSION = "0.9.28"
 
 
 def _pyproject_version() -> str:
@@ -45,10 +45,10 @@ def test_source_and_public_install_versions_are_aligned() -> None:
 
     for relative in ("README.md", "README.zh-CN.md", "docs/quickstart.md"):
         content = (root / relative).read_text(encoding="utf-8")
-        assert f"harness-mem=={PUBLIC_RELEASE_VERSION}" in content
-        assert f"expanded_assets/v{PUBLIC_RELEASE_VERSION}" in content
+        assert f"harness-mem=={RELEASE_TARGET_VERSION}" in content
+        assert f"expanded_assets/v{RELEASE_TARGET_VERSION}" in content
         assert set(re.findall(r"expanded_assets/v(\d+\.\d+\.\d+)", content)) == {
-            PUBLIC_RELEASE_VERSION
+            RELEASE_TARGET_VERSION
         }
 
     current_version_text = {
@@ -87,9 +87,9 @@ def test_source_and_public_install_versions_are_aligned() -> None:
     assert f"Current snapshot (v{__version__})" in maturity
     for canvas in (readiness, convergence):
         assert f'RUNTIME_VERSION = "{__version__}"' in canvas
-        assert f'PUBLIC_RELEASE_VERSION = "{PUBLIC_RELEASE_VERSION}"' in canvas
         assert "source {RUNTIME_VERSION}" in canvas
-        assert "public {PUBLIC_RELEASE_VERSION}" in canvas
+        assert "preparing release" in canvas
+        assert "PUBLIC_RELEASE_VERSION" not in canvas
     assert "published artifacts are\nlisted on the GitHub Releases page" in maturity
     assert "公开版本以 GitHub Releases 为准" in readiness
 
@@ -97,6 +97,6 @@ def test_source_and_public_install_versions_are_aligned() -> None:
     changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
     assert release_notes.startswith(f"# Release {__version__} ")
     assert f"Release completion requires Git tag `v{__version__}`" in release_notes
-    assert f"harness-mem=={PUBLIC_RELEASE_VERSION}" in release_notes
+    assert f"harness-mem=={RELEASE_TARGET_VERSION}" in release_notes
     assert changelog.startswith("# Changelog\n\n")
     assert f"## [{__version__}]" in changelog

@@ -41,6 +41,8 @@ def test_provider_prompt_treats_candidates_as_user_visible_durable_memory() -> N
     assert "the user's language" in prompt
     assert "final_request" in prompt
     assert "actual_result" in prompt
+    assert "explicit preference is kind=memory, never kind=rule" in prompt
+    assert "concrete non-empty condition" in prompt
 
 
 def test_extraction_does_not_choose_assimilation_or_project_modules() -> None:
@@ -201,6 +203,8 @@ def test_verification_prompt_separates_semantic_support_from_future_scope() -> N
     assert "task envelope is session_only" in prompt
     assert "standing rule that records must contain an identifier is durable" in prompt
     assert "particular identifier value is session_only" in prompt
+    assert "version number or runtime status reported in a historical session" in prompt
+    assert "current repository evidence" in prompt
     assert "future_scope" in schema["$defs"]["CandidateVerificationPoint"]["properties"]
 
 

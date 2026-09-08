@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
-import sqlite3
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,7 +24,6 @@ from harness_mem.mcp.distill_projection import (
     build_append_aware_distill_projection,
 )
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
-from harness_mem.storage.canonical_store import canonical_store_path
 
 
 def _run(coro):
@@ -810,7 +808,7 @@ def test_cleanup_prunes_every_historical_revision_for_logical_source(
     _run(run())
 
 
-def test_managed_migration_backup_blocks_cleanup_before_native_delete(
+def test_existing_retained_source_does_not_block_cleanup(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -826,8 +824,8 @@ def test_managed_migration_backup_blocks_cleanup_before_native_delete(
             snapshot = await _completed_snapshot(
                 backend,
                 project,
-                session_id="backup-session",
-                private_text="managed backup secret",
+                session_id="retained-session",
+                private_text="managed retained secret",
             )
             backend.transcript_store.record_distill_completion_outcome(
                 snapshot.distill_job_id,
@@ -836,16 +834,6 @@ def test_managed_migration_backup_blocks_cleanup_before_native_delete(
                 promotion_summary={},
                 source_cleanup_status="retained",
             )
-            backup = data_dir / "store_v2" / "backups" / "canonical-test.sqlite"
-            backup.parent.mkdir(parents=True)
-            source_db = sqlite3.connect(canonical_store_path(data_dir))
-            backup_db = sqlite3.connect(backup)
-            try:
-                source_db.backup(backup_db)
-            finally:
-                backup_db.close()
-                source_db.close()
-
             begun = begin_processed_source_cleanup(
                 backend,
                 job_id=snapshot.distill_job_id,
@@ -855,14 +843,12 @@ def test_managed_migration_backup_blocks_cleanup_before_native_delete(
                 },
             )
 
-            assert begun["success"] is False
-            assert begun["reason_codes"] == [
-                "managed_backup_contains_source_evidence"
-            ]
+            assert begun["success"] is True
+            assert begun["receipt_id"]
             assert backend.transcript_store.reconstruct_raw(
                 snapshot.source.id,
                 source_revision=snapshot.source.source_revision,
-            ) == b"managed backup secret"
+            ) == b"managed retained secret"
         finally:
             await backend.close()
 

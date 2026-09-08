@@ -59,7 +59,7 @@ def test_distill_job_is_deduplicated_and_rendered(tmp_path: Path) -> None:
         _run(backend.close())
 
 
-def test_agent_active_drainer_enforces_daily_new_job_budget(tmp_path: Path) -> None:
+def test_agent_active_drainer_honors_only_caller_batch_choice(tmp_path: Path) -> None:
     backend = LocalMemoryBackend(tmp_path / "data")
     _run(backend.init())
     now = datetime(2026, 7, 17, 8, 0, tzinfo=timezone.utc)
@@ -89,21 +89,18 @@ def test_agent_active_drainer_enforces_daily_new_job_budget(tmp_path: Path) -> N
         first = pending_distill_jobs(
             backend,
             project_name="demo",
-            target_backlog=2,
-            daily_job_budget=1,
+            max_jobs=1,
             now=now,
         )
         second = pending_distill_jobs(
             backend,
             project_name="demo",
-            target_backlog=2,
-            daily_job_budget=1,
+            max_jobs=1,
             now=now,
         )
         metrics = distill_drainer_metrics(
             backend,
             project_name="demo",
-            daily_job_budget=1,
             now=now,
         )
         instruction = render_pending_distill_instruction(first, metrics=metrics)
@@ -115,15 +112,13 @@ def test_agent_active_drainer_enforces_daily_new_job_budget(tmp_path: Path) -> N
 
         assert len(first) == 1
         assert [job.id for job in second] == [job.id for job in first]
-        assert metrics["active"] == 2
-        assert metrics["parked"] == 1
-        assert metrics["offered_today"] == 1
-        assert metrics["daily_budget_remaining"] == 0
+        assert metrics["active"] == 3
+        assert metrics["parked"] == 0
+        assert metrics["offered_total"] == 1
         assert metrics["state"] == "waiting_for_agent"
         assert metrics["background_semantic_processing"] is False
         assert "State: waiting_for_agent" in instruction
-        assert "three recent jobs, then one oldest" in instruction
-        assert f"process up to 1 now: {first[0].id}" in instruction
+        assert f"Process the available jobs now: {first[0].id}" in instruction
         assert "distill_job_id=<selected id>" in instruction
         assert "run_ingest=false" in instruction
         assert offer["contract_version"] == "agent-distill-offer-v2"
@@ -189,22 +184,18 @@ def test_agent_active_drainer_only_charges_jobs_emitted_to_agent(
         offered = pending_distill_jobs(
             backend,
             project_name="demo",
-            target_backlog=3,
             max_jobs=1,
-            daily_job_budget=3,
             now=now,
         )
         metrics = distill_drainer_metrics(
             backend,
             project_name="demo",
-            daily_job_budget=3,
             now=now,
         )
 
         assert len(offered) == 1
         assert metrics["active"] == 3
-        assert metrics["offered_today"] == 1
-        assert metrics["daily_budget_remaining"] == 2
+        assert metrics["offered_total"] == 1
     finally:
         _run(backend.close())
 
@@ -244,20 +235,19 @@ def test_status_queue_preview_is_bounded_readable_and_hides_internal_ids(
         metrics = distill_drainer_metrics(
             backend,
             project_name="demo",
-            daily_job_budget=0,
             now=now,
         )
 
-        assert metrics["state"] == "daily_budget_exhausted"
+        assert metrics["state"] == "waiting_for_agent"
         assert len(metrics["queue_preview"]) == 2
         row = metrics["queue_preview"][0]
         assert row["project_name"] == "demo"
         assert row["source_host"] == "codex-archive"
         assert row["session_label"].startswith("Codex archive session captured ")
-        assert row["state"] == "waiting_for_daily_budget"
+        assert row["state"] == "queued_for_agent"
         assert row["handler"] == {
             "kind": "waiting",
-            "label": "no Agent is running; waiting for the next daily budget",
+            "label": "waiting for a Codex Agent",
         }
         serialized = str(metrics["queue_preview"])
         assert "visible-session-" not in serialized
@@ -330,7 +320,7 @@ def test_status_queue_preview_identifies_an_active_autonomous_worker(
         _run(backend.close())
 
 
-def test_bounded_batch_covers_backlog_sizes_caps_and_repeated_offers(
+def test_caller_requested_batch_covers_backlog_sizes_and_repeated_offers(
     tmp_path: Path,
 ) -> None:
     backend = LocalMemoryBackend(tmp_path / "data")
@@ -340,7 +330,6 @@ def test_bounded_batch_covers_backlog_sizes_caps_and_repeated_offers(
         assert pending_distill_jobs(
             backend,
             project_name="demo",
-            target_backlog=4,
             max_jobs=99,
             record_offer=False,
             now=now,
@@ -370,45 +359,36 @@ def test_bounded_batch_covers_backlog_sizes_caps_and_repeated_offers(
             preview = pending_distill_jobs(
                 backend,
                 project_name="demo",
-                target_backlog=4,
                 max_jobs=99,
-                daily_job_budget=8,
                 record_offer=False,
                 now=now,
             )
-            assert len(preview) == min(count, 3)
+            assert len(preview) == count
 
         first_offer = pending_distill_jobs(
             backend,
             project_name="demo",
-            target_backlog=4,
             max_jobs=3,
-            daily_job_budget=2,
             now=now,
         )
         repeated_offer = pending_distill_jobs(
             backend,
             project_name="demo",
-            target_backlog=4,
             max_jobs=3,
-            daily_job_budget=2,
             now=now,
         )
-        assert len(first_offer) == 2
+        assert len(first_offer) == 3
         assert [job.id for job in repeated_offer] == [job.id for job in first_offer]
         assert distill_drainer_metrics(
             backend,
             project_name="demo",
-            daily_job_budget=2,
             now=now,
-        )["offered_today"] == 2
+        )["offered_total"] == 3
 
         explicit_offer = pending_distill_jobs(
             backend,
             project_name="demo",
-            target_backlog=4,
             max_jobs=3,
-            daily_job_budget=3,
             now=now + timedelta(days=1),
         )
         contract = build_distill_maintenance_offer(
@@ -417,7 +397,7 @@ def test_bounded_batch_covers_backlog_sizes_caps_and_repeated_offers(
             budget_tokens=6400,
         )
         assert len(explicit_offer) == 3
-        assert build_distill_maintenance_offer(explicit_offer)["process_limit"] == 2
+        assert build_distill_maintenance_offer(explicit_offer)["process_limit"] == 3
         assert contract["process_limit"] == 3
         assert contract["job_ids"] == [job.id for job in explicit_offer]
         assert contract["distill_job_id"] == explicit_offer[0].id
@@ -481,9 +461,7 @@ def test_thirty_two_session_burst_drains_in_sixteen_two_job_opportunities(
             offered = pending_distill_jobs(
                 backend,
                 project_name="demo",
-                target_backlog=2,
                 max_jobs=2,
-                daily_job_budget=32,
                 now=now,
             )
             assert len(offered) == 2, opportunity
@@ -517,9 +495,7 @@ def test_thirty_two_session_burst_drains_in_sixteen_two_job_opportunities(
         assert pending_distill_jobs(
             backend,
             project_name="demo",
-            target_backlog=2,
             max_jobs=2,
-            daily_job_budget=32,
             now=now,
         ) == []
     finally:
@@ -576,7 +552,7 @@ def test_drainer_reports_backoff_and_zero_throughput_without_background_claims(
         _run(backend.close())
 
 
-def test_drainer_estimate_accounts_for_exhausted_daily_budget(tmp_path: Path) -> None:
+def test_drainer_estimate_has_no_daily_budget_gate(tmp_path: Path) -> None:
     backend = LocalMemoryBackend(tmp_path / "data")
     _run(backend.init())
     now = datetime.now(timezone.utc)
@@ -608,9 +584,7 @@ def test_drainer_estimate_accounts_for_exhausted_daily_budget(tmp_path: Path) ->
         offered = pending_distill_jobs(
             backend,
             project_name="demo",
-            target_backlog=1,
             max_jobs=1,
-            daily_job_budget=1,
             now=now,
         )
         assert len(offered) == 1
@@ -658,21 +632,18 @@ def test_drainer_estimate_accounts_for_exhausted_daily_budget(tmp_path: Path) ->
         pending_distill_jobs(
             backend,
             project_name="demo",
-            target_backlog=1,
             max_jobs=1,
-            daily_job_budget=1,
             now=now,
         )
 
         metrics = distill_drainer_metrics(
             backend,
             project_name="demo",
-            daily_job_budget=1,
             now=now,
         )
         reason_codes = {reason["code"] for reason in metrics["stuck_reasons"]}
 
-        assert metrics["state"] == "daily_budget_exhausted"
+        assert metrics["state"] == "waiting_for_agent"
         assert metrics["pending_total"] == 1
         assert metrics["completed_7d"] == 1
         assert metrics["promoted_7d"] == 0
@@ -685,10 +656,10 @@ def test_drainer_estimate_accounts_for_exhausted_daily_budget(tmp_path: Path) ->
             "contradicted": 1,
             "legacy_or_unknown": 0,
         }
-        assert "daily_budget_exhausted" in reason_codes
+        assert "daily_budget_exhausted" not in reason_codes
         assert metrics["drain_estimate"]["status"] == "coarse_estimate"
-        assert metrics["drain_estimate"]["starts_after"].endswith("T00:00:00+00:00")
-        assert metrics["drain_estimate"]["estimated_calendar_days"] >= 2
+        assert "starts_after" not in metrics["drain_estimate"]
+        assert metrics["drain_estimate"]["estimated_calendar_days"] >= 1
         assert metrics["drain_estimate"]["requires_agent_execution"] is True
     finally:
         _run(backend.close())
@@ -702,8 +673,6 @@ def test_drainer_estimate_includes_latest_retry_backoff() -> None:
         parked=0,
         retry_backoff_count=1,
         throughput_per_day=2.0,
-        daily_job_budget=3,
-        daily_budget_remaining=3,
         state="backoff",
         retry_backoff=[SimpleNamespace(retry_after=now + timedelta(days=10))],
         current=now,
@@ -713,51 +682,3 @@ def test_drainer_estimate_includes_latest_retry_backoff() -> None:
     assert estimate["estimated_calendar_days"] == 11
     assert estimate["latest_retry_after"] == "2026-08-05T12:00:00+00:00"
     assert "latest retry backoff" in estimate["basis"]
-
-
-def test_auto_review_completes_distill_job_then_runs_dream(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    backend = LocalMemoryBackend(tmp_path / "data")
-    _run(backend.init())
-    previous_backend_provider = tool_handlers._backend_provider
-    previous_observer_provider = tool_handlers._observer_data_dir_provider
-    previous_cost_provider = tool_handlers._cost_surface_budgets_provider
-    previous_logger = tool_handlers.logger
-    tool_handlers.configure_tool_handler_dependencies(
-        backend_provider=lambda: backend,
-        observer_data_dir=lambda: backend.data_dir,
-        cost_surface_budgets=lambda _project_name: None,
-        logger_instance=logging.getLogger("test.distill-lifecycle"),
-    )
-    try:
-        job = stage_distill_job(
-            backend,
-            project_name="demo",
-            project_root=str(tmp_path),
-            observation_ids=["obs-1"],
-            source="agent",
-        )
-        assert job is not None
-        job.status = "processing"
-        backend.reflection_job_store.save(job)
-
-        async def fake_dream(*_args, **_kwargs):
-            return {"success": True, "status": "completed", "job_id": "dream-1"}
-
-        monkeypatch.setattr(tool_handlers, "dream_auto_tick", fake_dream)
-        payload = tool_handlers.tool_auto_review_candidates("demo", apply=True)
-
-        assert payload["distill_jobs_completed"] == [job.id]
-        assert payload["dream"]["job_id"] == "dream-1"
-        reloaded = backend.reflection_job_store.get(job.id)
-        assert reloaded is not None
-        assert reloaded.status == "completed"
-        assert reloaded.phase == "done"
-    finally:
-        tool_handlers._backend_provider = previous_backend_provider
-        tool_handlers._observer_data_dir_provider = previous_observer_provider
-        tool_handlers._cost_surface_budgets_provider = previous_cost_provider
-        tool_handlers.logger = previous_logger
-        _run(backend.close())

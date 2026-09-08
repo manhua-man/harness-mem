@@ -5,7 +5,7 @@ import hashlib
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -30,6 +30,11 @@ from harness_mem.mcp import (
 )
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.mcp.response_budget import serialized_result_tokens
+from harness_mem.session_notes import (
+    delete_session_notes,
+    latest_session_note_path,
+    session_note_path,
+)
 
 
 SEMANTIC_REVIEW = {
@@ -44,7 +49,51 @@ SEMANTIC_REVIEW = {
 }
 
 
-def test_multi_item_answer_packet_uses_user_facing_memory_wording(
+@pytest.mark.parametrize(
+    ("client", "execution_source", "expected"),
+    [
+        ("codex", "autonomous_worker", False),
+        ("codex-archive", "autonomous_worker", True),
+        ("codex", "interactive_agent", True),
+    ],
+)
+def test_source_cleanup_is_active_only_for_user_processing(
+    client: str,
+    execution_source: str,
+    expected: bool,
+) -> None:
+    job = SimpleNamespace(client=client, review_execution_source=execution_source)
+
+    assert distill_handlers._source_cleanup_allowed(job) is expected
+
+
+def test_active_session_cleanup_removes_only_selected_notes(tmp_path: Path) -> None:
+    job = SessionDistillJob(
+        id="note-job",
+        idempotency_key="note-key",
+        project_name="demo",
+        project_root=str(tmp_path),
+        client="codex",
+        session_id="note-session",
+        source_id="note-source",
+        source_revision="sha256:" + "a" * 64,
+    )
+    notes_dir = tmp_path / "notes"
+    immutable = session_note_path(notes_dir, job)
+    latest = latest_session_note_path(notes_dir, job.session_id)
+    unrelated = notes_dir / "other-session.md"
+    immutable.parent.mkdir(parents=True)
+    immutable.write_text("selected", encoding="utf-8")
+    latest.write_text("selected", encoding="utf-8")
+    unrelated.write_text("keep", encoding="utf-8")
+
+    assert delete_session_notes(notes_dir, job) == {"removed": 2, "failed": 0}
+    assert not immutable.exists()
+    assert not latest.exists()
+    assert unrelated.exists()
+
+
+def test_compatibility_entries_never_populate_current_memory_answer_packet(
     tmp_path: Path,
 ) -> None:
     backend = LocalMemoryBackend(tmp_path / "answer-packet-data")
@@ -91,9 +140,9 @@ def test_multi_item_answer_packet_uses_user_facing_memory_wording(
     finally:
         asyncio.run(backend.close())
 
-    assert packet["core_conclusion"] == (
-        "已验证并写入 2 条长期记忆，具体内容见下方列表。"
-    )
+    assert packet["promotion_status"] == "not_promoted"
+    assert packet["promoted_items"] == []
+    assert packet["core_conclusion"] == "候选未通过晋升策略。"
     assert "promoted_items" not in packet["core_conclusion"]
 
 
@@ -327,6 +376,120 @@ def test_explicit_session_rechecks_legacy_signal_false_negative(
         asyncio.run(backend.close())
 
 
+def test_explicit_session_rechecks_completed_promotion_without_current_result(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    backend = LocalMemoryBackend(tmp_path / "data")
+    asyncio.run(backend.init())
+    snapshot = asyncio.run(
+        persist_session_snapshot(
+            backend,
+            Observation(
+                session_id="legacy-false-promotion",
+                client="codex",
+                raw_content="A durable fact was claimed but never committed.",
+                content_type="transcript",
+                timestamp=datetime.now(timezone.utc),
+                metadata={},
+            ),
+            project_name="demo",
+            project_root=str(project),
+            client="codex",
+            session_id="legacy-false-promotion",
+            source_kind="jsonl",
+            source_uri="file:///legacy-false-promotion.jsonl",
+            source_text=(
+                "User: remember the durable fact\n\n"
+                "Assistant: The durable fact was recorded.\n"
+            ),
+        )
+    )
+    assert snapshot.source is not None
+    assert snapshot.distill_job_id is not None
+    old_job_id = snapshot.distill_job_id
+    for chunk, _checkpoint in backend.transcript_store.claim_distill_chunks(
+        old_job_id,
+        lease_owner="legacy-agent",
+        limit=100,
+    ):
+        backend.transcript_store.checkpoint_distill_chunk(
+            old_job_id,
+            chunk.id,
+            lease_owner="legacy-agent",
+            result={"summary": "read"},
+        )
+    backend.transcript_store.finalize_distill_job(
+        old_job_id,
+        semantic_review=SEMANTIC_REVIEW,
+        output_candidate_ids=["legacy-candidate"],
+    )
+    backend.transcript_store.record_distill_completion_outcome(
+        old_job_id,
+        disposition="promoted",
+        reason_codes=["durable_memory_promoted"],
+        promotion_summary={
+            "suggested": 1,
+            "promoted": 1,
+            "pending": 0,
+            "missing": 0,
+        },
+        source_cleanup_status="retained",
+    )
+
+    previous_backend_provider = tool_handlers._backend_provider
+    previous_observer_provider = tool_handlers._observer_data_dir_provider
+    previous_cost_provider = tool_handlers._cost_surface_budgets_provider
+    previous_logger = tool_handlers.logger
+    tool_handlers.configure_tool_handler_dependencies(
+        backend_provider=lambda: backend,
+        observer_data_dir=lambda: backend.data_dir,
+        cost_surface_budgets=lambda _project_name: None,
+        logger_instance=logging.getLogger("test.current-knowledge-recheck"),
+    )
+    try:
+        explicit_completed = tool_handlers.tool_prepare_session_distill(
+            project_name="demo",
+            project_root=str(project),
+            client="codex",
+            run_ingest=False,
+            session_id="legacy-false-promotion",
+            distill_job_id=old_job_id,
+            evidence_mode="semantic",
+        )
+        assert explicit_completed["success"] is False
+        assert explicit_completed["reason_codes"] == [
+            "assimilation_candidate_results_incomplete"
+        ]
+
+        packet = tool_handlers.tool_prepare_session_distill(
+            project_name="demo",
+            project_root=str(project),
+            client="codex",
+            run_ingest=False,
+            session_id="legacy-false-promotion",
+            evidence_mode="semantic",
+        )
+
+        assert packet["success"] is True
+        assert packet["distill_job_id"] != old_job_id
+        assert packet["agent_execution"]["path"] != "already_completed"
+        recheck_job = backend.transcript_store.get_distill_job(
+            packet["distill_job_id"]
+        )
+        assert recheck_job is not None
+        assert recheck_job.pipeline_version == (
+            distill_handlers._CURRENT_KNOWLEDGE_RECHECK_PIPELINE_VERSION
+        )
+    finally:
+        tool_handlers._backend_provider = previous_backend_provider
+        tool_handlers._observer_data_dir_provider = previous_observer_provider
+        tool_handlers._cost_surface_budgets_provider = previous_cost_provider
+        tool_handlers.logger = previous_logger
+        asyncio.run(backend.close())
+
+
 def test_completed_legacy_no_candidate_without_summary_requires_recheck() -> None:
     job = SimpleNamespace(
         status="completed",
@@ -419,7 +582,6 @@ def test_zero_signal_bundle_stays_no_candidate(monkeypatch) -> None:
 @pytest.mark.parametrize("root_state", ["invalid_config", "missing_root"])
 def test_completed_finalize_replay_recovers_missing_outcome_when_config_unavailable(
     tmp_path: Path,
-    monkeypatch,
     root_state: str,
 ) -> None:
     project = tmp_path / root_state
@@ -458,10 +620,6 @@ def test_completed_finalize_replay_recovers_missing_outcome_when_config_unavaila
         logger_instance=logging.getLogger("test.recover-completed-distill"),
     )
 
-    async def fail_dream(*_args, **_kwargs):
-        raise AssertionError("manual finalize must not start Dream")
-
-    monkeypatch.setattr(tool_handlers, "dream_auto_tick", fail_dream)
     try:
         for chunk, _checkpoint in backend.transcript_store.claim_distill_chunks(
             snapshot.distill_job_id,
@@ -495,10 +653,8 @@ def test_completed_finalize_replay_recovers_missing_outcome_when_config_unavaila
                 "[distill\n",
                 encoding="utf-8",
             )
-            expected_reason = "completion_config_invalid"
         else:
             project.rmdir()
-            expected_reason = "completion_project_root_unavailable"
 
         replay = tool_handlers.tool_finalize_session_distill(
             project_name="demo",
@@ -510,7 +666,6 @@ def test_completed_finalize_replay_recovers_missing_outcome_when_config_unavaila
         assert replay["idempotent_replay"] is True
         assert replay["completion_recovered"] is True
         assert replay["completion"]["disposition"] == "no_candidate"
-        assert expected_reason in replay["completion"]["reason_codes"]
         assert replay["source_cleanup"]["configured"] is False
         stored = backend.transcript_store.get_distill_job(snapshot.distill_job_id)
         assert stored is not None
@@ -523,9 +678,99 @@ def test_completed_finalize_replay_recovers_missing_outcome_when_config_unavaila
         asyncio.run(backend.close())
 
 
+def test_completed_legacy_promotion_receipt_is_not_replayed_as_success(
+    tmp_path: Path,
+) -> None:
+    backend = LocalMemoryBackend(tmp_path / "legacy-promotion-data")
+    asyncio.run(backend.init())
+    snapshot = asyncio.run(
+        persist_session_snapshot(
+            backend,
+            Observation(
+                session_id="legacy-false-promotion",
+                client="codex",
+                raw_content="legacy false promotion",
+                content_type="transcript",
+                timestamp=datetime.now(timezone.utc),
+                metadata={},
+            ),
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="codex",
+            session_id="legacy-false-promotion",
+            source_kind="jsonl",
+            source_uri="file:///legacy-false-promotion.jsonl",
+            source_text="user request\nassistant answer\n",
+        )
+    )
+    assert snapshot.distill_job_id is not None
+    for chunk, _checkpoint in backend.transcript_store.claim_distill_chunks(
+        snapshot.distill_job_id,
+        lease_owner="legacy-promotion-test",
+        limit=100,
+    ):
+        backend.transcript_store.checkpoint_distill_chunk(
+            snapshot.distill_job_id,
+            chunk.id,
+            lease_owner="legacy-promotion-test",
+            result={"summary": "read"},
+        )
+    backend.transcript_store.finalize_distill_job(
+        snapshot.distill_job_id,
+        semantic_review=SEMANTIC_REVIEW,
+        output_candidate_ids=[],
+    )
+    backend.transcript_store.record_distill_completion_outcome(
+        snapshot.distill_job_id,
+        disposition="promoted",
+        reason_codes=["durable_memory_promoted"],
+        promotion_summary={
+            "suggested": 1,
+            "promoted": 1,
+            "answer_packet": {
+                "promoted_items": [
+                    {
+                        "title": "Claimed but unwritten",
+                        "fact": "This fact was never written to current knowledge.",
+                    }
+                ]
+            },
+        },
+        source_cleanup_status="retained",
+    )
+    previous_backend_provider = tool_handlers._backend_provider
+    previous_observer_provider = tool_handlers._observer_data_dir_provider
+    previous_cost_provider = tool_handlers._cost_surface_budgets_provider
+    previous_logger = tool_handlers.logger
+    tool_handlers.configure_tool_handler_dependencies(
+        backend_provider=lambda: backend,
+        observer_data_dir=lambda: backend.data_dir,
+        cost_surface_budgets=lambda _project_name: None,
+        logger_instance=logging.getLogger("test.legacy-false-promotion"),
+    )
+    try:
+        replay = tool_handlers.tool_finalize_session_distill(
+            project_name="demo",
+            job_id=snapshot.distill_job_id,
+            semantic_review=SEMANTIC_REVIEW,
+        )
+
+        assert replay["success"] is False
+        assert replay["distill_status"] == "completed"
+        assert replay["reason_codes"] == ["assimilation_candidate_count_mismatch"]
+        assert asyncio.run(
+            backend.structured_store.knowledge_store.list_entries("demo")
+        ) == []
+    finally:
+        tool_handlers._backend_provider = previous_backend_provider
+        tool_handlers._observer_data_dir_provider = previous_observer_provider
+        tool_handlers._cost_surface_budgets_provider = previous_cost_provider
+        tool_handlers.logger = previous_logger
+        asyncio.run(backend.close())
+
+
 def test_mcp_reads_every_lossless_chunk_before_final_review(
     tmp_path: Path,
-    monkeypatch,
 ) -> None:
     async def setup(backend: LocalMemoryBackend, source_text: str) -> None:
         await persist_session_snapshot(
@@ -551,7 +796,7 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
 
     source_text = "start\n" + ("complete-middle-evidence\n" * 2500) + "final-answer\n"
     (tmp_path / ".harness-mem.toml").write_text(
-        "[distill]\ndelete_source_after_complete = false\n",
+        "[distill]\nauto = true\n",
         encoding="utf-8",
     )
     backend = LocalMemoryBackend(tmp_path / "data")
@@ -568,10 +813,6 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
         logger_instance=logging.getLogger("test.lossless-distill"),
     )
 
-    async def fail_dream(*_args, **_kwargs):
-        raise AssertionError("manual finalize must not start Dream")
-
-    monkeypatch.setattr(tool_handlers, "dream_auto_tick", fail_dream)
     try:
         collected: list[str] = []
         job_id = ""
@@ -582,6 +823,7 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
                 client="cursor",
                 run_ingest=False,
                 chunk_limit=1,
+                evidence_mode="raw",
             )
             job_id = packet["distill_job_id"]
             if packet["distill_status"] == "reviewing":
@@ -600,50 +842,76 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
             assert submitted["success"] is True
 
         assert "".join(collected) == source_text
-        first_memory = governance_handlers.tool_suggest_memory_entry(
-            project_name="demo",
-            category="decision",
-            content="Use the complete lossless session before promotion.",
-            source=f"distill-job:{job_id}",
-            distill_job_id=job_id,
+        first_memory = governance_handlers.tool_govern_memory(
+            action="suggest",
+            arguments={
+                "kind": "memory",
+                "project_name": "demo",
+                "category": "decision",
+                "content": "Use the complete lossless session before promotion.",
+                "source": f"distill-job:{job_id}",
+                "distill_job_id": job_id,
+            },
         )
-        replayed_memory = governance_handlers.tool_suggest_memory_entry(
-            project_name="demo",
-            category="decision",
-            content="  Use the complete lossless session\n before promotion.  ",
-            source=f"distill-job:{job_id}",
-            distill_job_id=job_id,
+        replayed_memory = governance_handlers.tool_govern_memory(
+            action="suggest",
+            arguments={
+                "kind": "memory",
+                "project_name": "demo",
+                "category": "decision",
+                "content": "  Use the complete lossless session\n before promotion.  ",
+                "source": f"distill-job:{job_id}",
+                "distill_job_id": job_id,
+            },
         )
-        first_rule = governance_handlers.tool_suggest_rule(
-            project_name="demo",
-            pattern="Read every transcript chunk",
-            trigger="distilling a long session",
-            distill_job_id=job_id,
+        first_rule = governance_handlers.tool_govern_memory(
+            action="suggest",
+            arguments={
+                "kind": "rule",
+                "project_name": "demo",
+                "pattern": "Read every transcript chunk",
+                "trigger": "distilling a long session",
+                "distill_job_id": job_id,
+            },
         )
-        replayed_rule = governance_handlers.tool_suggest_rule(
-            project_name="demo",
-            pattern="Read every transcript chunk",
-            trigger="distilling a long session",
-            distill_job_id=job_id,
+        replayed_rule = governance_handlers.tool_govern_memory(
+            action="suggest",
+            arguments={
+                "kind": "rule",
+                "project_name": "demo",
+                "pattern": "Read every transcript chunk",
+                "trigger": "distilling a long session",
+                "distill_job_id": job_id,
+            },
         )
-        first_relation = governance_handlers.tool_suggest_relation_fact(
-            project_name="demo",
-            source_entity="distill-job",
-            target_entity="source-revision",
-            relation_type="reads",
-            evidence="All chunks completed",
-            source=f"distill-job:{job_id}",
-            distill_job_id=job_id,
+        first_relation = governance_handlers.tool_govern_memory(
+            action="suggest",
+            arguments={
+                "kind": "relation",
+                "project_name": "demo",
+                "source_entity": "distill-job",
+                "target_entity": "source-revision",
+                "relation_type": "reads",
+                "evidence": "All chunks completed",
+                "source": f"distill-job:{job_id}",
+                "distill_job_id": job_id,
+            },
         )
-        replayed_relation = governance_handlers.tool_suggest_relation_fact(
-            project_name="demo",
-            source_entity="distill-job",
-            target_entity="source-revision",
-            relation_type="reads",
-            evidence="All chunks completed",
-            source=f"distill-job:{job_id}",
-            distill_job_id=job_id,
+        replayed_relation = governance_handlers.tool_govern_memory(
+            action="suggest",
+            arguments={
+                "kind": "relation",
+                "project_name": "demo",
+                "source_entity": "distill-job",
+                "target_entity": "source-revision",
+                "relation_type": "reads",
+                "evidence": "All chunks completed",
+                "source": f"distill-job:{job_id}",
+                "distill_job_id": job_id,
+            },
         )
+        assert first_relation["success"] is True, first_relation
+        assert replayed_relation["success"] is True, replayed_relation
         assert replayed_memory["entry_id"] == first_memory["entry_id"]
         assert replayed_memory["idempotent_replay"] is True
         assert replayed_rule["candidate_id"] == first_rule["candidate_id"]
@@ -669,7 +937,12 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
         expected_promotion = {
             "suggested": 3,
             "promoted": 0,
-            "rejected": 3,
+            "confirmed": 0,
+            "no_write": 0,
+            "handoff": 0,
+            "deferred": 3,
+            "conflict": 0,
+            "rejected": 0,
             "pending": 0,
             "missing": 0,
             "evidence_admission": {
@@ -691,24 +964,32 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
         assert {
             key: value
             for key, value in finalized["promotion"].items()
-            if key != "answer_packet"
+            if key not in {"answer_packet", "points"}
         } == expected_promotion
         assert finalized["answer_packet"] == finalized["promotion"]["answer_packet"]
         assert finalized["answer_packet"]["answer_status"] == "UNANSWERED"
         assert finalized["answer_packet"]["promotion_status"] == "not_promoted"
         assert finalized["answer_packet"]["promoted_items"] == []
         assert finalized["queue_effect"]["removed_from_pending"] is True
-        assert finalized["source_cleanup"] == {
-            "configured": False,
-            "status": "retained",
-            "receipt_id": None,
-            "reason_codes": ["retention_default"],
-        }
+        assert finalized["source_cleanup"]["configured"] is True
+        assert finalized["source_cleanup"]["status"] == "retained"
+        assert finalized["source_cleanup"]["receipt_id"] is None
+        assert finalized["source_cleanup"]["reason_codes"] == [
+            "native_source_uri_not_absolute"
+        ]
         unrelated_entry = asyncio.run(
-            backend.structured_store.get_memory_entry(unrelated["entry_id"])
+            backend.structured_store.knowledge_store.get_candidate(
+                unrelated["entry_id"]
+            )
         )
         assert unrelated_entry is not None
         assert unrelated_entry.status == "pending"
+        assert (
+            asyncio.run(
+                backend.structured_store.get_memory_entry(unrelated["entry_id"])
+            )
+            is None
+        )
     finally:
         tool_handlers._backend_provider = previous_backend_provider
         tool_handlers._observer_data_dir_provider = previous_observer_provider
@@ -741,11 +1022,11 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
                 **SEMANTIC_REVIEW,
                 "session_summary": (
                     "The verified preference was answered while an older plan was "
-                    "superseded."
+                    "replaced."
                 ),
-                "final_outcome": "verified preference retained; old plan superseded",
+                "final_outcome": "verified preference retained; old plan replaced",
                 "last_turn_status": "unfinished",
-                "contradictions": ["An older plan was superseded by a later decision."],
+                "contradictions": ["An older plan was replaced by a later decision."],
                 "unfinished_work": ["Finish unrelated follow-up work."],
                 "evidence_status": "partial",
                 "promotion_decision": "partial",
@@ -756,7 +1037,6 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
 )
 def test_finalize_promotes_answered_candidate_independently_of_session_handoff(
     tmp_path: Path,
-    monkeypatch,
     semantic_review: dict,
 ) -> None:
     backend = LocalMemoryBackend(tmp_path / "data")
@@ -791,21 +1071,62 @@ def test_finalize_promotes_answered_candidate_independently_of_session_handoff(
         logger_instance=logging.getLogger("test.promoted-distill"),
     )
 
-    async def fail_dream(*_args, **_kwargs):
-        raise AssertionError("manual finalize must not start Dream")
-
-    monkeypatch.setattr(tool_handlers, "dream_auto_tick", fail_dream)
     try:
         repository_evidence = tmp_path / "admission-policy.txt"
         repository_evidence.write_text(
-            "One automatic distill completion path.",
+            "Only hm is generated as the daily command.",
             encoding="utf-8",
+        )
+        seed_candidate = KnowledgeCandidate(
+            id="seed-old-entry-candidate",
+            project_name="demo",
+            candidate_type="memory",
+            statement="Legacy hm commands are still generated.",
+        )
+        old_entry = KnowledgeEntry(
+            id="old-hm-entry",
+            project_name="demo",
+            module_path=["commands"],
+            title="Legacy hm commands",
+            statement="Legacy hm commands are still generated.",
+            verified_at=datetime.now(timezone.utc),
+        )
+        asyncio.run(
+            backend.structured_store.knowledge_store.apply_current_change(
+                candidate_before=seed_candidate,
+                candidate_after=seed_candidate.model_copy(
+                    update={"status": "assimilated"}
+                ),
+                decision=AssimilationDecision(
+                    id="seed-old-entry-decision",
+                    project_name="demo",
+                    candidate_id=seed_candidate.id,
+                    disposition="add",
+                    canonical_truth_ids=[old_entry.id],
+                    reason="Seed a current statement for replacement coverage.",
+                ),
+                added_entries=[old_entry],
+                predecessor_entries=[],
+                source_refs_by_entry={
+                    old_entry.id: [
+                        ProjectKnowledgeSourceRef(
+                            label="admission-policy.txt",
+                            target=repository_evidence.resolve().as_uri(),
+                            kind="repository",
+                            digest=hashlib.sha256(
+                                repository_evidence.read_bytes()
+                            ).hexdigest(),
+                        )
+                    ]
+                },
+            )
         )
         packet = tool_handlers.tool_prepare_session_distill(
             project_name="demo",
             project_root=str(tmp_path),
             client="cursor",
             run_ingest=False,
+            evidence_mode="raw",
         )
         chunk = packet["chunks"][0]
         tool_handlers.tool_submit_distill_chunk(
@@ -814,19 +1135,20 @@ def test_finalize_promotes_answered_candidate_independently_of_session_handoff(
             lease_owner=packet["lease_owner"],
             result={"summary": "read"},
         )
-        candidate = governance_handlers.tool_suggest_memory_entry(
-            project_name="demo",
-            category="decision",
-            content=(
-                "The project uses one automatic distill completion path so low-value "
-                "sessions never require manual candidate promotion or repeated review."
+        candidate_arguments = {
+            "kind": "memory",
+            "project_name": "demo",
+            "category": "decision",
+            "content": (
+                "Only hm is generated as the daily command; legacy hm commands are "
+                "not generated."
             ),
-            source=f"distill-job:{result.distill_job_id}",
-            confidence=0.99,
-            distill_job_id=result.distill_job_id,
-            evidence_basis="repository",
-            verification_outcome="verified",
-            verification_refs=[
+            "source": f"distill-job:{result.distill_job_id}",
+            "confidence": 0.99,
+            "distill_job_id": result.distill_job_id,
+            "evidence_basis": "repository",
+            "verification_outcome": "verified",
+            "verification_refs": [
                 {
                     "kind": "repository",
                     "locator": "admission-policy.txt",
@@ -835,13 +1157,60 @@ def test_finalize_promotes_answered_candidate_independently_of_session_handoff(
                     ).hexdigest(),
                 }
             ],
+        }
+        incomplete = governance_handlers.tool_govern_memory(
+            action="suggest",
+            arguments=candidate_arguments,
         )
+        legacy = tool_handlers.tool_finalize_session_distill(
+            project_name="demo",
+            job_id=result.distill_job_id,
+            semantic_review={
+                **semantic_review,
+                "assimilation": {
+                    "version": "v1",
+                    "candidate_ids": [incomplete["entry_id"]],
+                    "points": [],
+                },
+            },
+        )
+        assert legacy["success"] is False
+        assert legacy["reason_codes"] == ["legacy_assimilation_retired"]
+        blocked = tool_handlers.tool_finalize_session_distill(
+            project_name="demo",
+            job_id=result.distill_job_id,
+            semantic_review=semantic_review,
+        )
+        assert blocked["success"] is False
+        assert blocked["reason_codes"] == ["interactive_assimilation_incomplete"]
+        assert "completion" not in blocked
+        assert [
+            entry.id
+            for entry in asyncio.run(
+                backend.structured_store.knowledge_store.list_entries("demo")
+            )
+        ] == [old_entry.id]
+
+        candidate = governance_handlers.tool_govern_memory(
+            action="suggest",
+            arguments={
+                **candidate_arguments,
+                "assimilation_disposition": "replace",
+                "assimilation_reason": "The new verified command behavior replaces the old one.",
+                "assimilation_target_ids": [old_entry.id],
+                "canonical_title": "Only hm is generated",
+                "topic_path": ["commands"],
+            },
+        )
+        assert candidate["entry_id"] == incomplete["entry_id"]
+        assert candidate["idempotent_replay"] is True
         finalized = tool_handlers.tool_finalize_session_distill(
             project_name="demo",
             job_id=result.distill_job_id,
             semantic_review=semantic_review,
         )
 
+        assert "completion" in finalized, finalized
         assert finalized["completion"] == {
             "disposition": "promoted",
             "reason_codes": ["durable_memory_promoted"],
@@ -861,21 +1230,17 @@ def test_finalize_promotes_answered_candidate_independently_of_session_handoff(
         assert answer_packet["destination_project"] == "demo"
         assert answer_packet["evidence_basis"] == ["repository"]
         assert answer_packet["verified_at"]
-        assert answer_packet["knowledge_kind"] == ["semantic"]
-        assert answer_packet["knowledge_category"] == ["decision"]
+        assert answer_packet["knowledge_kind"] == ["knowledge"]
+        assert answer_packet["knowledge_category"] == ["commands"]
         assert answer_packet["promoted_items"] == [
             {
-                "title": (
-                    "decision：The project uses one automatic distill completion path "
-                    "so low-value sessions never require manual candidate promotion or "
-                    "repeated review"
-                )[:89],
+                "title": "Only hm is generated",
                 "fact": (
-                    "The project uses one automatic distill completion path so low-value "
-                    "sessions never require manual candidate promotion or repeated review."
+                    "Only hm is generated as the daily command; legacy hm commands are "
+                    "not generated."
                 ),
-                "kind": "semantic",
-                "category": "decision",
+                "kind": "knowledge",
+                "category": "commands",
             }
         ]
         assert "promoted_items" not in answer_packet["core_conclusion"]
@@ -889,10 +1254,43 @@ def test_finalize_promotes_answered_candidate_independently_of_session_handoff(
         assert answer_packet["promoted_items"][0]["fact"] in note_text
         assert candidate["entry_id"] not in note_text
         stored = asyncio.run(
+            backend.structured_store.knowledge_store.list_entries("demo")
+        )
+        assert len(stored) == 1
+        assert stored[0].title == "Only hm is generated"
+        compatibility = asyncio.run(
             backend.structured_store.get_memory_entry(candidate["entry_id"])
         )
-        assert stored is not None
-        assert stored.status == "auto_confirmed"
+        assert compatibility is None
+        assert (
+            asyncio.run(
+                backend.structured_store.knowledge_store.get_candidate(
+                    candidate["entry_id"]
+                )
+            )
+            is None
+        )
+        searched = read_search_handlers.tool_search_memory(
+            query="daily command",
+            project_name="demo",
+        )
+        assert searched["memories"] == [
+            {
+                "title": "Only hm is generated",
+                "statement": (
+                    "Only hm is generated as the daily command; legacy hm commands are "
+                    "not generated."
+                ),
+            }
+        ]
+        old_search = read_search_handlers.tool_search_memory(
+            query="Legacy hm commands are still generated",
+            project_name="demo",
+        )
+        assert all(
+            memory["statement"] != old_entry.statement
+            for memory in old_search["memories"]
+        )
         assert "dream" not in finalized
         replay = tool_handlers.tool_finalize_session_distill(
             project_name="demo",
@@ -1015,7 +1413,7 @@ def test_finalize_delete_toggle_runs_audited_source_cleanup(
     monkeypatch,
 ) -> None:
     (tmp_path / ".harness-mem.toml").write_text(
-        "[distill]\ndelete_source_after_complete = true\n",
+        "[distill]\nauto = true\n",
         encoding="utf-8",
     )
     session_id = "019f0000-0000-7000-8000-000000000120"
@@ -1066,16 +1464,13 @@ def test_finalize_delete_toggle_runs_audited_source_cleanup(
         logger_instance=logging.getLogger("test.finalize-source-cleanup"),
     )
 
-    async def fail_dream(*_args, **_kwargs):
-        raise AssertionError("manual finalize must not start Dream")
-
-    monkeypatch.setattr(tool_handlers, "dream_auto_tick", fail_dream)
     try:
         packet = tool_handlers.tool_prepare_session_distill(
             project_name="demo",
             project_root=str(tmp_path),
             client="codex",
             run_ingest=False,
+            evidence_mode="raw",
         )
         chunk = packet["chunks"][0]
         tool_handlers.tool_submit_distill_chunk(
@@ -1177,10 +1572,10 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
             project_root=str(tmp_path),
             client="codex",
             run_ingest=False,
-            evidence_mode="semantic",
         )
 
         assert packet["distill_job_id"] == result.distill_job_id
+        assert packet["evidence_mode"] == "semantic"
         assert packet["distill_status"] == "reviewing"
         assert packet["zero_candidate_challenge_version"] == "v1"
         assert packet["chunks"] == []
@@ -1327,7 +1722,7 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
             evidence_mode="semantic",
             drilldown_query="encrypted_content",
         )
-        assert 1 <= query_drilldown["raw_drilldown_chunk_count"] <= 8
+        assert query_drilldown["raw_drilldown_chunk_count"] >= 1
         assert query_drilldown["raw_drilldown_query"] == "encrypted_content"
         assert all(
             "encrypted_content" in chunk["raw_content"]
@@ -1493,7 +1888,6 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
 
 def test_finalize_does_not_auto_review_before_all_chunks_complete(
     tmp_path: Path,
-    monkeypatch,
 ) -> None:
     async def setup(backend: LocalMemoryBackend) -> str:
         result = await persist_session_snapshot(
@@ -1531,10 +1925,6 @@ def test_finalize_does_not_auto_review_before_all_chunks_complete(
         logger_instance=logging.getLogger("test.lossless-distill-order"),
     )
 
-    async def fail_auto_review(*_args, **_kwargs):
-        raise AssertionError("auto-review ran before structural finalization")
-
-    monkeypatch.setattr(tool_handlers, "auto_review_candidates", fail_auto_review)
     try:
         with pytest.raises(ValueError, match="not all distill chunks are complete"):
             tool_handlers.tool_finalize_session_distill(
@@ -1550,14 +1940,18 @@ def test_finalize_does_not_auto_review_before_all_chunks_complete(
         asyncio.run(backend.close())
 
 
-@pytest.mark.parametrize("finalize_fails_once", [False, True])
-def test_separated_assimilation_precedes_completed_job_state(
+@pytest.mark.parametrize(
+    ("finalize_fails_once", "unverified_promotion"),
+    [(False, False), (True, False), (False, True)],
+)
+def test_completed_job_retries_current_knowledge_write_without_duplicate_results(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     finalize_fails_once: bool,
+    unverified_promotion: bool,
 ) -> None:
     (tmp_path / ".harness-mem.toml").write_text(
-        "[distill]\ndelete_source_after_complete = false\n",
+        "[distill]\nauto = true\n",
         encoding="utf-8",
     )
 
@@ -1606,7 +2000,27 @@ def test_separated_assimilation_precedes_completed_job_state(
     async def apply_or_fail(*_args, **_kwargs):
         nonlocal apply_calls
         apply_calls += 1
-        if not finalize_fails_once:
+        if unverified_promotion:
+            return {
+                "suggested": 1,
+                "promoted": 1,
+                "confirmed": 0,
+                "no_write": 0,
+                "handoff": 0,
+                "deferred": 0,
+                "conflict": 0,
+                "rejected": 0,
+                "missing": 0,
+                "pending": 0,
+                "points": [
+                    {
+                        "candidate_id": "candidate-1",
+                        "disposition": "add",
+                        "canonical_truth_ids": ["missing-current-knowledge"],
+                    }
+                ],
+            }
+        if not finalize_fails_once and apply_calls == 1:
             raise RuntimeError("injected assimilation failure")
         return {
             "suggested": 1,
@@ -1619,7 +2033,13 @@ def test_separated_assimilation_precedes_completed_job_state(
             "rejected": 0,
             "missing": 0,
             "pending": 0,
-            "points": [],
+            "points": [
+                {
+                    "candidate_id": "candidate-1",
+                    "disposition": "no_write",
+                    "canonical_truth_ids": [],
+                }
+            ],
         }
 
     def flaky_finalize(*args, **kwargs):
@@ -1638,6 +2058,7 @@ def test_separated_assimilation_precedes_completed_job_state(
             project_root=str(tmp_path),
             client="codex",
             run_ingest=False,
+            evidence_mode="raw",
         )
         chunk = packet["chunks"][0]
         tool_handlers.tool_submit_distill_chunk(
@@ -1672,18 +2093,33 @@ def test_separated_assimilation_precedes_completed_job_state(
         )
         assert claimed is not None
 
-        expected_error = (
-            "finalize persistence failure"
-            if finalize_fails_once
-            else "assimilation failure"
-        )
-        with pytest.raises(RuntimeError, match=expected_error):
-            tool_handlers.tool_finalize_session_distill(
+        if unverified_promotion:
+            result = tool_handlers.tool_finalize_session_distill(
                 project_name="demo",
                 job_id=job_id,
                 semantic_review=review,
                 _review_lease_owner=lease_owner,
             )
+            assert result["success"] is False
+            assert result["reason_codes"] == ["promotion_write_unreadable"]
+        elif finalize_fails_once:
+            with pytest.raises(RuntimeError, match="finalize persistence failure"):
+                tool_handlers.tool_finalize_session_distill(
+                    project_name="demo",
+                    job_id=job_id,
+                    semantic_review=review,
+                    _review_lease_owner=lease_owner,
+                )
+        else:
+            result = tool_handlers.tool_finalize_session_distill(
+                project_name="demo",
+                job_id=job_id,
+                semantic_review=review,
+                _review_lease_owner=lease_owner,
+            )
+            assert result["success"] is False
+            assert result["error"] == "current knowledge was not saved"
+            assert result["reason_codes"] == ["injected assimilation failure"]
         stored = backend.transcript_store.get_distill_job(job_id)
         assert stored is not None
         assert stored.status != "completed"
@@ -1700,9 +2136,19 @@ def test_separated_assimilation_precedes_completed_job_state(
             assert apply_calls == 2
             assert finalize_calls == 2
             assert backend.transcript_store.get_distill_job(job_id).status == "completed"
-        else:
+        elif unverified_promotion:
             assert apply_calls == 1
             assert finalize_calls == 0
+        else:
+            result = tool_handlers.tool_finalize_session_distill(
+                project_name="demo",
+                job_id=job_id,
+                semantic_review=review,
+                _review_lease_owner=lease_owner,
+            )
+            assert result["success"] is True
+            assert apply_calls == 2
+            assert finalize_calls == 1
     finally:
         tool_handlers._backend_provider = previous_backend_provider
         tool_handlers._observer_data_dir_provider = previous_observer_provider
@@ -1721,7 +2167,7 @@ def test_trusted_assimilation_preflight_blocks_truth_write_on_stale_input(
     preflight_fault: str,
 ) -> None:
     (tmp_path / ".harness-mem.toml").write_text(
-        "[distill]\ndelete_source_after_complete = false\n",
+        "[distill]\nauto = true\n",
         encoding="utf-8",
     )
 
@@ -1775,6 +2221,7 @@ def test_trusted_assimilation_preflight_blocks_truth_write_on_stale_input(
             project_root=str(tmp_path),
             client="codex",
             run_ingest=False,
+            evidence_mode="raw",
         )
         chunk = packet["chunks"][0]
         tool_handlers.tool_submit_distill_chunk(
@@ -1849,218 +2296,6 @@ def test_trusted_assimilation_preflight_blocks_truth_write_on_stale_input(
         asyncio.run(backend.close())
 
 
-def test_stale_finalize_rolls_back_prefinalized_truth(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-    (project / ".harness-mem.toml").write_text(
-        "[distill]\ndelete_source_after_complete = false\n",
-        encoding="utf-8",
-    )
-    notes_dir = tmp_path / "notes"
-    session_id = "separated-stale-after-apply"
-    source_uri = "file:///separated-stale-after-apply.jsonl"
-    initial_source = "User: retain one verified rule\nAssistant: done\n"
-    appended_source = initial_source + "User: a new turn arrived\n"
-
-    async def setup(backend: LocalMemoryBackend) -> tuple[str, str]:
-        result = await persist_session_snapshot(
-            backend,
-            Observation(
-                session_id=session_id,
-                client="codex",
-                raw_content="derived rendering",
-                content_type="transcript",
-                timestamp=datetime.now(timezone.utc),
-                metadata={},
-                tags=["session"],
-            ),
-            project_name="demo",
-            project_root=str(project),
-            client="codex",
-            session_id=session_id,
-            source_kind="jsonl",
-            source_uri=source_uri,
-            source_text=initial_source,
-        )
-        candidate = KnowledgeCandidate(
-            id="candidate-stale-after-apply",
-            project_name="demo",
-            candidate_type="memory",
-            statement="A final receipt must bind the source revision it completed.",
-        )
-        await backend.structured_store.knowledge_store.save_candidate(candidate)
-        return result.distill_job_id, candidate.id
-
-    backend = LocalMemoryBackend(tmp_path / "data")
-    asyncio.run(backend.init())
-    job_id, candidate_id = asyncio.run(setup(backend))
-    previous_backend_provider = tool_handlers._backend_provider
-    previous_observer_provider = tool_handlers._observer_data_dir_provider
-    previous_cost_provider = tool_handlers._cost_surface_budgets_provider
-    previous_logger = tool_handlers.logger
-    tool_handlers.configure_tool_handler_dependencies(
-        backend_provider=lambda: backend,
-        observer_data_dir=lambda: backend.data_dir,
-        cost_surface_budgets=lambda _project_name: None,
-        logger_instance=logging.getLogger("test.separated-stale-rollback"),
-    )
-
-    async def bound_candidates(*_args, **_kwargs):
-        return [candidate_id]
-
-    async def apply_then_advance_source(*_args, **_kwargs):
-        store = backend.structured_store.knowledge_store
-        candidate = await store.get_candidate(candidate_id)
-        assert candidate is not None
-        entry = KnowledgeEntry(
-            id="knowledge-stale-after-apply",
-            project_name="demo",
-            module_path=["revision receipts"],
-            title="Bind completion to the source revision",
-            statement="A completion receipt must bind the exact source revision it processed.",
-            verified_at=datetime.now(timezone.utc),
-        )
-        decision = AssimilationDecision(
-            id="mutation-stale-after-apply",
-            project_name="demo",
-            candidate_id=candidate.id,
-            disposition="add",
-            canonical_truth_ids=[entry.id],
-            reason="Verified durable project rule.",
-        )
-        await store.apply_truth_mutation(
-            candidate_before=candidate,
-            candidate_after=candidate.model_copy(update={"status": "assimilated"}),
-            decision=decision,
-            added_entries=[entry],
-            predecessor_entries=[],
-            source_refs_by_entry={
-                entry.id: [
-                    ProjectKnowledgeSourceRef(
-                        label="retained transcript revision",
-                        target=source_uri,
-                        kind="transcript",
-                        digest=hashlib.sha256(initial_source.encode()).hexdigest(),
-                    )
-                ]
-            },
-        )
-        await persist_session_snapshot(
-            backend,
-            Observation(
-                session_id=session_id,
-                client="codex",
-                raw_content="derived rendering with appended turn",
-                content_type="transcript",
-                timestamp=datetime.now(timezone.utc),
-                metadata={},
-                tags=["session"],
-            ),
-            project_name="demo",
-            project_root=str(project),
-            client="codex",
-            session_id=session_id,
-            source_kind="jsonl",
-            source_uri=source_uri,
-            source_text=appended_source,
-        )
-        return {
-            "suggested": 1,
-            "promoted": 1,
-            "confirmed": 0,
-            "no_write": 0,
-            "handoff": 0,
-            "deferred": 0,
-            "conflict": 0,
-            "rejected": 0,
-            "missing": 0,
-            "pending": 0,
-            "points": [
-                {
-                    "candidate_id": candidate.id,
-                    "disposition": "add",
-                    "canonical_truth_ids": [entry.id],
-                    "mutation_id": decision.id,
-                }
-            ],
-        }
-
-    monkeypatch.setattr(distill_handlers, "separated_job_candidate_ids", bound_candidates)
-    monkeypatch.setattr(distill_handlers, "apply_separated_assimilation", apply_then_advance_source)
-    monkeypatch.setattr(distill_handlers, "_session_notes_dir", lambda _backend: notes_dir)
-    try:
-        packet = tool_handlers.tool_prepare_session_distill(
-            project_name="demo",
-            project_root=str(project),
-            client="codex",
-            run_ingest=False,
-        )
-        chunk = packet["chunks"][0]
-        tool_handlers.tool_submit_distill_chunk(
-            job_id=job_id,
-            chunk_id=chunk["chunk_id"],
-            lease_owner=packet["lease_owner"],
-            result={"summary": "complete"},
-        )
-        lease_owner = "trusted-stale-rollback-worker"
-        claimed = backend.transcript_store.claim_distill_review(
-            job_id,
-            lease_owner=lease_owner,
-            execution_source="test",
-        )
-        assert claimed is not None
-        review = {
-            **SEMANTIC_REVIEW,
-            "assimilation": {
-                "version": "separated-v1",
-                "candidate_ids": [candidate_id],
-                "points": [],
-            },
-        }
-
-        result = tool_handlers.tool_finalize_session_distill(
-            project_name="demo",
-            job_id=job_id,
-            semantic_review=review,
-            _review_lease_owner=lease_owner,
-        )
-
-        assert result["success"] is False
-        assert result["distill_status"] == "stale"
-        assert result["error"] == "source revision changed before finalization"
-        assert asyncio.run(
-            backend.structured_store.knowledge_store.list_entries("demo")
-        ) == []
-        search = read_search_handlers.tool_search_memory(
-            query="source revision receipt",
-            project_name="demo",
-        )
-        assert search["status"] == "empty"
-        assert search["memories"] == []
-        assert not list(notes_dir.rglob("*.md"))
-        mutation = asyncio.run(
-            backend.structured_store.knowledge_store.get_mutation(
-                "mutation-stale-after-apply"
-            )
-        )
-        assert mutation is not None
-        reversals = asyncio.run(
-            backend.structured_store.knowledge_store.list_mutations("demo")
-        )
-        assert any(
-            item.reverses_mutation_id == mutation.id for item in reversals
-        )
-    finally:
-        tool_handlers._backend_provider = previous_backend_provider
-        tool_handlers._observer_data_dir_provider = previous_observer_provider
-        tool_handlers._cost_surface_budgets_provider = previous_cost_provider
-        tool_handlers.logger = previous_logger
-        asyncio.run(backend.close())
-
-
 def test_legacy_observations_do_not_create_a_lossless_distill_job(tmp_path: Path) -> None:
     backend = LocalMemoryBackend(tmp_path / "data")
     asyncio.run(backend.init())
@@ -2092,12 +2327,14 @@ def test_legacy_observations_do_not_create_a_lossless_distill_job(tmp_path: Path
             project_root=str(tmp_path),
             client="cursor",
             run_ingest=False,
+            evidence_mode="raw",
         )
 
         assert payload["distill_mode"] == "legacy_partial"
         assert payload["coverage"] == "legacy_partial"
         assert payload["distill_job_id"] is None
         assert payload["distill_status"] == "not_queued"
+        assert "status" not in payload
         assert "not as complete lossless session evidence" in payload["distill_instructions"][1]
         assert backend.reflection_job_store.list(project_name="demo", limit=10) == []
     finally:
@@ -2127,11 +2364,10 @@ def test_legacy_observations_do_not_create_a_lossless_distill_job(tmp_path: Path
 )
 def test_semantic_review_blocks_promotion_and_dream(
     tmp_path: Path,
-    monkeypatch,
     review_overrides: dict,
 ) -> None:
     (tmp_path / ".harness-mem.toml").write_text(
-        "[distill]\ndelete_source_after_complete = false\n",
+        "[distill]\nauto = true\n",
         encoding="utf-8",
     )
     async def setup(backend: LocalMemoryBackend) -> str:
@@ -2170,16 +2406,13 @@ def test_semantic_review_blocks_promotion_and_dream(
         logger_instance=logging.getLogger("test.blocked-distill"),
     )
 
-    async def fail_dream(*_args, **_kwargs):
-        raise AssertionError("Dream ran after semantic review blocked promotion")
-
-    monkeypatch.setattr(tool_handlers, "dream_auto_tick", fail_dream)
     try:
         packet = tool_handlers.tool_prepare_session_distill(
             project_name="demo",
             project_root=str(tmp_path),
             client="cursor",
             run_ingest=False,
+            evidence_mode="raw",
         )
         chunk = packet["chunks"][0]
         tool_handlers.tool_submit_distill_chunk(
@@ -2213,8 +2446,15 @@ def test_semantic_review_blocks_promotion_and_dream(
         stored = asyncio.run(
             backend.structured_store.get_memory_entry(candidate["entry_id"])
         )
-        assert stored is not None
-        assert stored.status == "rejected"
+        assert stored is None
+        assert (
+            asyncio.run(
+                backend.structured_store.knowledge_store.get_candidate(
+                    candidate["entry_id"]
+                )
+            )
+            is None
+        )
         completed = backend.transcript_store.get_distill_job(job_id)
         assert completed is not None
         assert completed.output_candidate_ids == [candidate["entry_id"]]
@@ -2223,20 +2463,25 @@ def test_semantic_review_blocks_promotion_and_dream(
         expected_promotion = {
             "suggested": 1,
             "promoted": 0,
+            "confirmed": 0,
+            "no_write": 0,
+            "handoff": 0,
+            "deferred": 0,
+            "conflict": 0,
             "rejected": 1,
             "pending": 0,
             "missing": 0,
             "evidence_admission": {
                 "repository_verified": 0,
                 "user_stated": 0,
-                "unverified_blocked": 0,
+                "unverified_blocked": 1,
                 "contradicted": 0,
                 "legacy_or_unknown": 0,
             },
             "answer_gate": {
                 "ANSWERED": 0,
                 "PARTIAL": 0,
-                "UNANSWERED": 0,
+                "UNANSWERED": 1,
                 "CONTRADICTED": 0,
                 "STALE": 0,
                 "NOT_APPLICABLE": 0,
@@ -2245,7 +2490,7 @@ def test_semantic_review_blocks_promotion_and_dream(
         assert {
             key: value
             for key, value in finalized["promotion"].items()
-            if key != "answer_packet"
+            if key not in {"answer_packet", "points"}
         } == expected_promotion
         assert finalized["answer_packet"] == finalized["promotion"]["answer_packet"]
         assert finalized["answer_packet"]["answer_status"] == "UNANSWERED"
@@ -2254,7 +2499,7 @@ def test_semantic_review_blocks_promotion_and_dream(
         assert {
             key: value
             for key, value in completed.promotion_summary.items()
-            if key != "answer_packet"
+            if key not in {"answer_packet", "points"}
         } == expected_promotion
         answer_packet = completed.promotion_summary["answer_packet"]
         assert answer_packet["answer_status"] == "UNANSWERED"
@@ -2403,27 +2648,21 @@ def test_prepare_session_distill_claims_explicit_active_job(tmp_path: Path) -> N
             "distill_job_id": "missing-job",
         }
 
-        not_offered = tool_handlers.tool_prepare_session_distill(
+        selected_without_prior_offer = tool_handlers.tool_prepare_session_distill(
             project_name="demo",
             project_root=str(tmp_path),
             client="cursor",
             run_ingest=False,
             distill_job_id=older_job_id,
         )
-        assert not_offered == {
-            "success": False,
-            "error": "distill_job_id was not offered for Agent processing today",
-            "distill_job_id": older_job_id,
-            "distill_status": "queued",
-            "agent_offer_day": None,
-        }
+        assert selected_without_prior_offer["success"] is True
+        assert selected_without_prior_offer["distill_job_id"] == older_job_id
+        assert selected_without_prior_offer["selection_source"] == "explicit"
 
         offered = pending_distill_jobs(
             backend,
             project_name="demo",
-            target_backlog=2,
             max_jobs=2,
-            daily_job_budget=2,
         )
         assert {job.id for job in offered} == {older_job_id, newer_job_id}
 
@@ -2519,6 +2758,86 @@ def test_prepare_session_distill_activates_explicit_parked_session(tmp_path: Pat
         assert activated.status in {"processing", "reviewing"}
         assert activated.agent_offer_count == 1
         assert activated.agent_offer_day == datetime.now(timezone.utc).date().isoformat()
+    finally:
+        tool_handlers._backend_provider = previous_backend_provider
+        tool_handlers._observer_data_dir_provider = previous_observer_provider
+        tool_handlers._cost_surface_budgets_provider = previous_cost_provider
+        tool_handlers.logger = previous_logger
+        asyncio.run(backend.close())
+
+
+def test_prepare_session_distill_recovers_fully_checkpointed_review_retry(
+    tmp_path: Path,
+) -> None:
+    backend = LocalMemoryBackend(tmp_path / "data")
+    asyncio.run(backend.init())
+    result = asyncio.run(
+        persist_session_snapshot(
+            backend,
+            Observation(
+                session_id="review-retry-session",
+                client="codex",
+                raw_content="User: inspect the result\n\nAssistant: inspection finished\n",
+                content_type="transcript",
+                timestamp=datetime.now(timezone.utc),
+                metadata={},
+            ),
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="codex",
+            session_id="review-retry-session",
+            source_kind="jsonl",
+            source_uri="file:///review-retry-session.jsonl",
+            source_text="User: inspect the result\n\nAssistant: inspection finished\n",
+        )
+    )
+    assert result.distill_job_id is not None
+    job_id = result.distill_job_id
+    for chunk, _checkpoint in backend.transcript_store.claim_distill_chunks(
+        job_id,
+        lease_owner="review-worker",
+        limit=100,
+    ):
+        backend.transcript_store.checkpoint_distill_chunk(
+            job_id,
+            chunk.id,
+            lease_owner="review-worker",
+            result={"structural_verified": True},
+        )
+    deferred = backend.transcript_store.defer_distill_job(
+        job_id,
+        error="provider evidence binding failed",
+    )
+    assert deferred.retry_after is not None
+    deferred.retry_after = datetime.now(timezone.utc) - timedelta(seconds=1)
+    backend.transcript_store._distill._upsert_job_locked(deferred)
+    backend.transcript_store._conn.commit()
+
+    previous_backend_provider = tool_handlers._backend_provider
+    previous_observer_provider = tool_handlers._observer_data_dir_provider
+    previous_cost_provider = tool_handlers._cost_surface_budgets_provider
+    previous_logger = tool_handlers.logger
+    tool_handlers.configure_tool_handler_dependencies(
+        backend_provider=lambda: backend,
+        observer_data_dir=lambda: backend.data_dir,
+        cost_surface_budgets=lambda _project_name: None,
+        logger_instance=logging.getLogger("test.review-retry-distill"),
+    )
+    try:
+        packet = tool_handlers.tool_prepare_session_distill(
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="codex",
+            run_ingest=False,
+            session_id="review-retry-session",
+            evidence_mode="semantic",
+            detail_level="full",
+        )
+        assert packet["success"] is True
+        assert packet["distill_job_id"] == job_id
+        assert packet["distill_status"] == "reviewing"
+        assert packet["completed_chunk_count"] == packet["expected_chunk_count"]
+        assert packet["semantic_evidence"]["projection"] == "exchange-outline-v1"
     finally:
         tool_handlers._backend_provider = previous_backend_provider
         tool_handlers._observer_data_dir_provider = previous_observer_provider

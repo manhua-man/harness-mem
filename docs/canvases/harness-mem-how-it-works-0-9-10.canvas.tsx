@@ -305,13 +305,18 @@ export default function HarnessMemHowItWorks0910Canvas() {
       <Stack gap={6}>
         <Row gap={10} align="center" wrap>
           <H1>harness-mem 怎么运行</H1>
-          <Pill tone="success">0.9.10 current</Pill>
+          <Pill tone="neutral">historical 0.9.10</Pill>
           <Pill tone="info">单一真值 · 自动治理</Pill>
         </Row>
         <Text tone="secondary">
           七宿主共享同一条记忆链路；0.9.10 重点是增量投影、工具安全窗口、零候选挑战与可审计清理。
         </Text>
       </Stack>
+
+      <Callout tone="warning">
+        这是 0.9.10 历史快照。当前 0.9.28 只有 hm 日常入口、20 个公开 MCP 工具，
+        并且不再保留知识历史或撤销链。
+      </Callout>
 
       <Callout tone="info">
         用户只需使用 Daily 动作或自然语言。27 个 MCP 工具是 Agent 的稳定能力面；不会出现另一套隐藏命令、会话存储或长期真值。

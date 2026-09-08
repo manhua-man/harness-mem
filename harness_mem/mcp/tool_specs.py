@@ -23,9 +23,12 @@ from __future__ import annotations
 
 from typing import Any, Callable, TypedDict
 
-from harness_mem.governance_status import (
-    GOVERNANCE_STATUS_LIST,
-    LIST_CANDIDATES_STATUS_DESCRIPTION,
+_CURRENT_CANDIDATE_STATUSES = (
+    "pending",
+    "deferred",
+    "conflict",
+    "rejected",
+    "assimilated",
 )
 
 
@@ -50,28 +53,21 @@ PUBLIC_MCP_TOOL_NAMES = frozenset(
         "autopilot_search_tick",
         "wake",
         "timeline",
-        "temporal_query",
         "file_context",
         "get_observations",
         "get_task_handoffs",
-        "get_confirmed_rules",
         "get_project_status",
         "get_project_profile",
-        "trace_relations",
         "search_raw",
-        "search_skills",
-        "get_skill",
         "prepare_session_distill",
         "submit_distill_chunk",
         "finalize_session_distill",
         "list_candidates",
         "get_candidate_detail",
-        "auto_review_candidates",
         "govern_memory",
         "dream_ledger",
         "dream_run",
         "dream_auto_tick",
-        "undo_dream_item",
         "record_context_outcome",
     }
 )
@@ -82,9 +78,9 @@ PUBLIC_MCP_TOOL_NAMES = frozenset(
 _SCHEMAS: dict[str, _SchemaOnly] = {
     "search_memory": {
         "description": (
-            "Search current canonical long-term memory for a project. Default "
-            "output contains only readable titles and statements; explicit "
-            "deep_recall adds raw evidence and diagnostic audit detail."
+            "Search current long-term memory for a project. The output contains "
+            "only readable titles and statements. Use search_raw when exact "
+            "conversation evidence is needed."
         ),
         "input_schema": {
             "type": "object",
@@ -98,54 +94,6 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "type": "string",
                     "enum": ["project", "all"],
                     "description": "Search scope: project or all (default: project)",
-                },
-                "mode": {
-                    "type": "string",
-                    "enum": ["auto", "fts", "hybrid"],
-                    "description": "Search mode (default: auto)",
-                },
-                "memory_type": {
-                    "type": "array",
-                    "items": {
-                        "type": "string",
-                        "enum": ["episodic", "semantic", "procedural"],
-                    },
-                    "description": "Optional MemoryEntry.memory_type filter; multiple values are OR-ed.",
-                },
-                "include_history": {
-                    "type": "boolean",
-                    "description": "Include historical structured truth. Default false returns current truth only.",
-                    "default": False,
-                },
-                "include_provisional": {
-                    "type": "boolean",
-                    "description": "Include provisional auto-promoted truth (down-weighted). Default false.",
-                    "default": False,
-                },
-                "deep_recall": {
-                    "type": "boolean",
-                    "description": "Explicitly include raw evidence, historical lifecycle tiers, and diagnostic audit detail. Default false returns clean current memory prose only.",
-                    "default": False,
-                },
-                "retrieval_profile": {
-                    "type": "string",
-                    "enum": ["light", "quality"],
-                    "description": (
-                        "Opt-in retrieval profile for this call. "
-                        "'light' keeps the default path; 'quality' enables "
-                        "deterministic query rewrite/fanout metadata with a "
-                        "noop reranker. It does not enable HyDE or a heavy "
-                        "reranker by default."
-                    ),
-                },
-                "task": {
-                    "type": "string",
-                    "description": "Optional current task used by context sufficiency checks.",
-                },
-                "budget_tokens": {
-                    "type": "integer",
-                    "description": "Advisory context budget for ContextPlan / wake packet traces.",
-                    "default": 6000,
                 },
             },
             "required": ["query"],
@@ -216,20 +164,10 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "items": {"type": "string"},
                     "description": "Recent autopilot queries to suppress duplicates.",
                 },
-                "include_provisional": {
-                    "type": "boolean",
-                    "description": "Allow provisional auto-promoted truth in the search path.",
-                    "default": False,
-                },
                 "budget_tokens": {
                     "type": "integer",
                     "description": "Advisory budget for the bounded search tick.",
                     "default": 1600,
-                },
-                "retrieval_profile": {
-                    "type": "string",
-                    "enum": ["light", "quality"],
-                    "description": "Optional retrieval profile passed through to search_memory.",
                 },
             },
             "required": ["event_name"],
@@ -243,125 +181,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 "project_name": {"type": "string", "description": "Project name"},
                 "limit": {
                     "type": "integer",
-                    "description": "Max observations to return (default 50)",
-                    "default": 50,
-                },
-            },
-            "required": ["project_name"],
-        },
-    },
-    "trace_relations": {
-        "description": (
-            "Trace bounded current relation paths for a project entity. "
-            "Output includes weighted path scores and an additive recall "
-            "contract for evidence/source/step inspection. "
-            "Returns empty unless relation facts have been populated for "
-            "the project — heuristic distill rarely produces them from "
-            "natural prose (loop_harness scenario 6 measured 0 facts from "
-            "5 memory entries on real-style sessions). Populate through "
-            "govern_memory with action=suggest and kind=relation, or through "
-            "an LLM-driven distill pass."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {"type": "string", "description": "Project name"},
-                "source_entity": {
-                    "type": "string",
-                    "description": "Relation source entity",
-                },
-                "relation_type": {
-                    "type": "string",
-                    "description": "Optional relation type filter, e.g. depends_on",
-                },
-                "max_depth": {
-                    "type": "integer",
-                    "description": "Maximum traversal depth (default 2, hard cap 3)",
-                    "default": 2,
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum paths to return (default 10)",
-                    "default": 10,
-                },
-                "min_confidence": {
-                    "type": "number",
-                    "description": "Minimum edge confidence (default 0.0)",
-                    "default": 0.0,
-                },
-                "include_history": {
-                    "type": "boolean",
-                    "description": "Include historical relation facts. Default false returns current relations only.",
-                    "default": False,
-                },
-            },
-            "required": ["project_name", "source_entity"],
-        },
-    },
-    "temporal_query": {
-        "description": (
-            "Query the temporal read model for current, historical, or "
-            "as_of confirmed truth. Returns valid/recorded time, provenance, "
-            "supersede chain, timeline, explanations, and abstention metadata. "
-            "Read-only: rebuilds the projection from confirmed truth and never "
-            "mutates memory."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {"type": "string", "description": "Project name"},
-                "query": {
-                    "type": "string",
-                    "description": "Optional substring query over subject, predicate, and object",
-                },
-                "subject": {
-                    "type": "string",
-                    "description": "Optional subject filter. Relation facts use source_entity; rules use trigger; memory entries use category.",
-                },
-                "predicate": {
-                    "type": "string",
-                    "description": "Optional predicate filter. Relation facts use relation_type.",
-                },
-                "truth_type": {
-                    "type": "string",
-                    "enum": ["memory_entry", "relation_fact", "confirmed_rule"],
-                    "description": "Optional projected truth type filter.",
-                },
-                "mode": {
-                    "type": "string",
-                    "enum": ["current", "history", "as_of"],
-                    "description": "current=currently valid, history=expired truth, as_of=valid at the supplied timestamp.",
-                    "default": "current",
-                },
-                "as_of": {
-                    "type": "string",
-                    "description": "ISO datetime for valid-time lookup. Used with mode=as_of; also honored when supplied directly.",
-                },
-                "valid_from": {
-                    "type": "string",
-                    "description": "ISO datetime lower bound for valid-time overlap filter.",
-                },
-                "valid_to": {
-                    "type": "string",
-                    "description": "ISO datetime upper bound for valid-time overlap filter.",
-                },
-                "recorded_from": {
-                    "type": "string",
-                    "description": "ISO datetime lower bound for recorded_at filter.",
-                },
-                "recorded_to": {
-                    "type": "string",
-                    "description": "ISO datetime upper bound for recorded_at filter.",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum records to return (default 20, hard cap 100).",
-                    "default": 20,
-                },
-                "require_unique_current": {
-                    "type": "boolean",
-                    "description": "When true, multiple current records in current mode produce temporal_conflict abstention.",
-                    "default": False,
+                    "description": "Optional observation count; omitted returns all matching observations",
                 },
             },
             "required": ["project_name"],
@@ -385,57 +205,10 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Maximum matches to return (default 20)",
-                    "default": 20,
+                    "description": "Optional match count; omitted returns all matching evidence",
                 },
             },
             "required": ["pattern"],
-        },
-    },
-    "search_skills": {
-        "description": "Search confirmed procedural skills.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {
-                    "type": "string",
-                    "description": "Project name (required when scope=project)",
-                },
-                "query": {"type": "string", "description": "Task or workflow query"},
-                "scope": {
-                    "type": "string",
-                    "enum": ["project", "all"],
-                    "description": "Search scope: project or all (default: project)",
-                    "default": "project",
-                },
-                "include_shared": {
-                    "type": "boolean",
-                    "description": "When true, include workspace/global shared skills alongside project skills",
-                    "default": False,
-                },
-                "shared_scope": {
-                    "type": "string",
-                    "enum": ["exclude", "include", "only"],
-                    "description": "Shared-skill search mode. exclude=default project-only, include=project plus shared, only=shared only",
-                    "default": "exclude",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum skills to return (default 10)",
-                    "default": 10,
-                },
-            },
-            "required": ["query"],
-        },
-    },
-    "get_skill": {
-        "description": "Get a full confirmed skill payload by id.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "skill_id": {"type": "string", "description": "Confirmed skill ID"},
-            },
-            "required": ["skill_id"],
         },
     },
     "get_observations": {
@@ -475,23 +248,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 "project_name": {"type": "string", "description": "Project name"},
                 "limit": {
                     "type": "integer",
-                    "description": "Max handoffs to return (default 5)",
-                    "default": 5,
-                },
-            },
-            "required": ["project_name"],
-        },
-    },
-    "get_confirmed_rules": {
-        "description": "Return all confirmed rules for a project.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {"type": "string", "description": "Project name"},
-                "include_history": {
-                    "type": "boolean",
-                    "description": "Include historical confirmed rules. Default false returns current rules only.",
-                    "default": False,
+                    "description": "Optional handoff count; omitted returns all matching handoffs",
                 },
             },
             "required": ["project_name"],
@@ -536,11 +293,9 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     },
     "get_project_status": {
         "description": (
-            "Return active project, memory counts, bounded ID-free pending-session "
-            "and responsible-Agent status, concise integration health, and slash-native "
-            "next-step triage hints without requiring CLI status. "
-            "Always pass the current workspace root and the calling IDE/Agent host so "
-            "a global MCP router can bootstrap the correct project hooks."
+            "Prepare the current project and its host Hook when needed, then return "
+            "one short readiness message. Always pass the current workspace root and "
+            "calling IDE/Agent host. Use harness-mem doctor for diagnostics."
         ),
         "input_schema": {
             "type": "object",
@@ -572,26 +327,13 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                         "when MCP is running behind a global router."
                     ),
                 },
-                "detail_level": {
-                    "type": "string",
-                    "enum": ["compact", "full"],
-                    "description": (
-                        "Response detail. compact is the default decision view; "
-                        "full returns complete health and integration diagnostics."
-                    ),
-                    "default": "compact",
-                },
             },
             "required": ["project_root", "host_client"],
         },
     },
     "wake": {
         "description": (
-            "Generate a recent-context index plus stable truth and active "
-            "handoffs for the given project, or the active project when "
-            "project_name is omitted. Returns the wake-up text in `output` so "
-            "the agent can ingest it directly, plus a structured bounded "
-            "distill maintenance offer when Agent work is eligible."
+            "Return current project memory and whether maintenance is waiting."
         ),
         "input_schema": {
             "type": "object",
@@ -600,46 +342,9 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "type": "string",
                     "description": "Project name (defaults to active project when omitted)",
                 },
-                "no_auto_ingest": {
-                    "type": "boolean",
-                    "description": "Skip the auto-ingest pass before generating wake-up text.",
-                    "default": False,
-                },
-                "include_skill_hints": {
-                    "type": "boolean",
-                    "description": "Opt-in compact skill hints appended to wake output.",
-                },
-                "skill_hint_limit": {
-                    "type": "integer",
-                    "description": "Maximum compact skill hints to append when include_skill_hints is enabled.",
-                },
                 "current_task": {
                     "type": "string",
                     "description": "Optional current task used to build a task-aware wake packet.",
-                },
-                "budget_tokens": {
-                    "type": "integer",
-                    "description": "Advisory wake packet budget.",
-                    "default": 6000,
-                },
-                "deep_recall": {
-                    "type": "boolean",
-                    "description": "Include cold/archive memory in task-aware wake planning.",
-                    "default": False,
-                },
-                "detail_level": {
-                    "type": "string",
-                    "enum": ["compact", "full"],
-                    "description": (
-                        "Compact returns one authoritative answer-ready context; "
-                        "full retains all diagnostic projections."
-                    ),
-                    "default": "compact",
-                },
-                "include_provisional": {
-                    "type": "boolean",
-                    "description": "Include provisional auto-promoted truth in task-aware wake planning.",
-                    "default": False,
                 },
             },
         },
@@ -648,8 +353,8 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
         "description": (
             "Prepare one remember-this-session decision packet. An explicit session_id "
             "selects that session directly, including parked work. Semantic mode "
-            "bundles the bounded decision windows so the common path can finalize "
-            "without another prepare call."
+            "checks the complete source so the common path can finalize without "
+            "another prepare call."
         ),
         "input_schema": {
             "type": "object",
@@ -674,8 +379,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Maximum sessions to sync before distill (default: 5)",
-                    "default": 5,
+                    "description": "Optional session count to sync before distill; omitted means all matching sessions",
                 },
                 "full_rescan": {
                     "type": "boolean",
@@ -694,13 +398,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 },
                 "observation_limit": {
                     "type": "integer",
-                    "description": "Recent observations to include in the evidence packet (default: 5)",
-                    "default": 5,
-                },
-                "max_chars_per_observation": {
-                    "type": "integer",
-                    "description": "Deprecated compatibility field; packets are no longer truncated",
-                    "default": 6000,
+                    "description": "Optional observation count; omitted includes all matching observations",
                 },
                 "run_ingest": {
                     "type": "boolean",
@@ -710,8 +408,8 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 "distill_job_id": {
                     "type": "string",
                     "description": (
-                        "Optional active job id to claim exactly. Used by bounded "
-                        "automatic maintenance so offered jobs are processed deterministically."
+                        "Optional active job id to claim exactly. Used by automatic "
+                        "maintenance so the selected job is processed deterministically."
                     ),
                 },
                 "session_id": {
@@ -731,8 +429,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 },
                 "chunk_limit": {
                     "type": "integer",
-                    "description": "Lossless transcript chunks to claim in this Agent call (default: 1, max: 3)",
-                    "default": 1,
+                    "description": "Optional chunk count for caller-controlled batching; omitted claims all remaining chunks",
                 },
                 "evidence_mode": {
                     "type": "string",
@@ -742,7 +439,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                         "Agent loop; semantic lets runtime hash-verify/checkpoint every raw "
                         "chunk and returns the smaller parser-derived session rendering."
                     ),
-                    "default": "raw",
+                    "default": "semantic",
                 },
                 "detail_level": {
                     "type": "string",
@@ -766,7 +463,6 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 "drilldown_exchange_indexes": {
                     "type": "array",
                     "items": {"type": "integer", "minimum": 1},
-                    "maxItems": 8,
                     "description": (
                         "Read complete semantic windows for selected one-based exchange "
                         "indexes before querying candidate-grade raw proof."
@@ -775,7 +471,6 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 "drilldown_chunk_indexes": {
                     "type": "array",
                     "items": {"type": "integer", "minimum": 0},
-                    "maxItems": 8,
                     "description": (
                         "Read-only raw chunk indexes to return after a job reaches reviewing; "
                         "use for candidate-grade evidence drilldown."
@@ -786,7 +481,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "maxLength": 200,
                     "description": (
                         "Read-only search over raw chunks after the job reaches reviewing. "
-                        "Returns up to 8 matching chunks when semantic evidence needs proof."
+                        "Returns every matching chunk when semantic evidence needs proof."
                     ),
                 },
             },
@@ -924,7 +619,6 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                                 },
                                 "inspected_exchange_refs": {
                                     "type": "array",
-                                    "maxItems": 8,
                                     "items": {
                                         "type": "object",
                                         "properties": {
@@ -982,10 +676,8 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     },
     "list_candidates": {
         "description": (
-            "List structured memory candidates for human review or audit inbox. "
-            "Status values are layered governance states — use pending / "
-            "provisional / auto_confirmed for audit; not all seven are "
-            "interchangeable review filters."
+            "List temporary knowledge candidates that still exist in the current "
+            "processing workspace. Candidates are not long-term memory."
         ),
         "input_schema": {
             "type": "object",
@@ -993,14 +685,13 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 "project_name": {"type": "string", "description": "Project name"},
                 "status": {
                     "type": "string",
-                    "enum": list(GOVERNANCE_STATUS_LIST),
-                    "description": LIST_CANDIDATES_STATUS_DESCRIPTION,
+                    "enum": list(_CURRENT_CANDIDATE_STATUSES),
+                    "description": "Temporary candidate status.",
                     "default": "pending",
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Maximum candidates to return across all candidate types (default: 100)",
-                    "default": 100,
+                    "description": "Optional candidate count; omitted returns all matching candidates",
                 },
             },
             "required": ["project_name"],
@@ -1018,12 +709,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 "candidate_kind": {
                     "type": "string",
                     "enum": [
-                        "memory_entry",
-                        "relation_fact",
-                        "rule_candidate",
-                        "supersede",
-                        "merge_suggestion_candidate",
-                        "stale_truth_suggestion_candidate",
+                        "knowledge_candidate",
                     ],
                     "description": "Optional kind hint; omit to search all reviewable candidate stores.",
                 },
@@ -1034,16 +720,25 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     "govern_memory": {
         "description": (
             "Composite write surface for candidate creation, review decisions, "
-            "task handoffs, corrections, and supersede governance. Use action="
+            "and task handoffs. Use action="
             "suggest with arguments.kind=memory|rule|relation; action=decide "
-            "with kind, decision=confirm|reject, and candidate_id; action=handoff; "
-            "action=correct_rule; or action=supersede. This replaces the former "
-            "family of low-level suggest_*/confirm_*/reject_* MCP tools. "
-            "Distill-bound suggestions should include evidence_basis, "
+            "with kind=knowledge, decision=confirm|reject, project_name, "
+            "candidate_id, and an explicit disposition. To delete incorrect current "
+            "knowledge, use action=decide with kind=knowledge, decision=delete, "
+            "project_name, and exactly one target_knowledge_ids value; omit candidate_id "
+            "and knowledge_items. Use "
+            "action=handoff. Replacement is a normal knowledge decision that "
+            "deletes the old current row; it is not a separate history action. "
+            "Suggestions are stored as temporary knowledge candidates, not legacy "
+            "MemoryEntry truth. Distill-bound suggestions should include evidence_basis, "
             "verification_outcome, and content-free verification_refs so Dream "
             "can verify repository or explicit user-statement evidence. The "
             "runtime derives the Answer Gate status; only ANSWERED candidates "
-            "may enter the truth layer."
+            "may enter the truth layer. Distill suggestions must include an "
+            "assimilation_disposition and assimilation_reason; add/refine/"
+            "replace also require canonical_title and topic_path, while "
+            "confirm requires exactly one id in assimilation_target_ids; refine/replace may name "
+            "one or more current targets from the current knowledge view."
         ),
         "input_schema": {
             "type": "object",
@@ -1054,8 +749,6 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                         "suggest",
                         "decide",
                         "handoff",
-                        "correct_rule",
-                        "supersede",
                     ],
                 },
                 "arguments": {
@@ -1065,35 +758,6 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 },
             },
             "required": ["action", "arguments"],
-        },
-    },
-    "auto_review_candidates": {
-        "description": (
-            "Run evidence-grounded auto-review across pending memory entries, "
-            "rule candidates, and relation facts. Repository and explicit "
-            "user-statement evidence are revalidated against the current source; "
-            "transcript-only, unverified, or contradicted durable truths are blocked. "
-            "Returns the standard summary shape "
-            "(auto_confirmed / auto_rejected / "
-            "kept_pending / needs_user_confirmation). With apply=true, low-risk "
-            "decisions are applied with audit events while ambiguous or high-risk "
-            "items stay reviewable. This is a project-level maintenance tool; "
-            "lossless sessions must finish through finalize_session_distill."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {"type": "string", "description": "Project name"},
-                "apply": {
-                    "type": "boolean",
-                    "description": (
-                        "When true, apply auto_confirm / auto_reject decisions. "
-                        "When false (default), preview without writes."
-                    ),
-                    "default": False,
-                },
-            },
-            "required": ["project_name"],
         },
     },
     "record_context_outcome": {
@@ -1142,9 +806,8 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     },
     "dream_ledger": {
         "description": (
-            "Return the latest DreamRun ledger for a project, or one "
-            "DreamRun by id. This is the backing MCP surface for inspecting background work: "
-            "it reads the audit ledger and never mutates truth."
+            "Return the latest background Dream status for a project, or one "
+            "run by id. This is read-only and never changes memory."
         ),
         "input_schema": {
             "type": "object",
@@ -1164,7 +827,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
         "description": (
             "Run one dream maintenance pass now. It parses and handles "
             "every selected dream result to a terminal state and writes a "
-            "DreamRun ledger with audit and undo metadata."
+            "short DreamRun result."
         ),
         "input_schema": {
             "type": "object",
@@ -1176,20 +839,6 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 "project_root": {
                     "type": "string",
                     "description": "Project directory used to load .harness-mem.toml (defaults to cwd).",
-                },
-                "budget": {
-                    "type": "object",
-                    "description": "Optional replay-window caps. Missing fields fall back to ReplayBudget defaults.",
-                    "properties": {
-                        "max_observations": {"type": "integer", "minimum": 0},
-                        "max_pending_candidates": {"type": "integer", "minimum": 0},
-                        "max_historical_truths": {"type": "integer", "minimum": 0},
-                        "max_low_success_skills": {"type": "integer", "minimum": 0},
-                        "max_repeat_search_hits": {"type": "integer", "minimum": 0},
-                        "max_total_tokens": {"type": "integer", "minimum": 0},
-                        "signal_lookback_days": {"type": "integer", "minimum": 1},
-                    },
-                    "additionalProperties": False,
                 },
             },
         },
@@ -1212,31 +861,6 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "description": "Project directory used to load .harness-mem.toml (defaults to cwd).",
                 },
             },
-        },
-    },
-    "undo_dream_item": {
-        "description": (
-            "Undo one applied DreamItem by replaying the undo metadata stored "
-            "in its DreamRun ledger. Truth is restored or soft-deleted; "
-            "confirmed records are not hard-deleted."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {
-                    "type": "string",
-                    "description": "Project name (defaults to the active project when omitted).",
-                },
-                "run_id": {
-                    "type": "string",
-                    "description": "DreamRun id containing the item to undo.",
-                },
-                "item_id": {
-                    "type": "string",
-                    "description": "DreamItem id to undo.",
-                },
-            },
-            "required": ["run_id", "item_id"],
         },
     },
 }
@@ -1265,6 +889,13 @@ INTERNAL_MCP_TOOL_NAMES = frozenset(
         "reject_memory_entry",
         "confirm_relation_fact",
         "reject_relation_fact",
+        "temporal_query",
+        "undo_dream_item",
+        "auto_review_candidates",
+        "get_confirmed_rules",
+        "get_skill",
+        "search_skills",
+        "trace_relations",
     }
 )
 
@@ -1274,19 +905,14 @@ TOOL_CLUSTERS = {
     "search_memory": "core_read",
     "autopilot_search_tick": "core_read",
     "timeline": "core_read",
-    "temporal_query": "core_read",
     "get_observations": "core_read",
     "get_task_handoffs": "core_read",
-    "get_confirmed_rules": "core_read",
     "get_project_profile": "core_read",
     "file_context": "core_read",
     "get_project_status": "core_read",
     "wake": "core_read",
     # Advanced or lower-frequency read surfaces.
-    "trace_relations": "review_read",
     "search_raw": "review_read",
-    "search_skills": "review_read",
-    "get_skill": "review_read",
     "record_context_outcome": "advanced",
     # Candidate/truth loop.
     "prepare_session_distill": "truth_loop",
@@ -1294,14 +920,12 @@ TOOL_CLUSTERS = {
     "finalize_session_distill": "truth_loop",
     "list_candidates": "truth_loop",
     "get_candidate_detail": "truth_loop",
-    "auto_review_candidates": "truth_loop",
     "govern_memory": "truth_loop",
     # Dream is a default product capability; the cluster name is separate from
     # whether a tool appears in the public MCP surface.
     "dream_ledger": "dream",
     "dream_run": "dream",
     "dream_auto_tick": "dream",
-    "undo_dream_item": "dream",
 }
 
 

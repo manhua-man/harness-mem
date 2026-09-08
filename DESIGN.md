@@ -5,15 +5,15 @@
 ## Design Intent
 
 - **Audience:** developers and agent users who need trustworthy project memory without managing a second knowledge application.
-- **Primary experience:** quiet infrastructure surfaced through compact MCP responses, host-native commands, actionable diagnostics, and auditable drill-downs.
-- **Core promise:** make the current trustworthy result obvious while keeping evidence, uncertainty, correction, and undo close at hand.
+- **Primary experience:** quiet infrastructure surfaced through short MCP responses, host-native commands, and useful diagnostics.
+- **Core promise:** keep one clear set of current project memories that users can find, correct, replace, or delete.
 - **Not this:** a dashboard-first product, a stream of internal IDs, or an opaque “AI remembered it” experience.
 
 ## Experience Principles
 
-1. **Outcome before machinery** — lead with what is ready, missing, blocked, or changed.
-2. **Progressive disclosure** — default views stay compact; evidence, receipts, IDs, and raw transcripts appear only in explicit audit flows.
-3. **Trust is visible** — distinguish current truth, provisional evidence, stale material, and failed verification in language and structure.
+1. **Result before machinery** — lead with what is ready, missing, blocked, or changed.
+2. **Progressive disclosure** — default replies stay short; evidence, receipts, IDs, and raw transcripts appear only when users ask for details.
+3. **Trust is visible** — distinguish current memory, temporary material, and failed verification in language and structure.
 4. **One daily entry** — supported hosts expose one native entry for ordinary recall, remembering, and correction even when their command or hook formats differ.
 5. **Safe by default** — preview destructive maintenance, retain uncertain sources, and make authorization boundaries explicit.
 6. **Repairable, not magical** — errors name the failed boundary, preserved state, and next safe action.
@@ -30,10 +30,13 @@ Hooks for the current project. The entry accepts ordinary language for three int
 - This memory is wrong.
 
 Wake happens with session entry and authorized background organization happens
-without becoming a daily checklist. `status`, Doctor, raw evidence, candidate
-detail, storage repair, and cleanup are diagnostic or operator drill-downs,
-not primary navigation. Do not create a parallel “simple mode”; the compact
-path is the product default and uses the same runtime contracts.
+without becoming a daily checklist. Before each requested action, `hm` performs
+only a short project and Hook check. Doctor, raw evidence, candidate detail,
+storage repair, and cleanup are diagnostic or operator drill-downs, not primary
+navigation. Do not create a parallel “simple mode”; the default path is the
+product and uses the same runtime contracts.
+When first use creates Codex project Hooks, the same short reply includes the
+one required trust action; later checks do not repeat it.
 
 ## CLI and MCP Output
 
@@ -44,10 +47,11 @@ path is the product default and uses the same runtime contracts.
 - For long-running or asynchronous work, distinguish queued, running, persisted, verified, deferred, and failed states.
 - Pair failures with a bounded recovery action; never imply that retrying will be harmless when it may mutate or delete data.
 - Use machine-readable JSON for automation and concise prose for human-facing summaries.
+- For multi-session distillation, report knowledge changes and ordinary no-write reasons by default. Only an explicit full audit expands session/topic-to-knowledge and evidence mapping. A semantic report does not claim physical cleanup, host restart, or full code-path verification.
 
 ## Host-Native Commands
 
-- Preserve each host's native invocation style while keeping action names and semantics aligned.
+- Preserve each host's native invocation style while keeping the `hm` meaning and behavior aligned.
 - Make the single normal entry discoverable before any individual action name:
   `$hm` for Codex and `/hm` for other supported hosts.
 - Do not make users learn internal MCP server aliases.
@@ -83,20 +87,20 @@ Use teal for identity and positive forward motion. Use gold sparingly for lineag
 - Product and documentation UI: Inter when available, then the system sans-serif stack used by the logo.
 - Commands, paths, IDs, hashes, and structured payloads: a platform monospace font.
 - Use sentence case for headings and labels.
-- Keep dense audit text readable; do not shrink typography to fit a fixed card or table.
+- Keep dense diagnostic text readable; do not shrink typography to fit a fixed card or table.
 
 ## Layout and Components
 
 | Component | Use | Required behavior |
 | --- | --- | --- |
-| Outcome summary | Status, distill, review, verification | Verdict first; name remaining gaps |
+| Result summary | Daily reply, distill, review, verification | Verdict first; name remaining gaps |
 | Next-action block | Setup and diagnosis | One safe primary action with a reason |
-| Evidence badge | Truth and audit views | Text label for verified, provisional, stale, or contradicted |
+| Evidence badge | Verification details | Text label for verified, provisional, stale, or contradicted |
 | Progress state | Hooks and workers | Separate queued, running, persisted, and verified |
 | Confirmation summary | Destructive or file-writing work | Exact targets and effects before confirmation |
-| Drill-down hint | Compact MCP responses | Name the tool or action and why it is useful |
+| Diagnostic detail | Doctor and requested details | Keep it out of the daily reply and explain why it is useful |
 
-- Keep the main path linear and compact.
+- Keep the main path linear and short.
 - Use tables only for short, repeated-field comparisons.
 - Use diagrams for lifecycle, authority, or cross-host relationships that are harder to understand as prose.
 - Design public README diagrams for their actual 900px display width: use a
@@ -134,7 +138,7 @@ Use teal for identity and positive forward motion. Use gold sparingly for lineag
 - Do not add decorative gradients, glass effects, or dashboard chrome without a product function.
 - Do not turn every diagnostic into a persistent warning banner.
 - Do not compress long explanations into fixed cards, buttons, or table cells.
-- Do not create a new host experience that changes the meaning of the shared daily actions.
+- Do not create a new host experience that changes the meaning of the shared `hm` entry.
 
 ## Change Log
 
@@ -145,3 +149,4 @@ Use teal for identity and positive forward motion. Use gold sparingly for lineag
 | 2026-09-02 | Updated the current 0.9.26 source diagrams to distinguish source from public release and show project-selected CLI behavior | Four public README SVG diagrams, localized alt text, and current canvas panels |
 | 2026-09-03 | Made the one-time Quickstart and the single `$hm`/`/hm` daily entry the default documentation and DX path | `README.md`, `README.zh-CN.md`, and `docs/quickstart.md` |
 | 2026-09-03 | Made Quickstart global, moved project Hook preparation to first use, and removed the old action-specific entries | onboarding, command sync, host mirrors, and current docs |
+| 2026-09-05 | Reduced the automatic project check to a short usable/failure reply and kept full diagnosis in Doctor | `hm` host mirrors, MCP status response, and current docs |

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import harness_mem.commands.support as support
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
@@ -162,3 +163,105 @@ def test_auto_host_resolution_is_unavailable_when_no_signal_exists(monkeypatch) 
     assert resolution.adapter_available is False
     assert support.resolve_ingest_client("auto") == "unknown"
     assert support.current_agent_client() == "unknown"
+
+
+def test_project_state_counts_current_knowledge_without_reading_legacy_entries(
+    monkeypatch,
+) -> None:
+    class FakeKnowledgeStore:
+        async def list_entries(self, project_name: str) -> list[object]:
+            assert project_name == "demo"
+            return [object(), object()]
+
+    class FakeStructuredStore:
+        knowledge_store = FakeKnowledgeStore()
+
+        async def list_memory_entries(self, *_args, **_kwargs) -> list[object]:
+            raise AssertionError("project status must not read legacy MemoryEntry rows")
+
+        async def get_latest_handoffs(
+            self,
+            project_name: str,
+            *,
+            limit: int,
+        ) -> list[object]:
+            assert (project_name, limit) == ("demo", 100)
+            return [object()]
+
+        async def list_confirmed_rules(self, project_name: str) -> list[object]:
+            assert project_name == "demo"
+            return [object(), object(), object()]
+
+    class FakeVerbatimStore:
+        async def list(self, *, limit: int) -> list[object]:
+            assert limit == 10000
+            return [
+                SimpleNamespace(metadata={"project_name": "demo"}),
+                SimpleNamespace(metadata={"project_name": "other"}),
+            ]
+
+    class FakeBackend:
+        def __init__(self) -> None:
+            self.structured_store = FakeStructuredStore()
+            self.verbatim_store = FakeVerbatimStore()
+            self.initialized = False
+            self.closed = False
+
+        async def init(self) -> None:
+            self.initialized = True
+
+        async def close(self) -> None:
+            self.closed = True
+
+    backend = FakeBackend()
+    monkeypatch.setattr(support, "LocalMemoryBackend", lambda _data_dir: backend)
+
+    state = asyncio.run(support.project_state("demo"))
+
+    assert backend.initialized is True
+    assert backend.closed is True
+    assert state == {
+        "observations": 1,
+        "current_knowledge": 2,
+        "task_handoffs": 1,
+        "confirmed_rules": 3,
+    }
+    assert "memory_entries" not in state
+
+
+def test_wake_budget_reads_current_knowledge_statements() -> None:
+    total_tokens, level = support.wake_budget(
+        None,
+        [
+            SimpleNamespace(statement="x" * 40),
+            SimpleNamespace(content="legacy content is not current knowledge"),
+        ],
+        [],
+        [],
+    )
+
+    assert total_tokens == 10
+    assert level == "L0"
+
+
+def test_suggested_next_step_uses_current_knowledge_count() -> None:
+    common = {
+        "project_name": "demo",
+        "observation_count": 1,
+        "claude_sessions": [],
+        "cursor_sessions": [],
+        "grok_sessions": [],
+        "codex_sessions": [],
+    }
+
+    empty_command, _empty_reason = support.suggested_next_step(
+        current_knowledge_count=0,
+        **common,
+    )
+    ready_command, _ready_reason = support.suggested_next_step(
+        current_knowledge_count=1,
+        **common,
+    )
+
+    assert empty_command == 'MCP search_memory(query="<query>")'
+    assert ready_command == 'MCP wake(project_name="demo")'

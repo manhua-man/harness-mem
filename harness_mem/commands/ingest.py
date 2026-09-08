@@ -41,7 +41,7 @@ from harness_mem.storage.local_project_profile_store import LocalProjectProfileS
 async def cmd_ingest(
     client: str,
     project_name: str | None = None,
-    limit: int = 10,
+    limit: int | None = None,
     full_rescan: bool = False,
     scope: str = "project",
     project_root: str | None = None,
@@ -240,7 +240,7 @@ async def _ingest_claude_code(
     profile_store: LocalProjectProfileStore,
     *,
     project_name: str,
-    limit: int,
+    limit: int | None,
     full_rescan: bool,
     project_root: Path,
 ) -> int:
@@ -354,7 +354,7 @@ async def _ingest_codex_archive(
     backend: LocalMemoryBackend,
     *,
     project_name: str,
-    limit: int,
+    limit: int | None,
     full_rescan: bool,
     scope: str,
     project_root: Path,

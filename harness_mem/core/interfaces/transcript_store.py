@@ -133,7 +133,7 @@ class TranscriptStore(Protocol):
         *,
         project_name: str | None = None,
         status: str | None = None,
-        limit: int = 100,
+        limit: int | None = None,
     ) -> list[SessionDistillJob]: ...
 
     def claim_distill_chunks(
@@ -141,7 +141,7 @@ class TranscriptStore(Protocol):
         job_id: str,
         *,
         lease_owner: str,
-        limit: int = 1,
+        limit: int | None = 1,
         lease_seconds: int = 300,
     ) -> list[tuple[TranscriptChunk, DistillChunkCheckpoint]]: ...
 

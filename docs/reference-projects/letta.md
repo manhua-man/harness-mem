@@ -34,4 +34,4 @@ Letta 将 agent 可见状态拆成 in-context 的可编辑 `Memory` blocks、消
 
 验收：同一输入的预算投影确定；压缩失败或预算仍超限时有明确 outcome 和保守回退；snapshot 测试覆盖无压缩、成功压缩、失败回退、超限处理四种状态。
 
-**Reject：** Letta agent/server runtime、云 archival 语义、block filesystem 和把可编辑 prompt block 升格为 durable truth。它们会破坏本项目“本地、审计、单一 truth store、固定 27-tool surface”的边界。
+**Reject：** Letta agent/server runtime、云 archival 语义、block filesystem 和把可编辑 prompt block 升格为 durable truth。它们会破坏本项目“本机保存、一份当前记忆、固定 25-tool surface”的边界。

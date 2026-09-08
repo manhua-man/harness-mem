@@ -1,5 +1,60 @@
 # Changelog
 
+## [0.9.28] - 2026-09-06
+
+### Changed
+
+- Require explicit distill suggestions to provide their complete assimilation
+  disposition, reason, title/topic when writing, and one current target when
+  confirming or replacing existing knowledge.
+- Make `knowledge_entries` the only source of current memory and keep legacy
+  `MemoryEntry` rows readable only for compatibility.
+- Replace old knowledge by deleting the old row and writing the new row, and
+  delete invalid knowledge without keeping a knowledge history or undo chain.
+- Reduce the automatic project check to one short ready/failure message and
+  keep detailed status and recovery evidence in Doctor.
+
+### Fixed
+
+- Verify each finalized SQLite write through ordinary current-project search
+  and reject completion when a new item is unreadable or a replaced item still
+  appears.
+- Stop archive verification from treating legacy candidate/truth rows as a
+  substitute for current SQLite knowledge.
+- Treat a valid Codex archive with no user or assistant conversation as a
+  verified empty result without calling a model or creating a job, Note, or
+  knowledge item.
+- Prevent a version reported in a historical session from becoming a current
+  project fact unless the current repository still proves that exact version.
+- Make Review delete one named current-memory item directly when the user says
+  it is no longer valid.
+- Remove the legacy Observation-only distill status payload, old project-status
+  renderer, unused status proxies, and the unconsumed memory funnel.
+
+### Removed
+
+- Delete the duplicate legacy assimilation, metabolism, status-rendering,
+  distill-context, and dogfood modules after their surviving responsibilities
+  moved to the current knowledge, Dream, Doctor, and MCP owners.
+- Remove the old CLI wake renderer and repeated deep-wake backend pass so wake
+  has one current-knowledge path and one explicit diagnostic path.
+- Remove the unused wake selection and formatting helpers that were only
+  reachable from the retired CLI renderer.
+- Remove `temporal_query`, `undo_dream_item`, and other unused tools from the
+  public MCP surface; the current public contract contains 20 tools.
+- Remove knowledge version and mutation storage from new databases. Existing
+  compatibility data is left untouched but is not read as current memory.
+- Remove the hidden limits that made one source candidate produce only one
+  result, capped knowledge visibility, restricted archive work to a fixed batch
+  or UTC-day quota, or required a job to be offered on the current day. A
+  session may produce as many independently verified current memories as its
+  source supports; omitted sync and processing counts mean all matching work.
+- Clean the selected source, generated Note, and matching host-history file
+  after successful user-requested processing; Dream keeps its source and Note
+  as an archive. Failed or incomplete processing keeps the source, and
+  unrelated host history is never cleared.
+- Remove automatic source backups from the processing path.
+
 ## [0.9.27] - 2026-09-04
 
 ### Changed

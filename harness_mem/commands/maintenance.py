@@ -393,6 +393,27 @@ async def run_post_turn_maintenance(
     trigger_id: str | None = None,
 ) -> dict[str, Any]:
     """Sync transcript evidence and queue Agent-led distillation work."""
+    from harness_mem.maintenance_lock import maintenance_is_locked
+
+    if maintenance_is_locked(backend.data_dir, trigger_id=trigger_id):
+        return {
+            "action": "post-turn-maintenance",
+            "success": True,
+            "status": "skipped",
+            "project_name": project_name,
+            "project_root": project_root,
+            "source": source,
+            "trigger_id": trigger_id,
+            "reason": "exclusive_maintenance_run_active",
+            "evidence_packet": None,
+            "distill_job": None,
+            "dream_tick": None,
+            "summary": {
+                "maintenance_excluded": True,
+                "distill_queued": False,
+                "distill_job_id": None,
+            },
+        }
     from harness_mem.mcp import tool_handlers as mcp_tool_handlers
 
     previous_backend_provider = getattr(mcp_tool_handlers, "_backend_provider", None)
@@ -408,26 +429,17 @@ async def run_post_turn_maintenance(
     try:
         from harness_mem.data_lifecycle import enforce_transcript_retention
         from harness_mem.embedding import temporarily_disable_embeddings
-        from harness_mem.processed_source_cleanup import (
-            retry_retained_source_cleanups,
-        )
-
-        source_cleanup: dict[str, Any] = (
-            await retry_retained_source_cleanups(
-                backend,
-                project_name=project_name,
-                authorized=config.distill_delete_source_after_complete,
-            )
-            if config.distill_delete_source_after_complete
-            else {
-                "attempted": 0,
-                "deleted": 0,
-                "retained": 0,
-                "partial_failure": 0,
-                "unsupported": 0,
-                "outcomes": [],
-            }
-        )
+        # Dream owns background processing and keeps its source archive.  A
+        # later maintenance pass must not turn that archive into a deletion
+        # queue; active user processing cleans its own source when it finishes.
+        source_cleanup: dict[str, Any] = {
+            "attempted": 0,
+            "deleted": 0,
+            "retained": 0,
+            "partial_failure": 0,
+            "unsupported": 0,
+            "outcomes": [],
+        }
 
         retention = await enforce_transcript_retention(
             backend,
@@ -450,7 +462,6 @@ async def run_post_turn_maintenance(
                 scope="project",
                 project_root=project_root,
                 observation_limit=5,
-                max_chars_per_observation=6000,
                 run_ingest=True,
                 session_id=trigger_id if source == "ide_hook" else None,
                 _distill_source=source,

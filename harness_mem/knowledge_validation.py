@@ -9,6 +9,12 @@ def validate_atomic_knowledge_statement(value: str) -> str:
     """Reject an obvious checklist of separate claims as one knowledge item."""
 
     normalized = " ".join(value.split())
+    if re.match(
+        r"^(?:when\s+(?:当|如果|若)|if\s+(?:如果|若)|when\s+when\b|if\s+if\b)",
+        normalized,
+        flags=re.IGNORECASE,
+    ):
+        raise ValueError("knowledge item repeats the same condition in two languages")
     enumerated_clauses = [
         clause.strip()
         for clause in re.split(r"[、,，]", normalized)

@@ -57,6 +57,10 @@ def test_doctor_orchestrator_does_not_reabsorb_probe_or_rendering_bodies() -> No
     assert "def _doctor_storage_v2_block(" in rendering
     assert "async def local_health_summary(" not in doctor
     assert "def _doctor_storage_v2_block(" not in doctor
+    assert "knowledge_store.list_entries(" in doctor
+    assert "list_memory_entries(" not in doctor
+    assert 'state["memory_entries"]' not in doctor
+    assert "memory_entry_count=" not in doctor
 
 
 def test_split_runtime_modules_import_independently() -> None:

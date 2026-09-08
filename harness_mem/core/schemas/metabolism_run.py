@@ -12,12 +12,10 @@ class MetabolismRun(BaseModel):
 
     Standalone MCP scan tools were removed; dream remains the product-facing
     maintenance loop. This schema is retained for internal audit compatibility
-    while dream owns scheduling, ledger, and undo.
+    while Dream owns scheduling and its bounded run status.
 
-    ``notes`` is modeled as a list of strings (rather than a single
-    human-readable string) so the replay-window selector can append
-    ``truncated_within_<dim>`` annotations without string concatenation
-    gymnastics; one note per dimension reads cleanly in tooling.
+    ``notes`` is modeled as a list of strings so internal maintenance can
+    attach short bounded annotations without string concatenation.
     """
 
     id: str = Field(default_factory=lambda: str(uuid4()))

@@ -74,7 +74,7 @@
           "description": "Install-time smoke proves Codex Quickstart adds only hm, MCP initialization leaves the project untouched, and the first Codex status call specified by the installed hm entry installs Codex Hooks and reports the native trust step.",
           "evidence_tier": "direct",
           "timeout_seconds": 120,
-          "command": ["{python}", "code/scripts/smoke_fresh_install.py", "--expected-version", "v0.9.27"],
+          "command": ["{python}", "code/scripts/smoke_fresh_install.py", "--expected-version", "v0.9.28"],
           "expect": {
             "exit_code": 0,
             "json": {
@@ -85,6 +85,7 @@
               "mcp_initialize_project_untouched": {"equals": true},
               "single_host_flow": {"equals": true},
               "first_status_project_ready": {"equals": true},
+              "first_status_is_short": {"equals": true},
               "first_status_hooks_installed": {"equals": true},
               "codex_hook_trust_step_reported": {"equals": true}
             }
@@ -268,24 +269,26 @@
     },
     {
       "id": "clean_retrieval_boundary",
-      "description": "Normal search and wake return clean current canonical truth without raw session evidence or audit metadata; explicit deep recall may retrieve detailed evidence.",
+      "description": "Memory search, wake, file context, automatic recall, and Dream use only current memory; exact conversation evidence is available through search_raw.",
       "required": true,
       "checks": [
         {
           "id": "isolated_clean_retrieval_runtime",
-          "description": "Run normal and explicit deep retrieval against real temporary stores through the public search and wake handlers.",
+          "description": "Run all current-memory readers and raw-source search against real temporary stores.",
           "evidence_tier": "direct",
           "command": ["{python}", "-m", "harness_mem.qualification.clean_retrieval_outcome_probe"],
           "expect": {
             "exit_code": 0,
             "json": {
-              "default_current_truth_retrievable": {"equals": true},
-              "default_excludes_provisional_and_historical": {"equals": true},
-              "default_has_no_raw_observation": {"equals": true},
-              "default_has_no_audit_metadata": {"equals": true},
-              "deep_recall_returns_raw_observation": {"equals": true},
-              "wake_default_has_no_raw_observation": {"equals": true},
-              "wake_deep_recall_returns_raw_observation": {"equals": true},
+              "current_memory_retrievable": {"equals": true},
+              "legacy_rows_never_searchable": {"equals": true},
+              "memory_search_has_no_raw_observation": {"equals": true},
+              "memory_search_has_no_internal_metadata": {"equals": true},
+              "raw_search_returns_source": {"equals": true},
+              "wake_has_no_raw_observation": {"equals": true},
+              "file_context_uses_only_current_memory": {"equals": true},
+              "autopilot_uses_only_current_memory": {"equals": true},
+              "dream_ignores_legacy_memory": {"equals": true},
               "verified": {"equals": true}
             }
           }

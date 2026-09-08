@@ -12,7 +12,7 @@ import logging
 import os
 from pathlib import Path
 import re
-from typing import Any, Callable, Iterator, Literal, Protocol
+from typing import Any, Callable, Iterator, Literal, Protocol, Sequence
 from uuid import uuid4
 
 from harness_mem.autonomous.models import (
@@ -33,7 +33,7 @@ from harness_mem.commands.distill_lifecycle import pending_distill_jobs
 from harness_mem.commands.separated_assimilation import (
     SeparatedPreparedAssimilation,
     create_separated_candidates,
-    normalize_identical_truth_mutations,
+    normalize_identical_replacements,
     prepare_separated_assimilation,
     validate_separated_assimilation_decision,
 )
@@ -145,9 +145,6 @@ def autonomous_config_fingerprint(config: MergedConfig) -> str:
 
     payload = {
         "enabled": config.distill_autonomous_enabled,
-        "max_jobs_per_wake": config.distill_auto_max_jobs_per_wake,
-        "daily_job_budget": config.distill_auto_daily_job_budget,
-        "target_backlog": config.distill_auto_target_backlog,
         "recent_first": config.distill_auto_recent_first,
         "budget_tokens": config.cost_budget_distill_tokens,
         "execution_cli": config.distill_autonomous_cli,
@@ -462,7 +459,10 @@ def run_autonomous_distill_batch(
 
     from harness_mem.maintenance_lock import maintenance_is_locked
 
-    if launch_source != "archive_batch" and maintenance_is_locked(backend.data_dir):
+    if launch_source != "archive_batch" and maintenance_is_locked(
+        backend.data_dir,
+        trigger_id=trigger_id,
+    ):
         return {
             "success": False,
             "state": "busy",
@@ -471,9 +471,8 @@ def run_autonomous_distill_batch(
         }
 
     root = Path(project_root).expanduser().resolve()
-    selected_limit = min(
-        3,
-        max(1, int(max_jobs or config.distill_auto_max_jobs_per_wake)),
+    selected_limit = (
+        None if max_jobs is None else max(0, int(max_jobs))
     )
     # Distillation is bounded structured classification, not a coding turn.
     # Keep it independent from the user's heavier interactive model so a main
@@ -625,14 +624,16 @@ def run_autonomous_distill_batch(
         project_root=root,
         notes_dir=resolved_notes,
     )
-    backlog_limit = selected_limit - (1 if preferred_job_id else 0)
+    backlog_limit = (
+        None
+        if selected_limit is None
+        else max(0, selected_limit - (1 if preferred_job_id else 0))
+    )
     jobs = pending_distill_jobs(
         backend,
         project_name=project_name,
         recent_first=config.distill_auto_recent_first,
-        target_backlog=config.distill_auto_target_backlog,
-        max_jobs=max(0, backlog_limit),
-        daily_job_budget=config.distill_auto_daily_job_budget,
+        max_jobs=backlog_limit,
         record_offer=True,
     )
     preferred = (
@@ -662,7 +663,8 @@ def run_autonomous_distill_batch(
         preferred, project_name=project_name, trigger_id=trigger_id
     ):
         jobs = [preferred, *(job for job in jobs if job.id != preferred.id)]
-    jobs = jobs[:selected_limit]
+    if selected_limit is not None:
+        jobs = jobs[:selected_limit]
     with _tool_bindings(backend) as tools:
         for offered in jobs:
             if not isinstance(offered, SessionDistillJob):
@@ -1606,13 +1608,11 @@ def _assimilate_with_schema_retry(
                             "named in the candidate; when feedback lists dropped terms, copy those "
                             "identifiers exactly into the corrected knowledge statement. Set "
                             "matched_truth_handles=[] for add, no_write, handoff, defer, and "
-                            "reject; use exactly one available handle for confirm, refine, or "
-                            "supersede. If an error says independent obligations or separate "
-                            "steps, split the offending statement into distinct atomic "
-                            "knowledge_items within the three-item limit. Do not repeat or "
-                            "lightly rephrase the invalid combined statement; if it cannot "
-                            "be split within the bound, retain only the highest-value atomic "
-                            "item or choose no_write. Keep a paired growth and lossless-"
+                            "reject; use exactly one available handle for confirm, and one or "
+                            "more available handles for refine or replace. If an error says independent obligations or separate "
+                            "steps, split the offending statement into as many distinct "
+                            "atomic knowledge_items as the source requires. Do not repeat or "
+                            "lightly rephrase the invalid combined statement. Keep a paired growth and lossless-"
                             "reconstruction qualification test contract in one testing item "
                             "rather than one item per test name."
                         ),
@@ -1634,10 +1634,10 @@ def _assimilate_with_schema_retry(
                                     "Return every supplied candidate_id at least once in a "
                                     "corrected assimilation decision; a broad candidate may "
                                     "emit multiple points with distinct dispositions and targets. "
-                                    "Set matched_truth_handles=[] "
-                                    "for add, no_write, handoff, defer, and reject. A confirm, "
-                                    "refine, or supersede point needs exactly one supplied truth "
-                                    "handle; do not reference unavailable handles. For confirm, "
+                                "Set matched_truth_handles=[] "
+                                "for add, no_write, handoff, defer, and reject. A "
+                                    "confirm needs exactly one supplied truth handle; refine and "
+                                    "replace may use one or more supplied handles; do not reference unavailable handles. For confirm, "
                                     "no_write, handoff, defer, conflict, and reject, return no "
                                     "knowledge_items and leave canonical_title, "
                                     "canonical_statement, and topic_path empty. Correct every named "
@@ -1715,16 +1715,13 @@ def _repair_invalid_writing_with_source_clauses(
     point = decision.points[0]
     if point.candidate_id != str(projection.get("candidate_id") or ""):
         return None
-    if point.disposition not in {"add", "refine", "supersede"}:
+    if point.disposition not in {"add", "refine", "replace"}:
         return None
-    if point.knowledge_items and len(point.knowledge_items) > 3:
-        return None
-
     source = str(projection.get("statement") or "").strip()
     if not source or re.search(r"(?:；|;)\s*(?:如果|否则|if\b|otherwise\b)", source, re.I):
         return None
     source_clauses = _split_verified_source_clauses(source)
-    if not 1 <= len(source_clauses) <= 3:
+    if not source_clauses:
         return None
     if _source_clauses_have_overlapping_identifiers(source_clauses):
         return None
@@ -1734,9 +1731,6 @@ def _repair_invalid_writing_with_source_clauses(
             atomic_clauses.append(validate_atomic_knowledge_statement(clause))
         except ValueError:
             return None
-    if point.disposition == "refine" and len(atomic_clauses) != 1:
-        return None
-
     payload = decision.model_dump(mode="json")
     raw_point = payload["points"][0]
     if raw_point.get("knowledge_items"):
@@ -1878,12 +1872,10 @@ def _assimilate_prepared_in_bounded_batches(
     runtime_dir: Path,
     heartbeat: Any,
 ) -> ProviderResult:
-    """Bound strict output size while preserving one complete runtime decision.
+    """Process verified points with isolated provider calls and full coverage.
 
-    Ten independently verified points can exceed the provider's practical
-    structured-output latency even though the input manifest is compact. Each
-    bounded call sees the same current truth, and the trusted runtime merges the
-    returned points before revalidating exact full-job coverage.
+    The internal split keeps one bad point from blocking the others. It does
+    not limit how many knowledge items or result points one candidate returns.
     """
 
     eligible = list(prepared.eligible_candidate_ids)
@@ -1941,10 +1933,7 @@ def _assimilate_prepared_in_bounded_batches(
         )
 
         def validate_batch(candidate: AssimilationDecision) -> dict[str, Any]:
-            return validate_separated_assimilation_decision(
-                batch_prepared,
-                candidate,
-            )
+            return validate_separated_assimilation_decision(batch_prepared, candidate)
 
         try:
             result = _assimilate_with_schema_retry(
@@ -1959,7 +1948,7 @@ def _assimilate_prepared_in_bounded_batches(
                 raise
             result = _deferred_assimilation_result(
                 provider,
-                candidate_id=batch_ids[0],
+                candidate_ids=batch_ids,
                 error=exc,
                 manifest=batch_prepared.manifest,
             )
@@ -1968,7 +1957,7 @@ def _assimilate_prepared_in_bounded_batches(
                 "assimilation provider returned an unexpected decision type",
                 kind="unrecoverable",
             )
-        normalized_decision = normalize_identical_truth_mutations(
+        normalized_decision = normalize_identical_replacements(
             batch_prepared,
             result.decision,
         )
@@ -1983,7 +1972,7 @@ def _assimilate_prepared_in_bounded_batches(
         retired_truth_handles.update(
             str(handle)
             for point in result.decision.points
-            if point.disposition in {"refine", "supersede"}
+            if point.disposition in {"refine", "replace"}
             for handle in point.matched_truth_handles
         )
         for point in normalized_batch["points"]:
@@ -2052,7 +2041,7 @@ def _assimilate_prepared_in_bounded_batches(
                 "truth-target resolution returned an unexpected decision type",
                 kind="unrecoverable",
             )
-        normalized_resolution = normalize_identical_truth_mutations(
+        normalized_resolution = normalize_identical_replacements(
             resolution_prepared,
             resolution.decision,
         )
@@ -2094,7 +2083,7 @@ def _conflicting_truth_target_candidates(
         handle
         for handle, points in target_points.items()
         if len(points) > 1
-        and any(point.disposition in {"refine", "supersede"} for point in points)
+        and any(point.disposition in {"refine", "replace"} for point in points)
     }
     if not conflicting_handles:
         return None
@@ -2187,7 +2176,7 @@ def _validate_truth_target_resolution(
         if point.disposition in {"defer", "conflict", "handoff"}:
             raise ValueError(
                 "truth-target resolution must choose a terminal no_write, reject, "
-                "confirm, refine, or supersede outcome"
+                "confirm, refine, or replace outcome"
             )
         for handle in point.matched_truth_handles:
             target_uses[str(handle)] = target_uses.get(str(handle), 0) + 1
@@ -2208,11 +2197,11 @@ def _validate_truth_target_resolution(
 def _deferred_assimilation_result(
     provider: DistillProvider,
     *,
-    candidate_id: str,
+    candidate_ids: Sequence[str],
     error: ProviderError,
     manifest: dict[str, Any],
 ) -> ProviderResult:
-    """Isolate one invalid semantic point without weakening the truth gate."""
+    """Defer every affected point without weakening the truth gate."""
 
     decision = AssimilationDecision.model_validate(
         {
@@ -2226,11 +2215,12 @@ def _deferred_assimilation_result(
                     "topic_path": [],
                     "knowledge_items": [],
                     "reason": (
-                        "The bounded assimilation output remained invalid after "
-                        "correction, so this point was deferred without a truth write. "
+                        "The assimilation output remained invalid after correction, "
+                        "so this point was deferred without a truth write. "
                         f"Validation error: {str(error)[:600]}"
                     ),
                 }
+                for candidate_id in candidate_ids
             ]
         }
     )
@@ -2413,7 +2403,22 @@ def _verify_candidates(
         point = by_index[index]
         updated = dict(arguments)
         codes = list(updated.get("verification_reason_codes") or [])
-        if _is_unfinished_task_envelope_only(manifest, candidate_index=index):
+        if _is_historical_current_version_without_repository(
+            manifest,
+            candidate_index=index,
+            arguments=updated,
+        ):
+            # A historical conversation can prove which version was current at
+            # that time, but not which version is current now. Only repository
+            # evidence reopened by this run can support that mutable claim.
+            updated["verification_outcome"] = "not_applicable"
+            codes.extend(
+                [
+                    "session_only_not_durable",
+                    "current_version_requires_repository_evidence",
+                ]
+            )
+        elif _is_unfinished_task_envelope_only(manifest, candidate_index=index):
             # A request template is evidence of what to do in that one session,
             # not evidence of a project rule.  This is intentionally a trusted
             # deterministic boundary: models previously promoted Read/Write/
@@ -2445,6 +2450,73 @@ def _verify_candidates(
         updated["verification_reason_codes"] = list(dict.fromkeys(codes))
         verified.append((candidate, updated))
     return result, verified
+
+
+_SEMANTIC_VERSION_RE = re.compile(
+    r"(?<![\w.])v?\d+\.\d+\.\d+"
+    r"(?:-[0-9a-z-]+(?:\.[0-9a-z-]+)*)?"
+    r"(?:\+[0-9a-z-]+(?:\.[0-9a-z-]+)*)?(?!\w|\.\d)",
+    re.IGNORECASE,
+)
+_CURRENT_VERSION_CLAIM_RE = re.compile(
+    r"(?:\bcurrent\s+(?:source\s+|package\s+|project\s+)?version\b|"
+    r"\bversion\s+is\b|当前(?:源码|软件|包|项目)?版本|版本\s*(?:为|是))",
+    re.IGNORECASE,
+)
+
+
+def _is_historical_current_version_without_repository(
+    manifest: dict[str, Any],
+    *,
+    candidate_index: int,
+    arguments: dict[str, Any],
+) -> bool:
+    """Reject a mutable version claim supported only by historical dialogue.
+
+    The rule is intentionally lexical and narrow. It does not classify every
+    transient fact; it only closes the observed false-positive class without
+    teaching the runtime a project name or a particular release number.
+    """
+
+    if arguments.get("kind") != "memory":
+        return False
+    statement = _candidate_statement_from_arguments(arguments)
+    if not (
+        _SEMANTIC_VERSION_RE.search(statement)
+        and _CURRENT_VERSION_CLAIM_RE.search(statement)
+    ):
+        return False
+    claimed_versions = {
+        match.group(0).casefold().removeprefix("v")
+        for match in _SEMANTIC_VERSION_RE.finditer(statement)
+    }
+    row = next(
+        (
+            value
+            for value in manifest.get("candidates") or []
+            if isinstance(value, dict)
+            and int(value.get("candidate_index", -1)) == candidate_index
+        ),
+        None,
+    )
+    if not isinstance(row, dict):
+        return True
+    for source in row.get("sources") or []:
+        if not (
+            isinstance(source, dict)
+            and source.get("kind") == "repository"
+            and bool(source.get("locator"))
+            and source.get("content") is not None
+            and bool(source.get("current_content_sha256"))
+        ):
+            continue
+        current_versions = {
+            match.group(0).casefold().removeprefix("v")
+            for match in _SEMANTIC_VERSION_RE.finditer(str(source["content"]))
+        }
+        if claimed_versions & current_versions:
+            return False
+    return True
 
 
 _TASK_ENVELOPE_MARKERS = (
@@ -2801,7 +2873,14 @@ def provider_candidate_control_reason(
         or normalized_statement in normalized_unfinished
     ):
         return "unfinished work belongs to the job-bound handoff"
-    historical_markers = ("superseded", "was replaced", "outdated", "已取代", "被替代")
+    historical_markers = (
+        "replaced",
+        "was replaced",
+        "superseded",
+        "outdated",
+        "已取代",
+        "被替代",
+    )
     replacement_markers = (
         "current replacement",
         "replace with",
@@ -2813,7 +2892,7 @@ def provider_candidate_control_reason(
     if any(marker in text for marker in historical_markers) and not any(
         marker in text for marker in replacement_markers
     ):
-        return "bare superseded history belongs to summary or final outcome"
+        return "bare replaced history belongs to summary or final outcome"
     return None
 
 

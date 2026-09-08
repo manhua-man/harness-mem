@@ -22,7 +22,7 @@
   <rect class="teal" width="1440" height="10"/>
   <text x="64" y="66" class="title ink">Lossless session distillation</text>
   <text x="64" y="100" class="subtitle muted">Evidence stays reconstructable; extraction, verification, and assimilation remain separate decisions.</text>
-  <g transform="translate(1204 38)"><rect class="soft" width="172" height="42" rx="21"/><text x="20" y="28" class="eyebrow teal">source 0.9.27</text></g>
+  <g transform="translate(1204 38)"><rect class="soft" width="172" height="42" rx="21"/><text x="20" y="28" class="eyebrow teal">source 0.9.28</text></g>
 
   <text x="64" y="148" class="eyebrow muted">0 · SESSION INTAKE AND LIFECYCLE</text>
   <g transform="translate(64 174)">
@@ -76,7 +76,7 @@
   <g transform="translate(452 456)">
     <rect class="card" width="246" height="152" rx="16"/>
     <text x="22" y="38" class="eyebrow teal">1 · EXTRACT</text>
-    <text x="22" y="75" class="heading ink">0–12 points</text>
+    <text x="22" y="75" class="heading ink">all independent points</text>
     <text x="22" y="108" class="body muted">Narrow claims</text>
     <text x="22" y="134" class="body muted">Reopenable locations</text>
   </g>
@@ -86,7 +86,7 @@
     <text x="22" y="38" class="eyebrow teal">2 · VERIFY</text>
     <text x="22" y="75" class="heading ink">Each point</text>
     <text x="22" y="108" class="body muted">Integrity + support</text>
-    <text x="22" y="134" class="body muted">Fail closed when unsafe</text>
+    <text x="22" y="134" class="body muted">Stop when evidence is insufficient</text>
   </g>
   <path class="line" d="M998 532h40"/>
   <g transform="translate(1052 456)">

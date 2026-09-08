@@ -68,8 +68,6 @@ async def migrate_legacy_accepted(
             current = store.read_record_payload(collection, entity_id)
             if str(current.get("status") or "") != LEGACY_ACCEPTED_STATUS:
                 continue
-            previous_valid_to = current.get("valid_to")
-            previous_superseded_by = list(current.get("superseded_by") or [])
             target = item["target_status"]
             current["status"] = target
             current["legacy_accepted_migration"] = {
@@ -115,11 +113,6 @@ async def migrate_legacy_accepted(
                     "previous_status": LEGACY_ACCEPTED_STATUS,
                     "equivalent_current_id": item["equivalent_current_id"],
                     "automatic_truth_promotion": False,
-                    "undo": {
-                        "status": LEGACY_ACCEPTED_STATUS,
-                        "valid_to": previous_valid_to,
-                        "superseded_by": previous_superseded_by,
-                    },
                 },
             )
             applied.append(item)

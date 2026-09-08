@@ -16,6 +16,7 @@ from harness_mem.core.schemas import (
     ProjectKnowledgeSourceRef,
 )
 from harness_mem.mcp.executor import execute_tool_call
+from harness_mem.mcp.tool_specs import PUBLIC_MCP_TOOL_NAMES
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
@@ -103,7 +104,7 @@ def _seed_current_knowledge(data_dir: Path, source: Path) -> KnowledgeEntry:
             )
             store = backend.structured_store.knowledge_store
             await store.save_candidate(candidate)
-            await store.apply_truth_mutation(
+            await store.apply_current_change(
                 candidate_before=candidate,
                 candidate_after=candidate.model_copy(update={"status": "assimilated"}),
                 decision=decision,
@@ -147,7 +148,7 @@ def test_stdio_content_length_initialize_and_tools_list(tmp_path: Path) -> None:
     responses = _read_content_length_messages(proc.stdout)
     assert [response["id"] for response in responses] == [1, 2]
     assert responses[0]["result"]["serverInfo"]["name"] == "harness-mem"
-    assert responses[1]["result"]["tool_count"] == 27
+    assert responses[1]["result"]["tool_count"] == len(PUBLIC_MCP_TOOL_NAMES)
 
 
 def test_stdio_ndjson_initialize_stays_supported(tmp_path: Path) -> None:

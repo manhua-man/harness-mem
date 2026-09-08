@@ -530,7 +530,26 @@ async def _reopen_knowledge_source(
             observation is None
             or observation.metadata.get("source_revision") != source_revision
         ):
-            return "unverified", "knowledge_source_observation_missing", None, False
+            # Observation is a derived search projection. Older cleanup runs
+            # may have removed it while the immutable transcript revision is
+            # still intact, so rebuild it in memory from that authoritative
+            # revision instead of treating the knowledge source as lost.
+            from harness_mem.adapters.projection_repair import (
+                repair_source_observation_projection,
+            )
+
+            observation = repair_source_observation_projection(
+                backend,
+                source_id=source_id,
+                source_revision=source_revision,
+            )
+            if observation is None:
+                return (
+                    "unverified",
+                    "knowledge_source_observation_missing",
+                    None,
+                    False,
+                )
         windows = render_distill_exchange_windows(observation.raw_content, [exchange])
         if not windows or "User:" not in str(windows[0].get("content") or ""):
             return "unverified", "knowledge_source_exchange_missing", None, False

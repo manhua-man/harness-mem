@@ -66,7 +66,7 @@ async def build_task_aware_retrieval_runtime(
         project_name=project_name,
         scope=scope,
         memory_type=memory_type,
-        include_history=include_history or deep_recall,
+        include_history=include_history,
         include_provisional=include_provisional,
         time_window=time_window,
         deep_recall=deep_recall,

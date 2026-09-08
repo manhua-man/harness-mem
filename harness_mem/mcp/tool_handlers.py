@@ -15,16 +15,7 @@ from pathlib import Path
 from typing import Any, Callable
 from uuid import NAMESPACE_URL, uuid5
 
-from harness_mem.commands import support as _support  # noqa: F401
-from harness_mem.commands.auto_review import auto_review_candidates
-from harness_mem.commands.dream import (
-    dream_auto_tick,
-)
 from harness_mem.commands.ingest import cmd_ingest
-from harness_mem.commands.integration_cmds import (  # noqa: F401
-    SUPPORTED_HOOK_CLIENTS,
-    cmd_install_hook_suite,
-)
 from harness_mem.commands.support import (
     SUPPORTED_INGEST_CLIENTS,
     normalize_client_name,
@@ -32,7 +23,6 @@ from harness_mem.commands.support import (
     resolve_host_source,
     resolve_ingest_client,
 )
-from harness_mem.config.merge import load_merged_config
 from harness_mem.event_log import StateEventType, append_state_event
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.mcp.governance_handlers import tool_govern_memory
@@ -132,7 +122,7 @@ def _record_state_event(
 def _ingest_sessions(
     project_name: str | None = None,
     client: str = "auto",
-    limit: int = 10,
+    limit: int | None = None,
     full_rescan: bool = False,
     scope: str = "project",
     project_root: str | None = None,
@@ -196,260 +186,90 @@ def _ingest_sessions(
     }
 
 
-# Pure serializers extracted to mcp/serializers.py — see the future-split
-# note in the module docstring. We re-export the names here so internal
-# callers (and any external import that already uses them) keep working.
-from harness_mem.mcp.serializers import (  # noqa: E402, F401
-    _isoformat,
-    _serialize_merge_suggestion_candidate,
-    _serialize_memory_entry_candidate,
-    _serialize_relation_fact_candidate,
-    _serialize_rule_candidate,
-    _serialize_stale_truth_suggestion_candidate,
-    _serialize_supersede_candidate,
-)
-
-
-async def _gather_candidate_payload(
-    backend: LocalMemoryBackend,
-    *,
-    project_name: str,
-    status: str,
-    limit: int,
-) -> tuple[
-    list[dict],
-    list[dict],
-    list[dict],
-    list[dict],
-    list[dict],
-    list[dict],
-]:
-    rules = await backend.structured_store.list_rule_candidates(
-        project_name, status=status
-    )
-    entries = await backend.structured_store.list_memory_entries(
-        project_name, status=status, limit=limit
-    )
-    facts = await backend.structured_store.list_relation_facts(
-        project_name, status=status, limit=limit
-    )
-    supersedes = await backend.structured_store.list_supersede_candidates(
-        project_name, status=status
-    )
-    merge_suggestions = await backend.structured_store.list_merge_suggestion_candidates(
-        project_name, status=status
-    )
-    stale_suggestions = (
-        await backend.structured_store.list_stale_truth_suggestion_candidates(
-            project_name, status=status
-        )
-    )
-    return (
-        [_serialize_rule_candidate(candidate) for candidate in rules[:limit]],
-        [_serialize_memory_entry_candidate(entry) for entry in entries],
-        [_serialize_relation_fact_candidate(fact) for fact in facts],
-        [_serialize_supersede_candidate(candidate) for candidate in supersedes[:limit]],
-        [
-            _serialize_merge_suggestion_candidate(candidate)
-            for candidate in merge_suggestions[:limit]
-        ],
-        [
-            _serialize_stale_truth_suggestion_candidate(candidate)
-            for candidate in stale_suggestions[:limit]
-        ],
-    )
+def _serialize_knowledge_candidate(candidate: Any) -> dict[str, Any]:
+    return {
+        "id": candidate.id,
+        "project_name": candidate.project_name,
+        "candidate_type": candidate.candidate_type,
+        "statement": candidate.statement,
+        "status": candidate.status,
+        "created_at": candidate.created_at.isoformat(),
+    }
 
 
 def tool_list_candidates(
-    project_name: str, status: str = "pending", limit: int = 100
+    project_name: str, status: str = "pending", limit: int | None = None
 ) -> dict:
-    """Return structured memory candidates for human review."""
-    from harness_mem.governance_status import GOVERNANCE_STATUSES
+    """Return temporary candidates from the current processing workspace."""
 
-    if status not in GOVERNANCE_STATUSES:
+    allowed_statuses = {"pending", "deferred", "conflict", "rejected", "assimilated"}
+    if status not in allowed_statuses:
         return {
             "success": False,
             "error": (
-                "status must be one of: pending, deferred, rejected, auto_confirmed, "
-                "provisional, user_confirmed, superseded"
+                "status must be one of: pending, deferred, conflict, rejected, "
+                "assimilated"
             ),
         }
 
-    effective_limit = max(1, min(int(limit), 500))
     backend = _get_backend()
-    (
-        rule_candidates,
-        memory_entries,
-        relation_facts,
-        supersede_candidates,
-        merge_suggestion_candidates,
-        stale_truth_suggestion_candidates,
-    ) = asyncio.run(
-        _gather_candidate_payload(
-            backend,
-            project_name=project_name,
-            status=status,
-            limit=effective_limit,
+    candidates = [
+        candidate
+        for candidate in asyncio.run(
+            backend.structured_store.knowledge_store.list_candidates(project_name)
         )
-    )
-    all_candidates = [
-        *rule_candidates,
-        *memory_entries,
-        *relation_facts,
-        *supersede_candidates,
-        *merge_suggestion_candidates,
-        *stale_truth_suggestion_candidates,
+        if candidate.status == status
     ]
-    all_candidates.sort(key=lambda item: item.get("created_at") or "", reverse=True)
-    candidates = all_candidates[:effective_limit]
-
+    candidates.sort(key=lambda candidate: candidate.created_at, reverse=True)
+    selected = candidates if limit is None else candidates[: max(0, int(limit))]
     return {
         "success": True,
         "project_name": project_name,
         "status": status,
-        "limit": effective_limit,
-        "candidates": candidates,
-        "rule_candidates": rule_candidates,
-        "memory_entries": memory_entries,
-        "relation_facts": relation_facts,
-        "supersede_candidates": supersede_candidates,
-        "merge_suggestion_candidates": merge_suggestion_candidates,
-        "stale_truth_suggestion_candidates": stale_truth_suggestion_candidates,
-        "count": len(candidates),
-        "total_count": len(all_candidates),
-        "rule_count": len(rule_candidates),
-        "memory_entry_count": len(memory_entries),
-        "relation_fact_count": len(relation_facts),
-        "supersede_count": len(supersede_candidates),
-        "merge_suggestion_count": len(merge_suggestion_candidates),
-        "stale_truth_suggestion_count": len(stale_truth_suggestion_candidates),
+        "limit": limit,
+        "candidates": [
+            _serialize_knowledge_candidate(candidate) for candidate in selected
+        ],
+        "count": len(selected),
+        "total_count": len(candidates),
     }
 
 
 def tool_get_candidate_detail(
     candidate_id: str, candidate_kind: str | None = None
 ) -> dict:
-    """Return one reviewable candidate/detail payload without mutating state."""
+    """Return one temporary current-workspace candidate without mutating it."""
 
-    backend = _get_backend()
-
-    async def _lookup() -> tuple[str, dict] | None:
-        lookups = {
-            "memory_entry": (
-                backend.structured_store.get_memory_entry,
-                _serialize_memory_entry_candidate,
-            ),
-            "relation_fact": (
-                backend.structured_store.get_relation_fact,
-                _serialize_relation_fact_candidate,
-            ),
-            "rule_candidate": (
-                backend.structured_store.get_rule_candidate,
-                _serialize_rule_candidate,
-            ),
-            "supersede": (
-                backend.structured_store.get_supersede_candidate,
-                _serialize_supersede_candidate,
-            ),
-            "merge_suggestion_candidate": (
-                backend.structured_store.get_merge_suggestion_candidate,
-                _serialize_merge_suggestion_candidate,
-            ),
-            "stale_truth_suggestion_candidate": (
-                backend.structured_store.get_stale_truth_suggestion_candidate,
-                _serialize_stale_truth_suggestion_candidate,
-            ),
+    if candidate_kind not in {None, "knowledge_candidate"}:
+        return {
+            "success": False,
+            "candidate_id": candidate_id,
+            "candidate_kind": candidate_kind,
+            "error": "candidate kind must be knowledge_candidate",
         }
-        if candidate_kind:
-            selected = (
-                {candidate_kind: lookups[candidate_kind]}
-                if candidate_kind in lookups
-                else {}
-            )
-        else:
-            selected = lookups
-        for kind, (getter, serializer) in selected.items():
-            candidate = await getter(candidate_id)
-            if candidate is not None:
-                return kind, serializer(candidate)
-        return None
-
-    found = asyncio.run(_lookup())
-    if found is None:
+    candidate = asyncio.run(
+        _get_backend().structured_store.knowledge_store.get_candidate(candidate_id)
+    )
+    if candidate is None:
         return {
             "success": False,
             "candidate_id": candidate_id,
             "candidate_kind": candidate_kind,
             "error": "candidate not found",
         }
-
-    kind, candidate = found
     return {
         "success": True,
         "candidate_id": candidate_id,
-        "candidate_kind": kind,
-        "candidate": candidate,
+        "candidate_kind": "knowledge_candidate",
+        "candidate": {
+            **_serialize_knowledge_candidate(candidate),
+            "assimilation_disposition": candidate.assimilation_disposition,
+            "assimilation_reason": candidate.assimilation_reason,
+            "assimilation_target_ids": list(candidate.assimilation_target_ids),
+            "canonical_title": candidate.canonical_title,
+            "topic_path": list(candidate.topic_path),
+        },
     }
-
-
-def tool_auto_review_candidates(
-    project_name: str,
-    apply: bool = False,
-) -> dict:
-    """Run conservative heuristic auto-review over pending candidates.
-
-    Returns the standard summary shape
-    (auto_confirmed / auto_rejected / kept_pending / needs_user_confirmation).
-    With ``apply=False`` the structured store is not modified — the response
-    is what auto-review *would* do. With ``apply=True`` decisions are applied
-    via the same status mutators users would invoke manually.
-    """
-    backend = _get_backend()
-    summary = asyncio.run(
-        auto_review_candidates(
-            backend,
-            project_name=project_name,
-            apply=apply,
-        )
-    )
-    payload = summary.to_dict()
-    payload["success"] = True
-    payload["project_name"] = project_name
-    payload["applied"] = bool(apply)
-    if apply:
-        from harness_mem.commands.distill_lifecycle import complete_pending_distill_jobs
-
-        candidate_ids = [
-            decision.candidate_id for decision in summary.applied_decisions
-        ]
-        completed_jobs = complete_pending_distill_jobs(
-            backend,
-            project_name=project_name,
-            candidate_ids=candidate_ids,
-            job_id=None,
-        )
-        payload["distill_jobs_completed"] = [job.id for job in completed_jobs]
-        if completed_jobs:
-            project_root = completed_jobs[0].project_root
-            try:
-                config = load_merged_config(project_root)
-                payload["dream"] = asyncio.run(
-                    dream_auto_tick(
-                        backend,
-                        project_name=project_name,
-                        project_root=project_root,
-                        config=config,
-                        source="agent",
-                    )
-                )
-            except Exception as exc:  # noqa: BLE001 - review remains auditable.
-                payload["dream"] = {
-                    "success": False,
-                    "status": "failed",
-                    "project_name": project_name,
-                    "error": f"{type(exc).__name__}: {exc}"[:512],
-                }
-    return payload
 
 
 # =============================================================================
@@ -519,31 +339,22 @@ def _normalize_semantic_claim(value: Any) -> Any:
 from harness_mem.mcp.read_handlers import (  # noqa: E402
     tool_autopilot_search_tick,
     tool_file_context,
-    tool_get_confirmed_rules,
     tool_get_observations,
     tool_get_project_profile,
-    tool_get_skill,
     tool_get_task_handoffs,
     tool_record_context_outcome,
     tool_search_memory,
     tool_search_raw,
-    tool_search_skills,
-    tool_temporal_query,
     tool_timeline,
-    tool_trace_relations,
     tool_wake,
 )
 # Distill resolves this callback through the facade proxy.
-from harness_mem.mcp.status_handlers import (  # noqa: E402, F401
-    _gather_project_status,
-    tool_get_project_status,
-)
+from harness_mem.mcp.status_handlers import tool_get_project_status  # noqa: E402
 from harness_mem.mcp.dream_handlers import (  # noqa: E402
     _run_command_to_payload,
     tool_dream_auto_tick,
     tool_dream_ledger,
     tool_dream_run,
-    tool_undo_dream_item,
 )
 from harness_mem.mcp.distill_handlers import (  # noqa: E402
     tool_finalize_session_distill,
@@ -558,14 +369,9 @@ def build_tool_handlers() -> dict[str, Callable[..., dict[str, Any]]]:
         "autopilot_search_tick": tool_autopilot_search_tick,
         "search_memory": tool_search_memory,
         "timeline": tool_timeline,
-        "trace_relations": tool_trace_relations,
-        "temporal_query": tool_temporal_query,
         "search_raw": tool_search_raw,
-        "search_skills": tool_search_skills,
-        "get_skill": tool_get_skill,
         "get_observations": tool_get_observations,
         "get_task_handoffs": tool_get_task_handoffs,
-        "get_confirmed_rules": tool_get_confirmed_rules,
         "get_project_profile": tool_get_project_profile,
         "file_context": tool_file_context,
         "get_project_status": tool_get_project_status,
@@ -576,10 +382,8 @@ def build_tool_handlers() -> dict[str, Callable[..., dict[str, Any]]]:
         "dream_ledger": tool_dream_ledger,
         "dream_run": tool_dream_run,
         "dream_auto_tick": tool_dream_auto_tick,
-        "undo_dream_item": tool_undo_dream_item,
         "list_candidates": tool_list_candidates,
         "get_candidate_detail": tool_get_candidate_detail,
-        "auto_review_candidates": tool_auto_review_candidates,
         "govern_memory": tool_govern_memory,
         "record_context_outcome": tool_record_context_outcome,
     }

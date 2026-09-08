@@ -746,13 +746,16 @@ class TranscriptStore:
         *,
         project_name: str | None = None,
         status: str | None = None,
-        limit: int = 100,
+        limit: int | None = None,
     ) -> list[SessionDistillJob]:
         return self._distill.list(
             project_name=project_name,
             status=status,
             limit=limit,
         )
+
+    def count_pending_distill_jobs(self, project_name: str) -> int:
+        return self._distill.count_pending(project_name)
 
     def list_distill_checkpoints(self, job_id: str) -> list[DistillChunkCheckpoint]:
         return self._distill.list_checkpoints(job_id)
@@ -762,7 +765,7 @@ class TranscriptStore:
         job_id: str,
         *,
         lease_owner: str,
-        limit: int = 1,
+        limit: int | None = 1,
         lease_seconds: int = 300,
     ) -> list[tuple[TranscriptChunk, DistillChunkCheckpoint]]:
         return self._distill.claim_chunks(

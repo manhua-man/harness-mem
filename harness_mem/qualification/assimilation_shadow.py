@@ -28,7 +28,7 @@ Disposition = Literal[
     "add",
     "refine",
     "confirm",
-    "supersede",
+    "replace",
     "no_write",
     "handoff",
     "defer",
@@ -39,7 +39,7 @@ TruthRelationship = Literal[
     "new",
     "equivalent",
     "refines",
-    "supersedes",
+    "replaces",
     "conflicts",
 ]
 
@@ -115,7 +115,7 @@ class ShadowReport:
         }
 
 
-_MATCH_REQUIRED = frozenset({"equivalent", "refines", "supersedes", "conflicts"})
+_MATCH_REQUIRED = frozenset({"equivalent", "refines", "replaces", "conflicts"})
 
 
 def propose_disposition(
@@ -152,8 +152,8 @@ def propose_disposition(
         return _result(point, "confirm", matched, "equivalent current truth already exists")
     if point.relationship == "refines":
         return _result(point, "refine", matched, "candidate is a compatible improvement")
-    if point.relationship == "supersedes":
-        return _result(point, "supersede", matched, "candidate is a verified temporal replacement")
+    if point.relationship == "replaces":
+        return _result(point, "replace", matched, "candidate is a verified temporal replacement")
     if point.relationship == "conflicts":
         return _result(point, "conflict", matched, "current truth cannot be reconciled safely")
     return _result(point, "add", (), "new durable project knowledge")

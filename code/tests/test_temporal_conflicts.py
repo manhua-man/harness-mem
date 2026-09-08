@@ -6,7 +6,12 @@ from pathlib import Path
 
 from harness_mem.adapters.snapshot import persist_session_snapshot
 from harness_mem.commands.wake import assemble_context_plan
-from harness_mem.core.schemas.memory_entry import MemoryEntry
+from harness_mem.core.schemas import (
+    AssimilationDecision,
+    KnowledgeCandidate,
+    KnowledgeEntry,
+    ProjectKnowledgeSourceRef,
+)
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.schemas.task_handoff import TaskHandoff
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
@@ -43,24 +48,51 @@ def test_repo_version_truth_suppresses_stale_l1_and_l2_claims(tmp_path: Path) ->
                 source_uri="file:///anchor.jsonl",
                 source_text="repository anchor",
             )
-            stale_truth = MemoryEntry(
+            stale_truth = KnowledgeEntry(
+                id="stale-version-knowledge",
                 project_name="demo",
-                category="decision",
-                content="v3.2.0 is the current released version.",
-                confidence=0.99,
-                status="user_confirmed",
-                source="manual",
+                module_path=["release"],
+                title="Stale release",
+                statement="v3.2.0 is the current released version.",
             )
-            current_truth = MemoryEntry(
+            current_truth = KnowledgeEntry(
+                id="current-version-knowledge",
                 project_name="demo",
-                category="decision",
-                content="Version 0.8.24 is the current release.",
-                confidence=0.8,
-                status="user_confirmed",
-                source="manual",
+                module_path=["release"],
+                title="Current release",
+                statement="Version 0.8.24 is the current release.",
             )
-            await backend.structured_store.save_memory_entry(stale_truth)
-            await backend.structured_store.save_memory_entry(current_truth)
+            candidate = KnowledgeCandidate(
+                id="version-truth-candidate",
+                project_name="demo",
+                candidate_type="memory",
+                statement="Version truth fixture.",
+            )
+            await backend.structured_store.knowledge_store.apply_current_change(
+                candidate_before=candidate,
+                candidate_after=candidate.model_copy(update={"status": "assimilated"}),
+                decision=AssimilationDecision(
+                    id="version-truth-decision",
+                    project_name="demo",
+                    candidate_id=candidate.id,
+                    disposition="add",
+                    canonical_truth_ids=[stale_truth.id, current_truth.id],
+                    reason="Test fixture.",
+                ),
+                added_entries=[stale_truth, current_truth],
+                predecessor_entries=[],
+                source_refs_by_entry={
+                    entry.id: [
+                        ProjectKnowledgeSourceRef(
+                            label="pyproject.toml",
+                            target=(project / "pyproject.toml").resolve().as_uri(),
+                            kind="repository",
+                            digest="a" * 64,
+                        )
+                    ]
+                    for entry in (stale_truth, current_truth)
+                },
+            )
             await backend.structured_store.save_task_handoff(
                 TaskHandoff(
                     project_name="demo",
@@ -73,8 +105,8 @@ def test_repo_version_truth_suppresses_stale_l1_and_l2_claims(tmp_path: Path) ->
             plan = await assemble_context_plan(backend, project_name="demo")
             l1 = [entry.summary for entry in plan.layer("L1").entries]
             l2 = [entry.summary for entry in plan.layer("L2").entries]
-            assert current_truth.content in l1
-            assert stale_truth.content not in l1
+            assert current_truth.statement in l1
+            assert stale_truth.statement not in l1
             assert not any("v3.2.0" in summary for summary in l2)
         finally:
             await backend.close()

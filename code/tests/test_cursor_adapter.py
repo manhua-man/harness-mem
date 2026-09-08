@@ -7,6 +7,7 @@ from pathlib import Path
 import harness_mem.adapters.cursor.adapter as cursor_adapter_module
 import harness_mem.commands.ingest as ingest_module
 import harness_mem.commands.support as support_module
+import harness_mem.mcp.distill_handlers as distill_handlers
 import harness_mem.mcp.tool_handlers as tool_handlers
 from harness_mem.adapters.cursor.adapter import (
     CursorAdapter,
@@ -429,7 +430,7 @@ def test_tool_prepare_session_distill_cursor_resolves_project_from_project_root_
 
     monkeypatch.setattr(support_module, "DEFAULT_DATA_DIR", data_dir)
     monkeypatch.setattr(ingest_module, "DEFAULT_DATA_DIR", data_dir)
-    monkeypatch.setattr(tool_handlers._support, "DEFAULT_DATA_DIR", data_dir)
+    monkeypatch.setattr(distill_handlers, "DEFAULT_DATA_DIR", data_dir)
     monkeypatch.setattr(cursor_adapter_module, "DEFAULT_PROJECTS_DIR", projects_dir)
 
     previous_backend_provider = tool_handlers._backend_provider
@@ -467,4 +468,4 @@ def test_tool_prepare_session_distill_cursor_resolves_project_from_project_root_
     assert payload["source_revision"].startswith("sha256:")
     assert payload["expected_chunk_count"] >= 1
     assert payload["distill_job_id"]
-    assert payload["distill_status"] in {"queued", "processing"}
+    assert payload["distill_status"] in {"queued", "processing", "reviewing"}

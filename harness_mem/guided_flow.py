@@ -17,23 +17,18 @@ EntryKind = Literal["context", "mcp", "slash"]
 def build_guided_flow(
     *,
     phase: str,
-    observation_count: int = 0,
     pending_candidate_count: int = 0,
-    memory_entry_count: int = 0,
     project_name: str | None = None,
     active_project: str | None = None,
 ) -> dict[str, Any]:
     """Return the official recommended operator flow for the current project phase."""
     steps = _steps_for_phase(
         phase=phase,
-        observation_count=observation_count,
         pending_candidate_count=pending_candidate_count,
-        memory_entry_count=memory_entry_count,
         project_name=project_name,
     )
     current_step_id = _current_step_id(
         phase=phase,
-        observation_count=observation_count,
         pending_candidate_count=pending_candidate_count,
         steps=steps,
     )
@@ -53,13 +48,9 @@ def build_guided_flow(
 
 def _flow_why(*, phase: str, current_step_id: str) -> str:
     if phase == "needs-project":
-        return (
-            "No active project is configured; set the active project before ingest or wake."
-        )
+        return "No active project is configured; set the active project before ingest or wake."
     if phase == "needs-distill":
-        return (
-            "Captured sessions are waiting for distill before the next wake."
-        )
+        return "Captured sessions are waiting for distill before the next wake."
     if phase == "awaiting-capture":
         return "No captured evidence exists yet; wake will sync the current workspace."
     if current_step_id == "review_pending":
@@ -68,16 +59,13 @@ def _flow_why(*, phase: str, current_step_id: str) -> str:
             "then continue with wake."
         )
     if current_step_id == "wake":
-        return (
-            "Project memory is ready; start sessions with wake, then search and drill down."
-        )
+        return "Project memory is ready; start sessions with wake, then search and drill down."
     return "Follow the ordered steps for progressive disclosure; generated material is not truth."
 
 
 def _current_step_id(
     *,
     phase: str,
-    observation_count: int,
     pending_candidate_count: int,
     steps: list[dict[str, Any]],
 ) -> str:
@@ -100,12 +88,12 @@ def _current_step_id(
 def _steps_for_phase(
     *,
     phase: str,
-    observation_count: int,
     pending_candidate_count: int,
-    memory_entry_count: int,
     project_name: str | None,
 ) -> list[dict[str, Any]]:
-    project_fragment = f'project_name="{project_name}"' if project_name else "project_name=<project>"
+    project_fragment = (
+        f'project_name="{project_name}"' if project_name else "project_name=<project>"
+    )
     steps: list[dict[str, Any]] = []
 
     if phase == "needs-project":
@@ -225,7 +213,9 @@ def _steps_for_phase(
             entry=f'search_memory({project_fragment}, query="<topic>")',
             entry_kind="mcp",
             required=False,
-            arguments={"project_name": project_name, "query": "<topic>"} if project_name else {},
+            arguments={"project_name": project_name, "query": "<topic>"}
+            if project_name
+            else {},
         )
     )
     order += 1
@@ -236,7 +226,7 @@ def _steps_for_phase(
             order=order,
             title="Drill down to sources",
             description=(
-                "Use drilldown_hints, get_observations, or temporal_query for proof; "
+                "Use drilldown_hints or get_observations for proof; "
                 "do not treat compact generated summaries as confirmed truth."
             ),
             entry="drilldown_hints",
@@ -297,23 +287,3 @@ def _step(
     if badge:
         payload["badge"] = badge
     return payload
-
-
-def guided_flow_drilldown_hint(flow: dict[str, Any]) -> dict[str, Any]:
-    """Single drilldown hint pointing at the current guided-flow step."""
-    current = str(flow.get("current_step_id") or "")
-    steps = flow.get("steps") or []
-    current_step = next(
-        (item for item in steps if isinstance(item, dict) and item.get("step_id") == current),
-        None,
-    )
-    title = str(current_step.get("title") if current_step else current)
-    entry = str(current_step.get("entry") if current_step else "get_project_status")
-    return {
-        "source_id": None,
-        "source_kind": "guided_flow",
-        "read_surface": "mcp.guided_flow",
-        "tool": entry.split("(")[0],
-        "arguments": dict((current_step or {}).get("arguments") or {}),
-        "why": f"Official daily-memory step: {title} ({GUIDED_FLOW_ID} {GUIDED_FLOW_VERSION}).",
-    }

@@ -1,8 +1,9 @@
-"""SQLite-authoritative knowledge, source, undo, and workspace invariants."""
+"""SQLite-authoritative current knowledge, source, and workspace invariants."""
 
 from __future__ import annotations
 
 import asyncio
+from hashlib import sha256
 import sqlite3
 from datetime import datetime, timezone
 
@@ -15,14 +16,19 @@ from harness_mem.autonomous.models import (
 )
 from harness_mem.commands.separated_assimilation import (
     SeparatedPreparedAssimilation,
+    _statement,
     _candidate_required_identifiers,
     _current_truth_handles,
     _validate_candidate_specificity,
     _normalize_split_knowledge_items,
+    apply_separated_assimilation,
+    prepare_separated_assimilation,
     validate_separated_assimilation_decision,
 )
+from harness_mem.mcp.distill_handlers import _candidate_result_error
 from harness_mem.core.schemas import (
     AssimilationDecision,
+    EvidenceRef,
     KnowledgeCandidate,
     KnowledgeEntry,
     KnowledgeEvidence,
@@ -268,7 +274,7 @@ def _candidate(candidate_id: str, *, status: str = "pending") -> KnowledgeCandid
     )
 
 
-def _entry(entry_id: str, statement: str, *, revision: int = 1) -> KnowledgeEntry:
+def _entry(entry_id: str, statement: str) -> KnowledgeEntry:
     return KnowledgeEntry(
         id=entry_id,
         project_name="demo",
@@ -276,7 +282,6 @@ def _entry(entry_id: str, statement: str, *, revision: int = 1) -> KnowledgeEntr
         title="Canonical knowledge",
         statement=statement,
         verified_at=VERIFIED_AT,
-        revision=revision,
     )
 
 
@@ -318,7 +323,7 @@ def _apply(
 ):
     completed = candidate.model_copy(update={"status": "assimilated"})
     return _run(
-        store.apply_truth_mutation(
+        store.apply_current_change(
             candidate_before=candidate,
             candidate_after=completed,
             decision=decision,
@@ -363,7 +368,6 @@ def test_sqlite_is_authority_and_processing_material_is_not_truth(tmp_path) -> N
         assert sources[0].knowledge_id == entry.id
         assert sources[0].project_name == "demo"
         assert sources[0].content_sha256 == "a" * 64
-        assert _run(store.get_mutation(decision.id)) is not None
         assert _run(store.get_candidate(candidate.id)) == candidate
         assert not (data_dir / "knowledge_audit").exists()
         assert not list(tmp_path.rglob("session-knowledge-base.md"))
@@ -378,7 +382,6 @@ def test_sqlite_is_authority_and_processing_material_is_not_truth(tmp_path) -> N
             "title",
             "statement",
             "verified_at",
-            "revision",
             "created_at",
             "updated_at",
         }
@@ -396,12 +399,9 @@ def test_sqlite_is_authority_and_processing_material_is_not_truth(tmp_path) -> N
             }
         finally:
             connection.close()
-        assert {
-            "knowledge_entries",
-            "knowledge_sources",
-            "knowledge_versions",
-            "knowledge_mutations",
-        }.issubset(tables)
+        assert {"knowledge_entries", "knowledge_sources"}.issubset(tables)
+        assert "knowledge_versions" not in tables
+        assert "knowledge_mutations" not in tables
         assert not {
             "knowledge_candidates",
             "knowledge_evidence",
@@ -445,10 +445,117 @@ def test_source_recheck_refreshes_verification_without_rewriting_knowledge(tmp_p
         assert after.statement == before.statement
         assert after.title == before.title
         assert after.module_path == before.module_path
-        assert after.revision == before.revision
         assert after.created_at == before.created_at
         assert after.verified_at == checked_at
         assert sources and all(source.verified_at == checked_at for source in sources)
+    finally:
+        _run(backend.close())
+
+
+def test_atomic_statement_rejects_duplicated_bilingual_condition_prefix() -> None:
+    with pytest.raises(ValueError, match="same condition in two languages"):
+        validate_atomic_knowledge_statement(
+            "When 当判断 Codex Stop Hook 是否可靠时，必须运行真实挑战。"
+        )
+
+
+def test_rule_candidate_statement_does_not_add_an_english_prefix() -> None:
+    assert _statement(
+        {
+            "trigger": "当判断 Codex Stop Hook 是否可靠时",
+            "pattern": "必须运行真实挑战。",
+        },
+        kind="rule",
+    ) == "当判断 Codex Stop Hook 是否可靠时：必须运行真实挑战。"
+
+
+def test_unfinished_assimilation_requires_a_persisted_handoff(tmp_path) -> None:
+    project_file = tmp_path / "policy.md"
+    project_file.write_text("Keep this point for later review.\n", encoding="utf-8")
+    backend = LocalMemoryBackend(tmp_path / "data")
+    _run(backend.init())
+    try:
+        candidate = KnowledgeCandidate(
+            id="candidate-deferred",
+            project_name="demo",
+            candidate_type="memory",
+            statement="Keep this point for later review.",
+        )
+        evidence = KnowledgeEvidence(
+            id="evidence-deferred",
+            project_name="demo",
+            candidate_id=candidate.id,
+            distill_job_id="job-deferred",
+            evidence_basis="repository",
+            verification_outcome="verified",
+            verification_refs=[
+                EvidenceRef(
+                    kind="repository",
+                    locator="policy.md",
+                    content_sha256=sha256(project_file.read_bytes()).hexdigest(),
+                )
+            ],
+        )
+        store = backend.structured_store.knowledge_store
+        _run(store.save_candidate(candidate))
+        _run(store.save_evidence(evidence))
+        prepared = _run(
+            prepare_separated_assimilation(
+                backend,
+                project_name="demo",
+                project_root=str(tmp_path),
+                candidate_ids=[candidate.id],
+            )
+        )
+        decision = ProviderAssimilationDecision.model_validate(
+            {
+                "points": [
+                    {
+                        "candidate_id": candidate.id,
+                        "disposition": "defer",
+                        "matched_truth_handles": [],
+                        "knowledge_items": [],
+                        "reason": "The verified point needs a later product decision.",
+                    }
+                ]
+            }
+        )
+        plan = validate_separated_assimilation_decision(prepared, decision)
+        result = _run(
+            apply_separated_assimilation(
+                backend,
+                project_name="demo",
+                project_root=str(tmp_path),
+                candidate_ids=[candidate.id],
+                plan=plan,
+            )
+        )
+
+        point = result["points"][0]
+        assert point["answer_status"] == "ANSWERED"
+        assert point["disposition"] == "defer"
+        assert point["handoff_id"]
+        assert _candidate_result_error(
+            candidate_ids=[candidate.id],
+            promotion_summary=result,
+        ) is None
+        without_handoff = {**result, "points": [{**point, "handoff_id": None}]}
+        assert _candidate_result_error(
+            candidate_ids=[candidate.id],
+            promotion_summary=without_handoff,
+        ) == "assimilation_unfinished_point_missing_handoff"
+
+        split_result = {
+            **result,
+            "points": [
+                {**point, "disposition": "no_write", "handoff_id": None},
+                {**point, "disposition": "no_write", "handoff_id": None},
+            ],
+        }
+        assert _candidate_result_error(
+            candidate_ids=[candidate.id],
+            promotion_summary=split_result,
+        ) is None
     finally:
         _run(backend.close())
 
@@ -488,7 +595,7 @@ def test_truth_mutation_deduplicates_repeated_source_refs(tmp_path) -> None:
         _run(store.save_candidate(candidate))
 
         result = _run(
-            store.apply_truth_mutation(
+            store.apply_current_change(
                 candidate_before=candidate,
                 candidate_after=candidate.model_copy(update={"status": "assimilated"}),
                 decision=decision,
@@ -506,13 +613,13 @@ def test_truth_mutation_deduplicates_repeated_source_refs(tmp_path) -> None:
         _run(backend.close())
 
 
-def test_refine_and_undo_use_bounded_versions(tmp_path) -> None:
+def test_refine_deletes_predecessor_and_its_sources_without_history(tmp_path) -> None:
     backend = LocalMemoryBackend(tmp_path / "data")
     _run(backend.init())
     try:
         store = backend.structured_store.knowledge_store
         seed_candidate = _candidate("seed-candidate")
-        old = _entry("knowledge-old", "Old current statement.", revision=1)
+        old = _entry("knowledge-old", "Old current statement.")
         _run(store.save_candidate(seed_candidate))
         _apply(
             store,
@@ -539,27 +646,52 @@ def test_refine_and_undo_use_bounded_versions(tmp_path) -> None:
             predecessors=[old],
         )
 
-        mutation = _run(store.get_mutation(refine.id))
-        assert mutation is not None
-        assert len(mutation.predecessor_version_ids) == 1
-        version = _run(store.get_version(mutation.predecessor_version_ids[0]))
-        assert version is not None
-        assert version.knowledge_id == old.id
-        assert version.sources
         assert _run(store.list_entries("demo")) == [replacement]
+        assert _run(store.get_entry(old.id, project_name="demo")) is None
+        assert _run(store.list_sources(old.id)) == []
+    finally:
+        _run(backend.close())
 
-        undo = _run(
-            store.undo_truth_mutation(
-                mutation_id=refine.id,
-                reversal_id="undo-refine-mutation",
-            )
+
+def test_replace_removes_multiple_predecessors_and_writes_multiple_successors(tmp_path) -> None:
+    backend = LocalMemoryBackend(tmp_path / "data")
+    _run(backend.init())
+    try:
+        store = backend.structured_store.knowledge_store
+        seed = _candidate("multi-seed")
+        old_one = _entry("multi-old-one", "The first duplicate current rule.")
+        old_two = _entry("multi-old-two", "The second duplicate current rule.")
+        _run(store.save_candidate(seed))
+        _apply(
+            store,
+            candidate=seed,
+            decision=_decision("multi-seed-mutation", seed.id, "add", [old_one, old_two]),
+            added=[old_one, old_two],
         )
-        restored = _run(store.list_entries("demo"))
-        assert undo["restored_knowledge_ids"] == [old.id]
-        assert [entry.id for entry in restored] == [old.id]
-        assert restored[0].statement == old.statement
-        assert restored[0].revision == 2
-        assert _run(store.list_sources(old.id))
+
+        replacement_candidate = _candidate("multi-replace")
+        new_one = _entry("multi-new-one", "The merged current rule is explicit.")
+        new_two = _entry("multi-new-two", "The merged current rule is searchable.")
+        _run(store.save_candidate(replacement_candidate))
+        _apply(
+            store,
+            candidate=replacement_candidate,
+            decision=_decision(
+                "multi-replace-mutation",
+                replacement_candidate.id,
+                "replace",
+                [new_one, new_two],
+                [old_one, old_two],
+            ),
+            added=[new_one, new_two],
+            predecessors=[old_one, old_two],
+        )
+
+        assert _run(store.list_entries("demo")) == [new_one, new_two]
+        assert _run(store.get_entry(old_one.id, project_name="demo")) is None
+        assert _run(store.get_entry(old_two.id, project_name="demo")) is None
+        assert _run(store.list_sources(old_one.id)) == []
+        assert _run(store.list_sources(old_two.id)) == []
     finally:
         _run(backend.close())
 
@@ -593,7 +725,6 @@ def test_precondition_failure_leaves_current_truth_unchanged(tmp_path) -> None:
                 predecessors=[stale],
             )
         assert _run(store.list_entries("demo")) == [current]
-        assert _run(store.get_mutation(decision.id)) is None
     finally:
         _run(backend.close())
 
@@ -647,7 +778,7 @@ def test_current_knowledge_schema_rejects_processing_fields() -> None:
             KnowledgeEntry.model_validate({**entry.to_dict(), field: value})
 
 
-def test_supersede_can_split_one_broad_truth_into_atomic_successors() -> None:
+def test_replace_can_split_one_broad_truth_into_atomic_successors() -> None:
     prepared = SeparatedPreparedAssimilation(
         project_name="demo",
         project_root="demo",
@@ -663,7 +794,7 @@ def test_supersede_can_split_one_broad_truth_into_atomic_successors() -> None:
             "points": [
                 {
                     "candidate_id": "candidate-1",
-                    "disposition": "supersede",
+                    "disposition": "replace",
                     "matched_truth_handles": ["truth-1"],
                     "canonical_title": None,
                     "canonical_statement": None,
@@ -695,6 +826,72 @@ def test_supersede_can_split_one_broad_truth_into_atomic_successors() -> None:
         "Transactional publication",
         "Final API validation",
     ]
+
+
+def test_replace_can_merge_multiple_current_truths_in_one_decision() -> None:
+    prepared = SeparatedPreparedAssimilation(
+        project_name="demo",
+        project_root="demo",
+        candidate_ids=("candidate-1",),
+        eligible_candidate_ids=("candidate-1",),
+        automatic_points=(),
+        answer_status_by_candidate={"candidate-1": "ANSWERED"},
+        truth_by_handle={"truth-1": "old-one", "truth-2": "old-two"},
+        manifest={},
+    )
+    decision = ProviderAssimilationDecision.model_validate(
+        {
+            "points": [
+                {
+                    "candidate_id": "candidate-1",
+                    "disposition": "replace",
+                    "matched_truth_handles": ["truth-1", "truth-2"],
+                    "knowledge_items": [
+                        {
+                            "title": "Merged current rule",
+                            "statement": "Keep the two duplicate rules as one current rule.",
+                            "topic_path": ["governance"],
+                            "claim_kind": "procedure",
+                        }
+                    ],
+                    "reason": "The two current entries express the same verified rule.",
+                }
+            ]
+        }
+    )
+
+    plan = validate_separated_assimilation_decision(prepared, decision)
+
+    assert plan["points"][0]["matched_truth_ids"] == ["old-one", "old-two"]
+
+
+def test_current_knowledge_content_has_no_old_length_caps() -> None:
+    title = "T" * 161
+    statement = "A durable current rule " + ("remains searchable " * 300)
+    decision = ProviderAssimilationDecision.model_validate(
+        {
+            "points": [
+                {
+                    "candidate_id": "candidate-1",
+                    "disposition": "add",
+                    "matched_truth_handles": [],
+                    "knowledge_items": [
+                        {
+                            "title": title,
+                            "statement": statement,
+                            "topic_path": ["governance"],
+                            "claim_kind": "procedure",
+                        }
+                    ],
+                    "reason": "The verified rule remains useful as current knowledge.",
+                }
+            ]
+        }
+    )
+
+    item = decision.points[0].knowledge_items[0]
+    assert len(item.title) == 161
+    assert len(item.statement) > 4000
 
 
 def test_current_truth_selection_keeps_relevant_cjk_entries_over_cap(
@@ -758,7 +955,7 @@ def test_current_truth_selection_keeps_relevant_cjk_entries_over_cap(
             )
         )
 
-        assert len(handles) == 12
+        assert len(handles) == 15
         projected_ids = set(handles.values())
         assert {entry.id for entry in relevant} <= projected_ids
         assert [item["title"] for item in projection[:3]] == [

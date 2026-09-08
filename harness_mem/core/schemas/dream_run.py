@@ -9,13 +9,12 @@ from uuid import uuid4
 from pydantic import BaseModel, Field, field_validator
 
 
-DreamFinalAction = Literal["applied", "rejected", "archived", "failed"]
+DreamFinalAction = Literal["applied", "rejected", "skipped", "failed"]
 DreamProposedAction = Literal[
     "merge",
-    "mark_stale",
-    "supersede",
+    "delete",
+    "replace",
     "reject_uncertain",
-    "archive_unclassifiable",
 ]
 DreamRisk = Literal["low", "medium", "high"]
 DreamStatus = Literal["processing", "completed", "failed"]
@@ -24,9 +23,8 @@ DreamStatus = Literal["processing", "completed", "failed"]
 class DreamItem(BaseModel):
     """One parsed and handled item inside a DreamRun.
 
-    Every Dream item reaches a terminal result in the same run. Manual Review
-    remains available for audit and undo, but Dream does not create an
-    automatic pending-review queue.
+    Every Dream item reaches a terminal result in the same run. Dream does not
+    create a second pending-review queue or retain old knowledge for undo.
     """
 
     id: str = Field(default_factory=lambda: str(uuid4()))
@@ -37,7 +35,6 @@ class DreamItem(BaseModel):
     proposed_action: DreamProposedAction
     final_action: DreamFinalAction
     reason: str
-    undo: dict[str, Any] = Field(default_factory=dict)
     result: dict[str, Any] = Field(default_factory=dict)
     error: str | None = None
 
@@ -61,7 +58,6 @@ class DreamItem(BaseModel):
             "proposed_action": self.proposed_action,
             "final_action": self.final_action,
             "reason": self.reason,
-            "undo": self.undo,
             "result": self.result,
             "error": self.error,
         }
@@ -71,21 +67,26 @@ class DreamItem(BaseModel):
         data = dict(data)
         if "evidence_ids" not in data or data["evidence_ids"] is None:
             data["evidence_ids"] = []
-        if "undo" not in data or data["undo"] is None:
-            data["undo"] = {}
+        data.pop("undo", None)
         if "result" not in data or data["result"] is None:
             data["result"] = {}
         if "error" not in data:
             data["error"] = None
-        # Historical ledgers remain readable after the intermediate state was
-        # removed. They are projected as closed audit records, not re-opened.
-        if data.get("final_action") == "pending_review":
-            data["final_action"] = "archived"
+        # Historical ledgers remain readable after the old pending/archive
+        # wording was removed. Both mean the item changed no current memory.
+        if data.get("final_action") in {"pending_review", "archived"}:
+            data["final_action"] = "skipped"
+        if data.get("proposed_action") == "archive_unclassifiable":
+            data["proposed_action"] = "reject_uncertain"
+        if data.get("proposed_action") == "mark_stale":
+            data["proposed_action"] = "delete"
+        if data.get("proposed_action") == "supersede":
+            data["proposed_action"] = "replace"
         return cls(**data)
 
 
 class DreamRun(BaseModel):
-    """Append-only ledger record for one auto dream maintenance run."""
+    """Bounded processing status for one automatic Dream run."""
 
     id: str = Field(default_factory=lambda: str(uuid4()))
     project_name: str
@@ -95,15 +96,13 @@ class DreamRun(BaseModel):
     trigger_source: Literal["user", "agent", "ide_hook", "scheduler"] = "agent"
     reflection_job_id: str | None = None
     policy_version: str = "v3.1"
-    input_window: dict[str, Any] = Field(default_factory=dict)
-    selected_signal_ids: list[str] = Field(default_factory=list)
     items: list[DreamItem] = Field(default_factory=list)
     handling_summary: dict[str, int] = Field(
         default_factory=lambda: {
             "processed": 0,
             "applied": 0,
             "rejected": 0,
-            "archived": 0,
+            "skipped": 0,
             "failed": 0,
         }
     )
@@ -125,8 +124,6 @@ class DreamRun(BaseModel):
             "trigger_source": self.trigger_source,
             "reflection_job_id": self.reflection_job_id,
             "policy_version": self.policy_version,
-            "input_window": self.input_window,
-            "selected_signal_ids": list(self.selected_signal_ids),
             "items": [item.to_dict() for item in self.items],
             "handling_summary": dict(self.handling_summary),
             "duration_ms": self.duration_ms,
@@ -148,8 +145,8 @@ class DreamRun(BaseModel):
         ]
         if "handling_summary" not in data or data["handling_summary"] is None:
             data["handling_summary"] = {}
-        if "selected_signal_ids" not in data or data["selected_signal_ids"] is None:
-            data["selected_signal_ids"] = []
+        data.pop("input_window", None)
+        data.pop("selected_signal_ids", None)
         if "notes" not in data:
             data["notes"] = None
         if "reflection_job_id" not in data:
@@ -165,13 +162,13 @@ def _summary_for_items(
         "processed": len(items),
         "applied": 0,
         "rejected": 0,
-        "archived": 0,
+        "skipped": 0,
         "failed": 0,
     }
     for item in items:
         summary[item.final_action] += 1
     if existing:
         for key, value in existing.items():
-            if key not in summary and key != "pending_review":
+            if key not in summary and key not in {"pending_review", "archived"}:
                 summary[key] = int(value)
     return summary

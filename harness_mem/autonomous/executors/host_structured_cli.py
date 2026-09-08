@@ -273,18 +273,20 @@ def _coerce_json_text(raw: str) -> str:
         json.loads(payload)
         return payload
     except json.JSONDecodeError:
-        start = payload.find("{")
-        end = payload.rfind("}")
-        if start >= 0 and end > start:
-            candidate = payload[start : end + 1]
+        # Some host CLIs append a short status line or emit more than one
+        # JSON envelope.  Recover the first complete object instead of taking
+        # everything between the first and last brace (which makes otherwise
+        # valid output fail when a trailing line contains another brace).
+        decoder = json.JSONDecoder()
+        for index, character in enumerate(payload):
+            if character not in "[{":
+                continue
             try:
-                json.loads(candidate)
-                return candidate
-            except json.JSONDecodeError as exc:
-                raise ProviderError(
-                    f"host CLI returned non-JSON output: {payload[:500]}",
-                    kind="unrecoverable",
-                ) from exc
+                value, end = decoder.raw_decode(payload[index:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, (dict, list)):
+                return payload[index : index + end]
         raise ProviderError(
             f"host CLI returned non-JSON output: {payload[:500]}",
             kind="unrecoverable",
@@ -366,18 +368,29 @@ def _hermes_output_contract(decision_model: Any) -> str:
         "Finish this small task immediately. Return no prose outside one compact JSON "
         "object. Keep each natural-language string to one short sentence. Do not put "
         "the ASCII double quote character inside natural-language string values; "
-        "paraphrase instead. "
+        "paraphrase instead. Every object key and every string value must use ASCII "
+        "double quotes so the result is valid JSON.parse input; never use unquoted "
+        "keys, single quotes, or JavaScript object syntax. "
     )
     if decision_model is AgentExtractionDecision:
         return common + (
             'Use this shape: {"review":{"summary":"...","final_request":"...",'
             '"actual_result":"...","contradictions":[],"unfinished":[],'
             '"no_candidate_reason":null,"not_durable_signals":[]},"points":'
-            '[{"kind":"memory","statement":"...","evidence_basis":"user_statement",'
-            '"exchange_indexes":[1]}]}. Allowed kinds are memory, rule, relation. A rule adds '
-            "condition. A relation adds source_entity, target_entity, relation_type. Repository "
-            "evidence uses repository_locator and repository_sha256. With zero points, replace "
-            "no_candidate_reason with an explanation."
+            '[{"kind":"memory","statement":"...","condition":null,'
+            '"evidence_basis":"user_statement","exchange_indexes":[1]}]}. Allowed '
+            'kinds are memory, rule, relation. Use kind=memory unless you can provide '
+            'a non-empty condition. Never output kind=rule without condition. '
+            'A rule MUST include a non-empty condition field, for example '
+            '{"kind":"rule","statement":"Do X","condition":"When Y",'
+            '"evidence_basis":"user_statement","exchange_indexes":[1]}. A relation adds '
+            "source_entity, target_entity, relation_type. Repository evidence uses "
+            "repository_locator and repository_sha256. With zero points, replace "
+            "no_candidate_reason with an explanation. The only allowed "
+            "not_durable_signals are exactly: user_correction, explicit_decision, "
+            "successful_solution, repeated_failure, rule_or_preference, "
+            "reusable_workflow_or_fact, version_or_migration, unfinished_handoff. "
+            "Do not invent labels such as version_release or deletion."
         )
     if decision_model is CandidateVerificationDecision:
         return common + (

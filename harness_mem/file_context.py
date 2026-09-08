@@ -11,31 +11,23 @@ from pathlib import Path
 import re
 
 from harness_mem.commands.support import chars_to_tokens, disclosure_level, resolve_project_name
-from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
 from harness_mem.core.schemas.context_assembly_plan import DrilldownPointer
 from harness_mem.core.schemas.file_context import (
     CodeEvidence,
-    CodeEvidenceLineRangeStatus,
-    CodeEvidenceStaleStatus,
     CodeSymbol,
     CostHint,
     FileFingerprint,
     FileContextItem,
     FileContextResult,
-    FileContextTruthStatus,
     StaleFileSignal,
 )
-from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.project_profile import ProjectProfile
-from harness_mem.core.schemas.skill import Skill
 from harness_mem.core.schemas.task_handoff import TaskHandoff
-from harness_mem.read_api import regex_search_observations, search_memory, search_skills
+from harness_mem.read_api import regex_search_observations
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 
 _MAX_OBSERVATION_MATCHES = 25
-_MAX_MEMORY_ENTRY_MATCHES = 50
-_MAX_SKILL_MATCHES = 20
 _MAX_HANDOFF_MATCHES = 50
 _MAX_CODE_SYMBOLS = 20
 _PATH_SEPARATOR = "/"
@@ -76,17 +68,6 @@ class _CodeContext:
     symbols: tuple[CodeSymbol, ...] = ()
     evidence: tuple[CodeEvidence, ...] = ()
     items: tuple[FileContextItem, ...] = ()
-    line_count: int = 0
-
-
-@dataclass(frozen=True)
-class _EntryCodeReference:
-    source_id: str
-    path: str
-    fingerprint: str | None = None
-    line_range: tuple[int, int] | None = None
-    symbol: str | None = None
-    kind: str = "memory_reference"
 
 
 async def build_file_context(
@@ -131,25 +112,12 @@ async def build_file_context(
         query.normalized,
         project_root=project_root,
     )
-
     collected = _CollectedContext()
     collected.items.extend(code_context.items)
     collected.extend(_collect_profile_key_file_matches(profile, query))
-    collected.extend(await _collect_confirmed_rule_matches(backend, resolved_project, query))
-    collected.extend(
-        await _collect_memory_entry_matches(
-            backend,
-            resolved_project,
-            query,
-            current_fingerprint=(
-                code_context.fingerprint.sha256 if code_context.fingerprint else None
-            ),
-            current_line_count=code_context.line_count,
-        )
-    )
+    collected.extend(await _collect_knowledge_matches(backend, resolved_project, query))
     collected.extend(await _collect_recent_handoff_matches(backend, resolved_project, query))
     collected.extend(await _collect_observation_matches(backend, resolved_project, query))
-    collected.extend(await _collect_skill_hints(backend, resolved_project, query))
 
     return FileContextResult(
         project_name=resolved_project,
@@ -251,7 +219,6 @@ def _collect_code_context(
         return _CodeContext()
 
     digest = hashlib.sha256(data).hexdigest()
-    line_count = _line_count(data)
     source_id = _code_file_source_id(normalized_path, digest)
     fingerprint = FileFingerprint(
         source_id=source_id,
@@ -312,7 +279,6 @@ def _collect_code_context(
         symbols=tuple(symbols),
         evidence=tuple(evidence),
         items=tuple(items),
-        line_count=line_count,
     )
 
 
@@ -345,12 +311,6 @@ def _resolve_existing_file(
         if resolved.is_file():
             return resolved
     return None
-
-
-def _line_count(data: bytes) -> int:
-    if not data:
-        return 0
-    return len(data.splitlines())
 
 
 def _decode_text(data: bytes) -> str:
@@ -493,113 +453,42 @@ async def _collect_observation_matches(
     return _CollectedContext(items=items, recent_edit_timestamps=timestamps)
 
 
-async def _collect_memory_entry_matches(
+async def _collect_knowledge_matches(
     backend: LocalMemoryBackend,
     project_name: str,
     query: _PathQuery,
-    *,
-    current_fingerprint: str | None,
-    current_line_count: int,
 ) -> _CollectedContext:
-    lookup_query = query.basename or query.normalized
-    entries, _observations = await search_memory(
-        backend,
-        project_name=project_name,
-        query=lookup_query,
-        include_history=True,
-        memory_entry_limit=_MAX_MEMORY_ENTRY_MATCHES,
-        observation_limit=0,
-        record_signals=False,
-    )
+    entries = await backend.structured_store.knowledge_store.list_entries(project_name)
     items: list[FileContextItem] = []
-    code_evidence: list[CodeEvidence] = []
     timestamps: list[datetime] = []
     seen_ids: set[str] = set()
-    stale_code_reference = False
     for entry in entries:
-        if not entry.id or entry.id in seen_ids or not _text_matches(entry.content, query):
+        haystack = " ".join([entry.title, entry.statement, *entry.module_path])
+        if not entry.id or entry.id in seen_ids or not _text_matches(haystack, query):
             continue
         seen_ids.add(entry.id)
-        truth_status: FileContextTruthStatus = (
-            "historical" if entry.valid_to is not None else "confirmed_current"
-        )
-        if truth_status == "confirmed_current":
-            timestamps.append(entry.recorded_at or entry.created_at)
-        reference_checks = _entry_code_evidence_checks(
-            entry,
-            query=query,
-            current_fingerprint=current_fingerprint,
-            current_line_count=current_line_count,
-        )
-        code_evidence.extend(reference_checks)
-        if any(check.stale_status != "current" for check in reference_checks):
-            stale_code_reference = True
-        has_fingerprint_mismatch = any(
-            check.stale_status == "stale" for check in reference_checks
-        )
+        timestamps.append(entry.updated_at)
         items.append(
             FileContextItem(
-                kind="memory_entry",
+                kind="knowledge_entry",
                 source_ids=[entry.id],
-                why_included=(
-                    "path_association:memory_entry:fingerprint_mismatch"
-                    if has_fingerprint_mismatch
-                    else "path_association:memory_entry"
-                ),
-                summary=_truncate_summary(entry.content),
-                truth_status=truth_status,
+                why_included="path_association:current_knowledge",
+                summary=_truncate_summary(entry.statement),
+                truth_status="confirmed_current",
                 drilldown=DrilldownPointer(
                     source_id=entry.id,
-                    read_surface="read_api.get_memory_entry",
-                    locator={"project_name": project_name},
+                    read_surface="mcp.search_memory",
+                    locator={
+                        "project_name": project_name,
+                        "query": query.basename or query.normalized,
+                    },
                 ),
             )
         )
     return _CollectedContext(
         items=items,
-        code_evidence=code_evidence,
-        stale_code_reference=stale_code_reference,
         current_truth_timestamps=timestamps,
     )
-
-
-async def _collect_confirmed_rule_matches(
-    backend: LocalMemoryBackend,
-    project_name: str,
-    query: _PathQuery,
-) -> _CollectedContext:
-    rules: list[ConfirmedRule] = await backend.structured_store.list_confirmed_rules(
-        project_name,
-        include_history=True,
-    )
-    items: list[FileContextItem] = []
-    timestamps: list[datetime] = []
-    for rule in rules:
-        if not rule.id:
-            continue
-        haystack = " ".join([rule.pattern, rule.trigger, *rule.examples])
-        if not _text_matches(haystack, query):
-            continue
-        truth_status: FileContextTruthStatus = (
-            "historical" if rule.valid_to is not None else "confirmed_current"
-        )
-        if truth_status == "confirmed_current":
-            timestamps.append(rule.recorded_at or rule.confirmed_at)
-        items.append(
-            FileContextItem(
-                kind="confirmed_rule",
-                source_ids=[rule.id],
-                why_included="path_association:confirmed_rule",
-                summary=_truncate_summary(rule.pattern),
-                truth_status=truth_status,
-                drilldown=DrilldownPointer(
-                    source_id=rule.id,
-                    read_surface="mcp.get_confirmed_rules",
-                    locator={"project_name": project_name},
-                ),
-            )
-        )
-    return _CollectedContext(items=items, current_truth_timestamps=timestamps)
 
 
 async def _collect_recent_handoff_matches(
@@ -642,40 +531,6 @@ async def _collect_recent_handoff_matches(
             )
         )
     return _CollectedContext(items=items, recent_edit_timestamps=timestamps)
-
-
-async def _collect_skill_hints(
-    backend: LocalMemoryBackend,
-    project_name: str,
-    query: _PathQuery,
-) -> _CollectedContext:
-    lookup_query = query.basename or query.normalized
-    skills: list[Skill] = await search_skills(
-        backend,
-        project_name=project_name,
-        query=lookup_query,
-        limit=_MAX_SKILL_MATCHES,
-    )
-    items: list[FileContextItem] = []
-    seen_ids: set[str] = set()
-    for skill in skills:
-        if not skill.id or skill.id in seen_ids:
-            continue
-        if not _text_matches(f"{skill.name} {skill.activation_condition}", query):
-            continue
-        seen_ids.add(skill.id)
-        items.append(
-            FileContextItem(
-                kind="skill_hint",
-                source_ids=[skill.id],
-                why_included="path_association:skill_hint",
-                summary=_truncate_summary(
-                    f"skill {skill.id}: {skill.name} | when: {skill.activation_condition}"
-                ),
-                truth_status="reference",
-            )
-        )
-    return _CollectedContext(items=items)
 
 
 def _compute_cost_hint(items: list[FileContextItem]) -> CostHint:
@@ -732,161 +587,4 @@ def _compute_stale_signal(
         reason="no staleness detected",
     )
 
-
-def _entry_code_evidence_checks(
-    entry: MemoryEntry,
-    *,
-    query: _PathQuery,
-    current_fingerprint: str | None,
-    current_line_count: int,
-) -> list[CodeEvidence]:
-    references = _entry_code_references(entry, query=query)
-    return [
-        _check_code_reference(
-            reference,
-            current_fingerprint=current_fingerprint,
-            current_line_count=current_line_count,
-        )
-        for reference in references
-    ]
-
-
-def _entry_code_references(
-    entry: MemoryEntry,
-    *,
-    query: _PathQuery,
-) -> list[_EntryCodeReference]:
-    provenance = getattr(entry, "provenance", None)
-    references: list[_EntryCodeReference] = []
-    if isinstance(provenance, dict):
-        raw_evidence = provenance.get("code_evidence")
-        if isinstance(raw_evidence, dict):
-            raw_evidence = [raw_evidence]
-        if isinstance(raw_evidence, list):
-            for index, item in enumerate(raw_evidence):
-                if not isinstance(item, dict):
-                    continue
-                reference = _reference_from_mapping(
-                    item,
-                    default_source_id=f"{entry.id}:code_evidence:{index}",
-                    default_path=query.normalized,
-                )
-                if _reference_matches_query(reference, query):
-                    references.append(reference)
-        shortcut = _reference_from_mapping(
-            provenance,
-            default_source_id=f"{entry.id}:code_evidence",
-            default_path=query.normalized,
-        )
-        if shortcut.fingerprint or shortcut.line_range:
-            if _reference_matches_query(shortcut, query):
-                references.append(shortcut)
-
-    deduped: dict[tuple[str, str, str | None, tuple[int, int] | None], _EntryCodeReference] = {}
-    for reference in references:
-        deduped[
-            (
-                reference.source_id,
-                reference.path,
-                reference.fingerprint,
-                reference.line_range,
-            )
-        ] = reference
-    return list(deduped.values())
-
-
-def _reference_from_mapping(
-    data: dict,
-    *,
-    default_source_id: str,
-    default_path: str,
-) -> _EntryCodeReference:
-    source_id = str(data.get("source_id") or data.get("id") or default_source_id)
-    raw_path = data.get("path") or data.get("file_path") or default_path
-    fingerprint = data.get("fingerprint") or data.get("file_fingerprint") or data.get("sha256")
-    line_range = _parse_line_range(data.get("line_range") or data.get("lines"))
-    return _EntryCodeReference(
-        source_id=source_id,
-        path=_normalize_path(str(raw_path)),
-        fingerprint=str(fingerprint) if fingerprint else None,
-        line_range=line_range,
-        symbol=str(data.get("symbol")) if data.get("symbol") else None,
-        kind=str(data.get("kind") or "memory_reference"),
-    )
-
-
-def _parse_line_range(value: object) -> tuple[int, int] | None:
-    if isinstance(value, (list, tuple)) and len(value) == 2:
-        try:
-            start = int(value[0])
-            end = int(value[1])
-        except (TypeError, ValueError):
-            return None
-        if start >= 1 and end >= start:
-            return (start, end)
-    if isinstance(value, str) and "-" in value:
-        left, right = value.split("-", 1)
-        try:
-            start = int(left)
-            end = int(right)
-        except ValueError:
-            return None
-        if start >= 1 and end >= start:
-            return (start, end)
-    return None
-
-
-def _reference_matches_query(reference: _EntryCodeReference, query: _PathQuery) -> bool:
-    if not reference.path:
-        return True
-    return _same_path(reference.path.lower(), query.normalized.lower())
-
-
-def _check_code_reference(
-    reference: _EntryCodeReference,
-    *,
-    current_fingerprint: str | None,
-    current_line_count: int,
-) -> CodeEvidence:
-    line_range_status = _line_range_status(reference.line_range, current_line_count)
-    status: CodeEvidenceStaleStatus = "current"
-    reasons: list[str] = []
-    if current_fingerprint is None:
-        status = "missing_current_file"
-        reasons.append("current file is unavailable")
-    if not reference.fingerprint:
-        status = "missing_reference"
-        reasons.append("referenced fingerprint is missing")
-    elif current_fingerprint and reference.fingerprint != current_fingerprint:
-        status = "stale"
-        reasons.append("referenced fingerprint differs from current file")
-    if line_range_status in {"missing", "out_of_bounds"}:
-        if status == "current":
-            status = "missing_reference" if line_range_status == "missing" else "stale"
-        reasons.append(f"line range is {line_range_status}")
-    return CodeEvidence(
-        source_id=reference.source_id,
-        path=reference.path,
-        fingerprint=reference.fingerprint,
-        line_range=reference.line_range,
-        symbol=reference.symbol,
-        kind=reference.kind,
-        stale_status=status,
-        stale_reason="; ".join(reasons),
-        referenced_fingerprint=reference.fingerprint,
-        current_fingerprint=current_fingerprint,
-        line_range_status=line_range_status,
-    )
-
-
-def _line_range_status(
-    line_range: tuple[int, int] | None,
-    current_line_count: int,
-) -> CodeEvidenceLineRangeStatus:
-    if line_range is None:
-        return "missing"
-    if current_line_count <= 0:
-        return "not_applicable"
-    if line_range[0] < 1 or line_range[1] > current_line_count:
-        return "out_of_bounds"
-    return "valid"
+    # Keep this module's final line non-empty for diff whitespace checks.

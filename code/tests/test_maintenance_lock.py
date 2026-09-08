@@ -51,3 +51,41 @@ def test_exclusive_maintenance_run_recovers_dead_owner(tmp_path) -> None:
         payload = json.loads(path.read_text(encoding="utf-8"))
         assert payload["run_id"] == "recovered-run"
         assert payload["started_at"]
+
+
+def test_completed_maintenance_suppresses_only_its_owner_session(tmp_path) -> None:
+    with exclusive_maintenance_run(
+        tmp_path,
+        run_id="run-owner",
+        operation="archive-distill",
+        owner_session_ids=["maintenance-session"],
+        post_run_suppression_seconds=300,
+    ):
+        assert maintenance_is_locked(tmp_path, trigger_id="other-session")
+
+    assert maintenance_is_locked(
+        tmp_path,
+        trigger_id="maintenance-session",
+    )
+    assert not maintenance_is_locked(tmp_path, trigger_id="other-session")
+    assert not maintenance_is_locked(tmp_path)
+
+
+def test_new_maintenance_run_can_replace_post_run_suppression(tmp_path) -> None:
+    with exclusive_maintenance_run(
+        tmp_path,
+        run_id="run-a",
+        operation="archive-distill",
+        owner_session_ids=["session-a"],
+    ):
+        pass
+
+    with exclusive_maintenance_run(
+        tmp_path,
+        run_id="run-b",
+        operation="archive-distill",
+        owner_session_ids=[],
+    ):
+        assert maintenance_is_locked(tmp_path)
+
+    assert not maintenance_is_locked(tmp_path, trigger_id="session-a")

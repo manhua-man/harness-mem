@@ -8,9 +8,12 @@ from datetime import datetime, timezone
 import pytest
 
 import harness_mem.commands.integration_cmds as integration_cmds
+from harness_mem.commands import token_estimator
 from harness_mem.config.merge import MergedConfig
 import harness_mem.commands.support as support_module
-import harness_mem.mcp.tool_handlers as tool_handlers
+import harness_mem.mcp.read_wake_handlers as read_wake_handlers
+import harness_mem.mcp.status_handlers as status_handlers
+from harness_mem.core.schemas import KnowledgeCandidate
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.guided_flow import build_guided_flow
@@ -42,18 +45,15 @@ SKILL_GOVERNANCE_TOOLS = {
 
 EXPECTED_PUBLIC_MCP_TOOLS = {
     "autopilot_search_tick",
-    "auto_review_candidates",
     "dream_auto_tick",
     "dream_ledger",
     "dream_run",
     "file_context",
     "finalize_session_distill",
     "get_candidate_detail",
-    "get_confirmed_rules",
     "get_observations",
     "get_project_profile",
     "get_project_status",
-    "get_skill",
     "get_task_handoffs",
     "govern_memory",
     "list_candidates",
@@ -61,37 +61,29 @@ EXPECTED_PUBLIC_MCP_TOOLS = {
     "record_context_outcome",
     "search_memory",
     "search_raw",
-    "search_skills",
     "submit_distill_chunk",
-    "temporal_query",
     "timeline",
-    "trace_relations",
-    "undo_dream_item",
     "wake",
 }
 
 
 @pytest.mark.parametrize(
-    ("phase", "observation_count", "pending_candidate_count", "memory_entry_count"),
+    ("phase", "pending_candidate_count"),
     [
-        ("needs-project", 0, 0, 0),
-        ("awaiting-capture", 0, 0, 0),
-        ("needs-distill", 1, 0, 0),
-        ("ready", 1, 0, 1),
-        ("ready", 1, 1, 1),
+        ("needs-project", 0),
+        ("awaiting-capture", 0),
+        ("needs-distill", 0),
+        ("ready", 0),
+        ("ready", 1),
     ],
 )
 def test_guided_flow_mcp_entries_are_public_tools(
     phase: str,
-    observation_count: int,
     pending_candidate_count: int,
-    memory_entry_count: int,
 ) -> None:
     flow = build_guided_flow(
         phase=phase,
-        observation_count=observation_count,
         pending_candidate_count=pending_candidate_count,
-        memory_entry_count=memory_entry_count,
         project_name="demo",
     )
 
@@ -217,17 +209,15 @@ def test_get_project_status_bootstraps_router_workspace_and_codex_hooks(
 
     assert response is not None
     payload = _tool_result(response)
-    assert payload["success"] is True
-    assert payload["project_name"] == "codex-workspace"
-    assert payload["integration_bootstrap"] == {
-        "attempted": True,
-        "host_client": "codex",
-        "hooks_status": "installed",
+    assert payload == {
+        "success": True,
+        "project_name": "codex-workspace",
+        "message": (
+            "Memory is ready. Review the new project Hooks in Codex Settings, "
+            "then start a new task."
+        ),
     }
-    assert payload["integration_health"]["host"]["client"] == "codex"
-    assert payload["integration_health"]["hooks"]["status"] == "review_required"
-    assert payload["integration_health"]["hooks"]["wake_verified"] is False
-    assert "Settings > Hooks" in payload["integration_health"]["hooks"]["action_required"]
+    assert token_estimator.count_tokens(json.dumps(payload)) < 50
     hook_path = workspace / ".codex" / "hooks.json"
     hook_config = json.loads(hook_path.read_text(encoding="utf-8"))
     wake_command = hook_config["hooks"]["SessionStart"][0]["hooks"][0]["command"]
@@ -251,7 +241,11 @@ def test_get_project_status_bootstraps_router_workspace_and_codex_hooks(
         }
     )
     assert second_response is not None
-    assert _tool_result(second_response)["integration_bootstrap"]["hooks_status"] == "existing"
+    assert _tool_result(second_response) == {
+        "success": True,
+        "project_name": "codex-workspace",
+        "message": "Memory is ready.",
+    }
 
     profile = asyncio.run(LocalProjectProfileStore(backend.data_dir).get("codex-workspace"))
     assert profile is not None
@@ -272,7 +266,7 @@ def test_get_project_status_dispatches_bootstrap_for_every_supported_host(
 
     monkeypatch.setattr(support_module, "DEFAULT_DATA_DIR", backend.data_dir)
     monkeypatch.setattr(
-        tool_handlers,
+        status_handlers,
         "cmd_install_hook_suite",
         lambda client, root, force: installs.append((client, root, force)) or 0,
     )
@@ -294,10 +288,129 @@ def test_get_project_status_dispatches_bootstrap_for_every_supported_host(
 
     assert response is not None
     payload = _tool_result(response)
-    assert payload["success"] is True
-    assert payload["integration_bootstrap"]["attempted"] is True
-    assert payload["integration_bootstrap"]["host_client"] == host_client
+    assert payload == {
+        "success": True,
+        "project_name": f"{host_client}-workspace",
+        "message": "Memory is ready.",
+    }
     assert installs == [(host_client, str(workspace.resolve()), False)]
+
+
+def test_get_project_status_has_one_readiness_response() -> None:
+    properties = _SCHEMAS["get_project_status"]["input_schema"]["properties"]
+
+    assert set(properties) == {"project_name", "project_root", "host_client"}
+
+
+def test_search_memory_does_not_advertise_legacy_memory_type() -> None:
+    properties = _SCHEMAS["search_memory"]["input_schema"]["properties"]
+
+    assert "memory_type" not in properties
+
+
+def test_wake_has_one_default_response_shape() -> None:
+    properties = _SCHEMAS["wake"]["input_schema"]["properties"]
+
+    assert "detail_level" not in properties
+    assert "no_auto_ingest" not in properties
+    assert "include_skill_hints" not in properties
+    assert "skill_hint_limit" not in properties
+
+
+def test_prepare_session_distill_defaults_to_semantic_evidence() -> None:
+    properties = _SCHEMAS["prepare_session_distill"]["input_schema"]["properties"]
+
+    assert properties["evidence_mode"]["default"] == "semantic"
+    assert "max_chars_per_observation" not in properties
+
+
+def test_read_counts_are_caller_choices_not_hidden_defaults() -> None:
+    for tool_name, field in (
+        ("timeline", "limit"),
+        ("search_raw", "limit"),
+        ("get_task_handoffs", "limit"),
+        ("list_candidates", "limit"),
+        ("prepare_session_distill", "observation_limit"),
+        ("prepare_session_distill", "chunk_limit"),
+    ):
+        property_schema = _SCHEMAS[tool_name]["input_schema"]["properties"][field]
+        assert "default" not in property_schema
+
+
+def test_get_project_status_reports_hook_setup_failure_without_diagnostics(
+    backend,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "failed-hook-workspace"
+    workspace.mkdir()
+    (workspace / ".git").mkdir()
+    monkeypatch.setattr(support_module, "DEFAULT_DATA_DIR", backend.data_dir)
+    monkeypatch.setattr(status_handlers, "cmd_install_hook_suite", lambda *_args: 1)
+
+    response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 104,
+            "method": "tools/call",
+            "params": {
+                "name": "get_project_status",
+                "arguments": {
+                    "project_root": str(workspace),
+                    "host_client": "codex",
+                },
+            },
+        }
+    )
+
+    assert response is not None
+    assert _tool_result(response) == {
+        "success": False,
+        "project_name": "failed-hook-workspace",
+        "message": "The project Hook could not be prepared.",
+        "action": "Run harness-mem doctor.",
+    }
+
+
+def test_get_project_status_does_not_report_queue_progress(
+    backend,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "pending-workspace"
+    workspace.mkdir()
+    (workspace / ".git").mkdir()
+    monkeypatch.setattr(support_module, "DEFAULT_DATA_DIR", backend.data_dir)
+    monkeypatch.setattr(status_handlers, "cmd_install_hook_suite", lambda *_args: 0)
+    monkeypatch.setattr(
+        backend.transcript_store,
+        "count_pending_distill_jobs",
+        lambda _project_name: (_ for _ in ()).throw(
+            AssertionError("short readiness must not read queue progress")
+        ),
+    )
+
+    response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 105,
+            "method": "tools/call",
+            "params": {
+                "name": "get_project_status",
+                "arguments": {
+                    "project_root": str(workspace),
+                    "host_client": "codex",
+                },
+            },
+        }
+    )
+
+    assert response is not None
+    assert _tool_result(response) == {
+        "success": True,
+        "project_name": "pending-workspace",
+        "message": "Memory is ready.",
+    }
 
 
 def test_public_mcp_surface_is_single_memory_entrypoint(backend) -> None:
@@ -312,14 +425,12 @@ def test_public_mcp_surface_is_single_memory_entrypoint(backend) -> None:
         "autopilot_search_tick",
         "search_memory",
         "prepare_session_distill",
-        "auto_review_candidates",
         "list_candidates",
         "get_candidate_detail",
         "govern_memory",
         "dream_ledger",
         "dream_run",
         "dream_auto_tick",
-        "undo_dream_item",
     } <= tool_names
     assert "metabolism_run" not in tool_names
     assert "metabolism_preview" not in tool_names
@@ -331,8 +442,13 @@ def test_public_mcp_surface_is_single_memory_entrypoint(backend) -> None:
     assert "total_tool_count" not in result
     assert not SKILL_GOVERNANCE_TOOLS.intersection(tool_names)
     tool_by_name = {tool["name"]: tool for tool in result["tools"]}
-    for name in ("dream_ledger", "dream_run", "dream_auto_tick", "undo_dream_item"):
+    delete_description = tool_by_name["govern_memory"]["description"]
+    assert "decision=delete" in delete_description
+    assert "exactly one target_knowledge_ids value" in delete_description
+    for name in ("dream_ledger", "dream_run", "dream_auto_tick"):
         assert tool_by_name[name]["annotations"]["harness_mem"]["cluster"] == "dream"
+    assert "temporal_query" not in tool_names
+    assert "undo_dream_item" not in tool_names
     assert "remember-this-session" in tool_by_name["prepare_session_distill"]["description"]
     assert (
         "distill_job_id"
@@ -343,7 +459,7 @@ def test_public_mcp_surface_is_single_memory_entrypoint(backend) -> None:
     ]["semantic_review"]
     challenge = semantic_review["properties"]["zero_candidate_challenge"]
     assert challenge["properties"]["version"]["enum"] == ["v1"]
-    assert challenge["properties"]["inspected_exchange_refs"]["maxItems"] == 8
+    assert "maxItems" not in challenge["properties"]["inspected_exchange_refs"]
     assert "ingest_sessions" not in tool_by_name
     assert "set_active_project" not in tool_by_name
 
@@ -453,10 +569,16 @@ def test_skill_governance_is_not_registered_as_mcp_public_tools(backend) -> None
     assert response["error"]["message"] == "Unknown tool: suggest_skill"
 
 
-def test_mcp_keeps_only_read_only_procedural_skill_hints(backend) -> None:
+def test_mcp_removes_legacy_memory_read_surfaces(backend) -> None:
     _result, tool_names = _listed_tool_names()
 
-    assert {"search_skills", "get_skill"} <= tool_names
+    assert {
+        "auto_review_candidates",
+        "get_confirmed_rules",
+        "get_skill",
+        "search_skills",
+        "trace_relations",
+    }.isdisjoint(tool_names)
     assert not SKILL_GOVERNANCE_TOOLS.intersection(tool_names)
 
 
@@ -565,20 +687,7 @@ def test_removed_project_profile_write_tool_call_is_unknown(backend) -> None:
     assert "data" not in response["error"]
 
 
-def test_public_auto_review_apply_promotes_candidates(backend) -> None:
-    entry = MemoryEntry(
-        project_name="demo",
-        category="decision",
-        content=(
-            "Use the local SQLite derived index only as a rebuildable read "
-            "model while canonical project truth remains in the structured store."
-        ),
-        source="observation:1",
-        confidence=0.9,
-        status="pending",
-    )
-    asyncio.run(backend.structured_store.save_memory_entry(entry))
-
+def test_removed_auto_review_tool_call_is_unknown(backend) -> None:
     response = server.handle_request(
         {
             "jsonrpc": "2.0",
@@ -591,19 +700,12 @@ def test_public_auto_review_apply_promotes_candidates(backend) -> None:
         }
     )
 
-    payload = _tool_result(response)
-    reloaded = asyncio.run(backend.structured_store.get_memory_entry(entry.id))
-
-    assert payload["success"] is True
-    assert payload["auto_confirmed"] == 1
-    assert payload["applied"] is True
-    assert len(payload["applied_decisions"]) == 1
-    assert "surface_enforcement" not in payload
-    assert reloaded is not None
-    assert reloaded.status == "auto_confirmed"
+    assert response is not None
+    assert response["error"]["code"] == -32601
+    assert response["error"]["message"] == "Unknown tool: auto_review_candidates"
 
 
-def test_public_confirm_remains_explicit_review_gate(backend) -> None:
+def test_public_governance_does_not_promote_legacy_memory_rows(backend) -> None:
     entry = MemoryEntry(
         project_name="demo",
         category="decision",
@@ -636,18 +738,16 @@ def test_public_confirm_remains_explicit_review_gate(backend) -> None:
     payload = _tool_result(response)
     reloaded = asyncio.run(backend.structured_store.get_memory_entry(entry.id))
 
-    assert payload["success"] is True
-    assert payload["status"] == "user_confirmed"
-    assert "surface_enforcement" not in payload
+    assert payload["success"] is False
     assert reloaded is not None
-    assert reloaded.status == "user_confirmed"
+    assert reloaded.status == "pending"
 
 
-def test_public_candidate_detail_is_limited_to_memory_review_kinds(backend) -> None:
+def test_public_candidate_detail_is_limited_to_current_knowledge_candidates(backend) -> None:
     schema = server.TOOLS["get_candidate_detail"]["input_schema"]
     kind_enum = schema["properties"]["candidate_kind"]["enum"]
 
-    assert "memory_entry" in kind_enum
+    assert kind_enum == ["knowledge_candidate"]
     assert "procedural_candidate" not in kind_enum
     assert "skill_promotion_candidate" not in kind_enum
     assert "skill_revision_candidate" not in kind_enum

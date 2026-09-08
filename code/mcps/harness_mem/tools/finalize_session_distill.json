@@ -177,7 +177,6 @@
               },
               "inspected_exchange_refs": {
                 "type": "array",
-                "maxItems": 8,
                 "items": {
                   "type": "object",
                   "properties": {

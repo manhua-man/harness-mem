@@ -74,6 +74,44 @@ def test_stop_maintenance_defers_embedding_model_loading(
     assert embeddings_disabled() is False
 
 
+def test_stop_maintenance_does_not_stage_an_excluded_maintenance_session(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from harness_mem.maintenance_lock import exclusive_maintenance_run
+
+    monkeypatch.setattr(
+        tool_handlers,
+        "tool_prepare_session_distill",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("excluded maintenance must not stage a distill job")
+        ),
+    )
+    with exclusive_maintenance_run(
+        tmp_path,
+        run_id="archive-run",
+        operation="archive-distill",
+        owner_session_ids=["maintenance-session"],
+    ):
+        pass
+
+    payload = asyncio.run(
+        run_post_turn_maintenance(
+            _Backend(tmp_path),
+            project_name="demo",
+            project_root=str(tmp_path),
+            config=MergedConfig(),
+            source="ide_hook",
+            trigger_id="maintenance-session",
+        )
+    )
+
+    assert payload["success"] is True
+    assert payload["status"] == "skipped"
+    assert payload["distill_job"] is None
+    assert payload["summary"]["maintenance_excluded"] is True
+
+
 def test_stop_maintenance_retries_exact_trigger_until_native_session_is_visible(
     tmp_path: Path,
     monkeypatch,

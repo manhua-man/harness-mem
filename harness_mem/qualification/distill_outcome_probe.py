@@ -12,7 +12,7 @@ from typing import Any
 
 from harness_mem.adapters.snapshot import persist_session_snapshot
 from harness_mem.core.schemas.observation import Observation
-from harness_mem.mcp import governance_handlers, tool_handlers
+from harness_mem.mcp import governance_handlers, read_search_handlers, tool_handlers
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
@@ -71,27 +71,37 @@ def run_distill_outcome_probe() -> dict[str, Any]:
                 "The isolated outcome probe verifies one durable decision.",
                 encoding="utf-8",
             )
-            candidate = governance_handlers.tool_suggest_memory_entry(
-                project_name="outcome-probe",
-                category="decision",
-                content=(
-                    "The isolated outcome probe verifies one durable decision while "
-                    "unrelated follow-up work remains."
-                ),
-                source=f"distill-job:{job_id}",
-                confidence=0.99,
-                distill_job_id=job_id,
-                evidence_basis="repository",
-                verification_outcome="verified",
-                verification_refs=[
-                    {
-                        "kind": "repository",
-                        "locator": evidence_path.name,
-                        "content_sha256": hashlib.sha256(
-                            evidence_path.read_bytes()
-                        ).hexdigest(),
-                    }
-                ],
+            candidate = governance_handlers.tool_govern_memory(
+                action="suggest",
+                arguments={
+                    "kind": "memory",
+                    "project_name": "outcome-probe",
+                    "category": "decision",
+                    "content": (
+                        "The isolated outcome probe verifies one durable decision while "
+                        "unrelated follow-up work remains."
+                    ),
+                    "source": f"distill-job:{job_id}",
+                    "confidence": 0.99,
+                    "distill_job_id": job_id,
+                    "evidence_basis": "repository",
+                    "verification_outcome": "verified",
+                    "verification_refs": [
+                        {
+                            "kind": "repository",
+                            "locator": evidence_path.name,
+                            "content_sha256": hashlib.sha256(
+                                evidence_path.read_bytes()
+                            ).hexdigest(),
+                        }
+                    ],
+                    "assimilation_disposition": "add",
+                    "assimilation_reason": (
+                        "The verified decision remains useful after this session."
+                    ),
+                    "canonical_title": "Isolated durable decision",
+                    "topic_path": ["qualification"],
+                },
             )
             handoff = governance_handlers.tool_create_task_handoff(
                 project_name="outcome-probe",
@@ -123,8 +133,22 @@ def run_distill_outcome_probe() -> dict[str, Any]:
                 },
             )
 
-            stored_candidate = asyncio.run(
+            compatibility_candidate = asyncio.run(
                 backend.structured_store.get_memory_entry(candidate["entry_id"])
+            )
+            stored_candidate = asyncio.run(
+                backend.structured_store.knowledge_store.get_candidate(
+                    candidate["entry_id"]
+                )
+            )
+            current_knowledge = asyncio.run(
+                backend.structured_store.knowledge_store.list_entries(
+                    "outcome-probe"
+                )
+            )
+            search = read_search_handlers.tool_search_memory(
+                query="isolated durable decision",
+                project_name="outcome-probe",
             )
             stored_handoff = asyncio.run(
                 backend.structured_store.get_task_handoff(handoff["handoff_id"])
@@ -135,11 +159,23 @@ def run_distill_outcome_probe() -> dict[str, Any]:
             result = {
                 "prepared_job_matches": prepared.get("distill_job_id") == job_id,
                 "candidate_status": getattr(stored_candidate, "status", None),
+                "legacy_candidate_absent": compatibility_candidate is None,
+                "successful_candidate_cleaned": stored_candidate is None,
                 "partial_candidate_promoted": bool(
-                    stored_candidate is not None
-                    and stored_candidate.status == "auto_confirmed"
+                    len(current_knowledge) == 1
+                    and current_knowledge[0].title == "Isolated durable decision"
                     and finalized.get("completion", {}).get("disposition")
                     == "promoted"
+                    and search.get("memories")
+                    == [
+                        {
+                            "title": "Isolated durable decision",
+                            "statement": (
+                                "The isolated outcome probe verifies one durable decision "
+                                "while unrelated follow-up work remains."
+                            ),
+                        }
+                    ]
                 ),
                 "handoff_persisted": stored_handoff is not None,
                 "handoff_job_bound": bool(
@@ -153,7 +189,9 @@ def run_distill_outcome_probe() -> dict[str, Any]:
                 "latest_note_exists": latest_path.is_file(),
                 "note_paths_distinct": note_path != latest_path,
             }
-            result["verified"] = all(result.values())
+            result["verified"] = all(
+                value for key, value in result.items() if key != "candidate_status"
+            )
             return result
         finally:
             if (

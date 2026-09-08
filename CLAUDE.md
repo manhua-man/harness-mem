@@ -6,7 +6,7 @@
 
 - Keep root AI entry documents in English, matching the primary `README.md` body.
 - Reply in the user's language unless they request another language.
-- Be direct, evidence-based, and concise. Explain internal IDs only in explicit audit views.
+- Be direct, evidence-based, and concise. Explain internal IDs only in explicit diagnostic views.
 - When a user says a term is too complex, remove it and use ordinary language. Do not coin a replacement label unless the user explicitly asks for one.
 - Use “Agent” consistently with the public documentation where it names supported agent clients.
 
@@ -47,7 +47,8 @@ When sources disagree, inspect current code, manifests, tests, and runtime evide
 - Stage 0 owns session intake, immutable revisions, chunks, jobs, receipts, retries, and source lifecycle.
 - Extraction, verification, assimilation, and retrieval operate on independent promotion points rather than treating a session as one indivisible fact.
 - Review and Dream feed correction, conflict, staleness, and usage evidence back into verification and assimilation.
-- Observations and transcripts remain evidence. Only governed, current truth belongs in normal wake and search results.
+- Observations and transcripts remain source material. Only current `knowledge_entries` belong in normal wake and search results.
+- Replacing knowledge deletes the old row and writes the new row; invalid knowledge is deleted. Do not add knowledge history, archived copies, mutation logs, or undo.
 - MCP is the normal agent-facing memory surface. CLI commands remain setup, diagnosis, integration, and maintenance surfaces unless the repository explicitly documents otherwise.
 - Host adapters may differ in installation and event schema, but they converge on shared runtime actions and evidence contracts.
 
@@ -56,7 +57,7 @@ When sources disagree, inspect current code, manifests, tests, and runtime evide
 - Treat generated summaries, previous agent statements, and transcript-only claims as provisional until their evidence is checked.
 - Repository claims require current project-relative evidence. User preferences and decisions require an explicit user-authored statement.
 - Missing, changed, stale, or contradicted evidence must remain visible; do not upgrade it to truth through confident wording.
-- Do not expose transcript content, private spans, internal IDs, or audit metadata in default user summaries.
+- Do not expose transcript content, private spans, internal IDs, or diagnostic metadata in default user summaries.
 - Keep one verifiable fact per readable memory item and include its verification date or status where the product contract requires it.
 
 ## Implementation and Validation
@@ -84,10 +85,10 @@ When sources disagree, inspect current code, manifests, tests, and runtime evide
 
 ## Runtime and Data Safety
 
-- Do not mutate live runtime data, local memory stores, transcript sources, Notes, receipts, or generated audit reports during unrelated development work.
+- Do not mutate live runtime data, local memory stores, transcript sources, Notes, receipts, or generated diagnostic reports during unrelated development work.
 - Use documented dry-run or preview modes before maintenance or deletion operations.
 - Never delete a shared history container to remove one session.
-- Preserve auditability when correcting, superseding, migrating, or removing stored knowledge.
+- Preserve transaction safety and project isolation when correcting or deleting stored knowledge, but do not retain old knowledge as history.
 - Do not enable autonomous model processing or source deletion without the explicit authorization required by the public configuration contract.
 
 ## Documentation Responsibilities

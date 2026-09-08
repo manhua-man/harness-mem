@@ -4,7 +4,7 @@ Dream works over already-governed current knowledge rather than over a
 session-distill job.  This module gives that maintenance path the same
 separation as ordinary assimilation: an untrusted provider proposes one
 strictly bounded decision, then the runtime rechecks the real sources and
-performs each reversible truth mutation itself.
+directly updates or deletes current knowledge.
 
 The caller keeps reopened source text in memory.  It is present in the
 provider manifest only for the immediate no-tool semantic call and is never
@@ -23,7 +23,7 @@ from uuid import NAMESPACE_URL, uuid5
 from harness_mem.autonomous.models import AssimilationDecision
 from harness_mem.commands.evidence_admission import validate_knowledge_sources
 from harness_mem.commands.knowledge_assimilation import (
-    assimilation_decision_id,
+    delete_current_knowledge,
     record_assimilation_result,
 )
 from harness_mem.commands.separated_assimilation import (
@@ -177,7 +177,7 @@ def validate_dream_assimilation_decision(
         if disposition not in {
             "confirm",
             "refine",
-            "supersede",
+            "replace",
             "no_write",
             "defer",
             "conflict",
@@ -189,16 +189,21 @@ def validate_dream_assimilation_decision(
             raise ValueError("Dream assimilation reason must contain 8 to 1000 characters")
 
         knowledge_items = [item.model_dump() for item in point.knowledge_items]
-        if disposition in {"confirm", "refine", "supersede"}:
+        if disposition == "confirm":
             if handles != [own_handle]:
-                raise ValueError(f"Dream {disposition} must target its own current truth")
+                raise ValueError("Dream confirm must target its own current truth")
+        elif disposition in {"refine", "replace"}:
+            if not handles or own_handle not in handles:
+                raise ValueError(
+                    f"Dream {disposition} must include its own current truth"
+                )
         elif disposition == "reject":
             if len(handles) != 1:
                 raise ValueError("Dream reject must name one current truth handle")
         elif handles:
             raise ValueError(f"Dream {disposition} must not target current truth")
 
-        if disposition in {"refine", "supersede"}:
+        if disposition in {"refine", "replace"}:
             _validate_writing_items(
                 knowledge_items=knowledge_items,
                 canonical_title=point.canonical_title,
@@ -256,12 +261,11 @@ async def apply_dream_assimilation(
     prepared: DreamPreparedAssimilation,
     plan: Sequence[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Recheck sources again, then commit each sanctioned Dream mutation.
+    """Recheck sources again, then apply each allowed Dream change.
 
-    Each write is routed through the normal canonical truth mutation API and
-    is undoable. Confirmation freshness is its existing dedicated canonical
-    operation; it changes no statement and may advance a re-opened source
-    digest only after the second byte-level check succeeds.
+    Each write uses the normal current-knowledge path. Confirmation freshness
+    changes no statement and may advance a reopened source digest only after
+    the second byte-level check succeeds.
     """
 
     candidates = {candidate.candidate_id: candidate for candidate in prepared.candidates}
@@ -271,13 +275,23 @@ async def apply_dream_assimilation(
     outcomes: list[dict[str, Any]] = []
     for point in plan:
         candidate = candidates[str(point["candidate_id"])]
-        validation = await validate_knowledge_sources(
-            backend,
-            project_name=prepared.project_name,
-            sources=candidate.sources,
-            project_root=prepared.project_root,
-        )
-        if validation.verification_outcome != "verified":
+        disposition = str(point["disposition"])
+        target_candidates = [candidate]
+        if disposition in {"refine", "replace"}:
+            target_ids = [str(value) for value in point.get("matched_truth_ids") or []]
+            by_id = {item.entry.id: item for item in prepared.candidates}
+            target_candidates = [by_id[target_id] for target_id in target_ids]
+        validations = [
+            await validate_knowledge_sources(
+                backend,
+                project_name=prepared.project_name,
+                sources=target.sources,
+                project_root=prepared.project_root,
+            )
+            for target in target_candidates
+        ]
+        validation = validations[0]
+        if any(item.verification_outcome != "verified" for item in validations):
             outcomes.append(
                 {
                     "candidate_id": candidate.candidate_id,
@@ -287,7 +301,6 @@ async def apply_dream_assimilation(
                 }
             )
             continue
-        disposition = str(point["disposition"])
         if disposition in {"no_write", "defer", "conflict"}:
             outcomes.append(
                 {
@@ -317,31 +330,23 @@ async def apply_dream_assimilation(
             )
             continue
         if disposition == "reject":
-            mutation_id = str(
-                uuid5(
-                    NAMESPACE_URL,
-                    f"harness-mem:dream-archive:{prepared.run_id}:{candidate.entry.id}",
-                )
-            )
-            await store.archive_current_entry(
+            await delete_current_knowledge(
+                backend,
                 project_name=prepared.project_name,
-                entry_id=candidate.entry.id,
-                mutation_id=mutation_id,
-                reason=str(point["reason"]),
+                target_knowledge_ids=[candidate.entry.id],
             )
             outcomes.append(
                 {
                     "candidate_id": candidate.candidate_id,
                     "entry_id": candidate.entry.id,
                     "status": "applied",
-                    "truth_change": "retired",
-                    "mutation_id": mutation_id,
+                    "truth_change": "deleted",
                     "reason": str(point["reason"]),
                 }
             )
             continue
 
-        if disposition not in {"refine", "supersede"}:  # pragma: no cover - validator owns this.
+        if disposition not in {"refine", "replace"}:  # pragma: no cover - validator owns this.
             raise ValueError(f"unsupported Dream assimilation disposition: {disposition}")
         workspace_candidate = KnowledgeCandidate(
             id=str(
@@ -357,21 +362,21 @@ async def apply_dream_assimilation(
         record_point = {
             **dict(point),
             "verified_at": validation.verified_at,
-            "matched_truth_kinds": ["knowledge_entry"],
+            "matched_truth_kinds": [
+                "knowledge_entry" for _target in target_candidates
+            ],
         }
-        source_refs = _source_refs(candidate.sources)
+        source_refs = [
+            ref
+            for target in target_candidates
+            for ref in _source_refs(target.sources)
+        ]
         truth_ids = await record_assimilation_result(
             backend,
             candidate=workspace_candidate,
             point=record_point,
             project_root=prepared.project_root,
             source_refs=source_refs,
-        )
-        mutation_id = assimilation_decision_id(
-            candidate_id=workspace_candidate.id,
-            disposition=disposition,
-            knowledge_ids=truth_ids,
-            reason=str(point["reason"]),
         )
         await store.cleanup_candidate(workspace_candidate.id)
         outcomes.append(
@@ -381,7 +386,6 @@ async def apply_dream_assimilation(
                 "status": "applied",
                 "truth_change": disposition,
                 "truth_ids": truth_ids,
-                "mutation_id": mutation_id,
                 "reason": str(point["reason"]),
             }
         )
@@ -434,10 +438,8 @@ def _validate_writing_items(
                 "claim_kind": "procedure",
             }
         ]
-    if disposition == "refine" and len(items) != 1:
-        raise ValueError("Dream refine requires one replacement knowledge item")
-    if disposition == "supersede" and not 1 <= len(items) <= 3:
-        raise ValueError("Dream supersede requires one to three replacement knowledge items")
+    if not items:
+        raise ValueError("Dream writing decision requires at least one knowledge item")
     for item in items:
         title = str(item.get("title") or "").strip()
         statement = str(item.get("statement") or "").strip()

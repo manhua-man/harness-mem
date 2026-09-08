@@ -106,6 +106,43 @@ def test_disabled_background_returns_setup_required_without_running(
     assert "disabled" in result["reason"].casefold()
 
 
+def test_completed_maintenance_session_cannot_start_the_ordinary_worker(
+    tmp_path: Path,
+) -> None:
+    from harness_mem.maintenance_lock import exclusive_maintenance_run
+
+    backend = LocalMemoryBackend(tmp_path / "data")
+    asyncio.run(backend.init())
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    try:
+        with exclusive_maintenance_run(
+            backend.data_dir,
+            run_id="archive-run",
+            operation="archive-distill",
+            owner_session_ids=["maintenance-session"],
+        ):
+            pass
+        result = run_autonomous_distill_batch(
+            backend,
+            project_name="demo",
+            project_root=project_root,
+            config=MergedConfig(distill_autonomous_enabled=True),
+            trigger_id="maintenance-session",
+            client="codex",
+            launch_source="ide_hook",
+        )
+    finally:
+        asyncio.run(backend.close())
+
+    assert result == {
+        "success": False,
+        "state": "busy",
+        "reason": "exclusive_maintenance_run_active",
+        "outcomes": [],
+    }
+
+
 def test_explicit_worker_does_not_require_profile_selection(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -192,16 +229,12 @@ def test_hook_dream_disabled_writes_a_waitable_terminal_receipt(
     assert json.loads(output)["state"] == "failed"
 
 
-def test_autonomous_config_fingerprint_binds_authorization_and_budget_settings() -> None:
+def test_autonomous_config_fingerprint_binds_authorization_and_cli() -> None:
     base = MergedConfig(
         distill_autonomous_enabled=True,
     )
     changed_enabled = MergedConfig(
         distill_autonomous_enabled=False,
-    )
-    changed_budget = MergedConfig(
-        distill_autonomous_enabled=True,
-        distill_auto_daily_job_budget=99,
     )
     changed_cli = MergedConfig(
         distill_autonomous_enabled=True,
@@ -210,7 +243,6 @@ def test_autonomous_config_fingerprint_binds_authorization_and_budget_settings()
 
     base_fingerprint = autonomous_config_fingerprint(base)
     assert base_fingerprint != autonomous_config_fingerprint(changed_enabled)
-    assert base_fingerprint != autonomous_config_fingerprint(changed_budget)
     assert base_fingerprint != autonomous_config_fingerprint(changed_cli)
 
 
@@ -881,7 +913,7 @@ def test_assimilation_hides_truth_retired_by_an_earlier_batch(tmp_path: Path) ->
     ]
 
 
-@pytest.mark.parametrize("disposition", ["refine", "supersede"])
+@pytest.mark.parametrize("disposition", ["refine", "replace"])
 def test_assimilation_normalizes_identical_mutation_to_confirm(
     tmp_path: Path,
     disposition: str,
@@ -967,7 +999,7 @@ def test_assimilation_normalizes_identical_mutation_to_confirm(
     assert plan["points"][0]["matched_truth_ids"] == ["truth-1"]
 
 
-def test_assimilation_does_not_normalize_multi_item_supersede(tmp_path: Path) -> None:
+def test_assimilation_does_not_normalize_multi_item_replace(tmp_path: Path) -> None:
     prepared = SeparatedPreparedAssimilation(
         project_name="demo",
         project_root=str(tmp_path),
@@ -999,7 +1031,7 @@ def test_assimilation_does_not_normalize_multi_item_supersede(tmp_path: Path) ->
     )
 
     class _Provider:
-        name = "split-supersede-provider"
+        name = "split-replace-provider"
 
         def assimilate(self, manifest, *, runtime_dir, heartbeat=None):
             del manifest, runtime_dir, heartbeat
@@ -1009,7 +1041,7 @@ def test_assimilation_does_not_normalize_multi_item_supersede(tmp_path: Path) ->
                         "points": [
                             {
                                 "candidate_id": "candidate-1",
-                                "disposition": "supersede",
+                                "disposition": "replace",
                                 "matched_truth_handles": ["T1"],
                                 "knowledge_items": [
                                     {
@@ -1052,7 +1084,7 @@ def test_assimilation_does_not_normalize_multi_item_supersede(tmp_path: Path) ->
     )
 
     point = result.decision.points[0]
-    assert point.disposition == "supersede"
+    assert point.disposition == "replace"
     assert len(point.knowledge_items) == 2
 
 
@@ -1119,7 +1151,7 @@ def test_assimilation_allows_multi_point_split_for_one_candidate(tmp_path: Path)
                             },
                             {
                                 "candidate_id": "candidate-1",
-                                "disposition": "supersede",
+                                "disposition": "replace",
                                 "matched_truth_handles": ["T2"],
                                 "knowledge_items": [
                                     {
@@ -1156,7 +1188,7 @@ def test_assimilation_allows_multi_point_split_for_one_candidate(tmp_path: Path)
     ]
     assert [point.disposition for point in result.decision.points] == [
         "refine",
-        "supersede",
+        "replace",
     ]
     plan = validate_separated_assimilation_decision(prepared, result.decision)
     assert len(plan["points"]) == 2
@@ -1460,8 +1492,8 @@ def test_assimilation_retries_internal_processing_module(tmp_path: Path) -> None
     ]["errors"][0]
 
 
-def test_assimilation_model_requires_one_target_for_refine() -> None:
-    with pytest.raises(ValueError, match="refine requires exactly one current truth handle"):
+def test_assimilation_model_requires_a_target_for_refine() -> None:
+    with pytest.raises(ValueError, match="refine requires at least one current truth handle"):
         AssimilationDecision.model_validate(
             {
                 "points": [
@@ -1986,6 +2018,107 @@ def test_per_point_verifier_blocks_unfinished_task_envelope_even_if_model_marks_
     assert verified[0][1]["verification_outcome"] == "not_applicable"
     assert "session_only_not_durable" in verified[0][1]["verification_reason_codes"]
     assert "unfinished_task_envelope" in verified[0][1]["verification_reason_codes"]
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "The current package version is 2.4.6.",
+        "这个工具的版本为 3.5.7。",
+    ],
+)
+def test_per_point_verifier_requires_repository_evidence_for_current_version_claim(
+    tmp_path: Path,
+    statement: str,
+) -> None:
+    candidate = DistillCandidate.model_validate(
+        {
+            "kind": "memory",
+            "category": "status",
+            "content": statement,
+            "confidence": 0.9,
+            "evidence_basis": "user_statement",
+            "verification_outcome": "verified",
+            "verification_refs": [],
+            "verification_reason_codes": [],
+        }
+    )
+    manifest = {
+        "candidates": [
+            {
+                "candidate_index": 0,
+                "sources": [{"kind": "user_statement", "content": statement}],
+            }
+        ]
+    }
+
+    class _Verifier:
+        name = "semantic-verifier-test"
+        verify = _verify_all_candidates
+
+    _result, verified = _verify_candidates(
+        _Verifier(),
+        manifest=manifest,
+        validated_candidates=[(candidate, {"kind": "memory", "content": statement})],
+        runtime_dir=tmp_path,
+        heartbeat=None,
+    )
+
+    assert verified[0][1]["verification_outcome"] == "not_applicable"
+    assert verified[0][1]["verification_reason_codes"] == [
+        "session_only_not_durable",
+        "current_version_requires_repository_evidence",
+    ]
+
+
+def test_per_point_verifier_accepts_current_version_with_repository_evidence(
+    tmp_path: Path,
+) -> None:
+    statement = "The current version is 4.6.8."
+    candidate = DistillCandidate.model_validate(
+        {
+            "kind": "memory",
+            "category": "status",
+            "content": statement,
+            "confidence": 0.9,
+            "evidence_basis": "repository",
+            "verification_outcome": "unverified",
+            "verification_refs": [],
+            "verification_reason_codes": [],
+        }
+    )
+    manifest = {
+        "candidates": [
+            {
+                "candidate_index": 0,
+                "sources": [
+                    {
+                        "kind": "repository",
+                        "locator": "pyproject.toml",
+                        "content": "version = '4.6.8'",
+                        "current_content_sha256": "c" * 64,
+                    }
+                ],
+            }
+        ]
+    }
+
+    class _Verifier:
+        name = "semantic-verifier-test"
+        verify = _verify_all_candidates
+
+    _result, verified = _verify_candidates(
+        _Verifier(),
+        manifest=manifest,
+        validated_candidates=[(candidate, {"kind": "memory", "content": statement})],
+        runtime_dir=tmp_path,
+        heartbeat=None,
+    )
+
+    assert verified[0][1]["verification_outcome"] == "verified"
+    assert "current_version_requires_repository_evidence" not in verified[0][1][
+        "verification_reason_codes"
+    ]
 
 
 def test_semantic_reverification_rebinds_repository_ref_to_current_digest(
@@ -2928,13 +3061,13 @@ def test_autonomous_worker_persists_job_bound_handoff_for_partial_review() -> No
     ]
 
 
-def test_autonomous_worker_filters_handoff_and_bare_superseded_candidates() -> None:
+def test_autonomous_worker_filters_handoff_and_bare_replaced_candidates() -> None:
     decision = AutonomousDecision.model_validate(
         {
             "semantic_review": {
                 "session_summary": "A durable preference was answered while fixed measurement remained.",
                 "final_user_request": "Reduce cost and measure one fixed sample.",
-                "final_outcome": "The older approach was superseded; measurement remains.",
+                "final_outcome": "The older approach was replaced; measurement remains.",
                 "last_turn_status": "unfinished",
                 "contradictions": [],
                 "unfinished_work": ["Measure one fixed model sample."],
@@ -2956,7 +3089,7 @@ def test_autonomous_worker_filters_handoff_and_bare_superseded_candidates() -> N
                 {
                     "kind": "memory",
                     "category": "approach_decision",
-                    "content": "The older truncate-first approach is superseded.",
+                    "content": "The older truncate-first approach is replaced.",
                     "confidence": 0.99,
                     "evidence_basis": "user_statement",
                     "verification_outcome": "verified",
@@ -3004,7 +3137,7 @@ def test_autonomous_worker_filters_handoff_and_bare_superseded_candidates() -> N
 
     assert reasons == [
         None,
-        "bare superseded history belongs to summary or final outcome",
+        "bare replaced history belongs to summary or final outcome",
         "unfinished work belongs to the job-bound handoff",
         "unfinished work belongs to the job-bound handoff",
         None,
@@ -3337,8 +3470,6 @@ def test_autonomous_worker_completes_job_materializes_note_and_receipt(
     assert legacy_entries == []
     assert legacy_rules == []
     assert separated_candidates == []
-    mutations = asyncio.run(knowledge_store.list_mutations("demo"))
-    assert [mutation.disposition for mutation in mutations] == ["add"]
     assert [(entry.title, entry.statement) for entry in separated_entries] == [
         ("Local index storage", "The project uses SQLite for local derived indexes.")
     ]

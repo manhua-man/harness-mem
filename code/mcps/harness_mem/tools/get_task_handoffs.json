@@ -10,8 +10,7 @@
       },
       "limit": {
         "type": "integer",
-        "description": "Max handoffs to return (default 5)",
-        "default": 5
+        "description": "Optional handoff count; omitted returns all matching handoffs"
       }
     },
     "required": [

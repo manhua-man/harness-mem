@@ -18,7 +18,6 @@ from harness_mem.commands.doctor_recovery import (
 )
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
-    WakeBucketQuotaError,
     claude_session_count,
     codex_scope_note,
     codex_session_count,
@@ -35,7 +34,6 @@ from harness_mem.commands.support import (
     resolve_project_name,
     find_project_root,
     suggested_next_step,
-    wake_bucket_quotas,
     wake_budget,
 )
 from harness_mem.distribution import distribution_report
@@ -45,7 +43,6 @@ from harness_mem.hook_runtime import collect_hook_runtime_report
 from harness_mem.commands.doctor_classification import (  # noqa: F401
     UNUSED_RULE_DAYS,
     _confirmed_rule_quality_counts,
-    _memory_quality_counts,
     detect_cwd_project_mismatch,
 )
 from harness_mem.commands.doctor_probes import (  # noqa: F401
@@ -121,20 +118,6 @@ async def cmd_doctor(project_name: str | None = None) -> int:
             "project context is directory-first."
         )
 
-    # v1.6.1: validate wake bucket quotas early so misconfiguration surfaces
-    # before any project-specific work (HM-101 / HM-102).
-    try:
-        wake_bucket_quotas()
-    except WakeBucketQuotaError as exc:
-        if exc.code == "HM-101":
-            issue = doctor_error("doctor_wake_bucket_quota_sum")
-        else:
-            issue = doctor_error("doctor_wake_bucket_quota_range")
-        print(format_error_summary(issue))
-        print(f"Detail: {exc}")
-        print(f"Fix: {issue.fix_command}")
-        return 1
-
     if resolved_project:
         project_root = find_project_root(resolved_project) or Path.cwd()
         claude_sessions = recent_claude_sessions(resolved_project, limit=3)
@@ -157,7 +140,7 @@ async def cmd_doctor(project_name: str | None = None) -> int:
 
         profile_store = LocalProjectProfileStore(DEFAULT_DATA_DIR)
         profile = await profile_store.get(resolved_project)
-        print(f"Profile saved: {'yes' if profile else 'no'}")
+        print(f"Project context saved: {'yes' if profile else 'no'}")
         if profile and profile.stacks:
             print(f"Stacks detected: {', '.join(profile.stacks)}")
 
@@ -166,16 +149,14 @@ async def cmd_doctor(project_name: str | None = None) -> int:
         try:
             state = await project_state(resolved_project)
             print(f"Observations: {state['observations']}")
-            print(f"Memory entries: {state['memory_entries']}")
+            print(f"Current knowledge: {state['current_knowledge']}")
             print(f"Task handoffs: {state['task_handoffs']}")
             print(f"Confirmed rules: {state['confirmed_rules']}")
 
-            entries = await backend.structured_store.list_memory_entries(
-                resolved_project, limit=5
-            )
-            all_entries = await backend.structured_store.list_memory_entries(
-                resolved_project,
-                limit=100000,
+            knowledge_entries = (
+                await backend.structured_store.knowledge_store.list_entries(
+                    resolved_project
+                )
             )
             handoffs = await backend.structured_store.get_latest_handoffs(
                 resolved_project, limit=3
@@ -183,13 +164,6 @@ async def cmd_doctor(project_name: str | None = None) -> int:
             rules = await backend.structured_store.list_confirmed_rules(
                 resolved_project
             )
-            stale_count, never_accessed_count = _memory_quality_counts(all_entries)
-            if all_entries:
-                print(
-                    "Memory quality: "
-                    f"{stale_count} stale, {never_accessed_count} never accessed"
-                )
-
             stale_rule_count, never_surfaced_rule_count = (
                 _confirmed_rule_quality_counts(rules)
             )
@@ -226,7 +200,9 @@ async def cmd_doctor(project_name: str | None = None) -> int:
             # verbatim by maintenance_hints so operator-visible text is
             # identical to the previous inline output.
 
-            total_tokens, level = wake_budget(profile, entries, rules, handoffs)
+            total_tokens, level = wake_budget(
+                profile, knowledge_entries, rules, handoffs
+            )
             print(f"Estimated wake-up: ≈ {total_tokens:,} tokens [{level}]")
             if level in ("L3", "L4+"):
                 issue = doctor_error("doctor_wake_budget_large")
@@ -243,7 +219,7 @@ async def cmd_doctor(project_name: str | None = None) -> int:
             next_command, reason = suggested_next_step(
                 project_name=resolved_project,
                 observation_count=state["observations"],
-                memory_entry_count=state["memory_entries"],
+                current_knowledge_count=state["current_knowledge"],
                 claude_sessions=claude_sessions,
                 cursor_sessions=cursor_sessions,
                 grok_sessions=grok_sessions,

@@ -125,6 +125,11 @@ export default function HarnessMemReadiness0910Canvas() {
       </Stack>
 
       <Callout tone="warning">
+        这是 0.9.10 历史快照，不是当前产品说明。0.9.28 已收为 hm 单一日常入口、
+        20 个公开 MCP 工具和一份当前记忆；知识历史与撤销链已删除。
+      </Callout>
+
+      <Callout tone="warning">
         不提供一个掩盖运营问题的综合分：0.9.10 代码通过质量门，与 running MCP 仍为 0.9.9.1、parked backlog 为 198 可以同时成立。
       </Callout>
 

@@ -104,8 +104,6 @@ class LocalStructuredStore(
             "memory_entries": self.blob_dir / "memory_entries",
             "knowledge_entries": self.blob_dir / "knowledge_entries",
             "knowledge_sources": self.blob_dir / "knowledge_sources",
-            "knowledge_versions": self.blob_dir / "knowledge_versions",
-            "knowledge_mutations": self.blob_dir / "knowledge_mutations",
             "task_handoffs": self.blob_dir / "task_handoffs",
             "rule_candidates": self.blob_dir / "rule_candidates",
             "supersede_candidates": self.blob_dir / "supersede_candidates",
@@ -137,7 +135,6 @@ class LocalStructuredStore(
         if self.canonical_mode:
             await self._sync_missing_index_rows_from_canonical()
         self._backfill_confirmed_rule_source_sessions()
-        await self.knowledge_store.recover_staged_mutations()
 
     def _blob_path(
         self, entity_type: str, id: str
@@ -220,6 +217,17 @@ class LocalStructuredStore(
             idempotency_key=idempotency_key,
             mutations=mutations,
         )
+
+    def canonical_payload_transaction_result(
+        self,
+        idempotency_key: str,
+    ) -> dict[str, Any] | None:
+        """Read the durable idempotency receipt for one canonical transaction."""
+
+        canonical = self._canonical
+        if canonical is None:
+            raise RuntimeError("canonical runtime is required for payload transactions")
+        return canonical.payload_transaction_result(idempotency_key)
 
     def list_record_payloads(
         self,

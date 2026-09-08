@@ -1,10 +1,4 @@
-"""Bridge autonomous assimilation into the separated knowledge repositories.
-
-The compatibility candidate is retained until the read-path cutover, but it is
-no longer the only record of a new durable conclusion.  This module creates the
-new candidate, evidence, decision, and current-knowledge records without
-putting audit fields on the knowledge row.
-"""
+"""Write verified candidate decisions to the current knowledge repository."""
 
 from __future__ import annotations
 
@@ -18,15 +12,11 @@ from harness_mem.core.schemas import (
     AssimilationDecision,
     KnowledgeCandidate,
     KnowledgeCandidateStatus,
-    KnowledgeCandidateType,
     KnowledgeEntry,
     KnowledgeEvidence,
     ProjectKnowledgeSourceRef,
 )
 from harness_mem.core.schemas.assimilation import AssimilationDisposition
-from harness_mem.core.schemas.memory_entry import MemoryEntry
-from harness_mem.core.schemas.relation_fact import RelationFact
-from harness_mem.core.schemas.rule_candidate import RuleCandidate
 from harness_mem.commands.evidence_admission import (
     validate_candidate_evidence,
     validate_knowledge_sources,
@@ -35,72 +25,27 @@ from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 
 
-async def mirror_candidate_and_evidence(
-    backend: LocalMemoryBackend,
-    candidate: Any,
-) -> KnowledgeCandidate:
-    """Persist the new candidate/evidence pair for one compatibility candidate."""
-
-    store = backend.structured_store.knowledge_store
-    separated = KnowledgeCandidate(
-        id=str(candidate.id),
-        project_name=candidate.project_name,
-        candidate_type=_candidate_type(candidate),
-        statement=_candidate_statement(candidate),
-        status=_candidate_status(candidate),
-        created_at=candidate.created_at,
-        updated_at=getattr(candidate, "updated_at", candidate.created_at),
-    )
-    await store.save_candidate(separated)
-    evidence = KnowledgeEvidence(
-        id=str(uuid5(NAMESPACE_URL, f"harness-mem:knowledge-evidence:{candidate.id}")),
-        project_name=candidate.project_name,
-        candidate_id=separated.id,
-        distill_job_id=getattr(candidate, "distill_job_id", None),
-        evidence_basis=getattr(candidate, "evidence_basis", None) or "transcript",
-        verification_outcome=(
-            getattr(candidate, "verification_outcome", None) or "unverified"
-        ),
-        verification_refs=list(getattr(candidate, "verification_refs", []) or []),
-        verification_reason_codes=list(
-            getattr(candidate, "verification_reason_codes", []) or []
-        ),
-        verified_at=getattr(candidate, "verified_at", None),
-    )
-    await store.save_evidence(evidence)
-    return separated
-
-
 async def record_assimilation_result(
     backend: LocalMemoryBackend,
     *,
-    candidate: Any,
+    candidate: KnowledgeCandidate,
     point: Mapping[str, Any],
     project_root: str | Path | None = None,
     source_refs: Sequence[ProjectKnowledgeSourceRef] = (),
 ) -> list[str]:
-    """Write clean entries and one append-only decision for a point outcome."""
+    """Write clean current entries for one verified point."""
 
     store = backend.structured_store.knowledge_store
-    # New autonomous distillation creates a ``KnowledgeCandidate`` directly.
-    # Its evidence was admitted before the second semantic call, so mirroring
-    # it through a legacy MemoryEntry would reintroduce the very double-write
-    # boundary this module owns.  Older/manual surfaces still arrive as one of
-    # the compatibility candidate schemas and retain the bridge below.
-    if isinstance(candidate, KnowledgeCandidate):
-        separated = candidate
-    else:
-        separated = await mirror_candidate_and_evidence(backend, candidate)
-    candidate_before = separated.model_copy(deep=True)
+    candidate_before = candidate.model_copy(deep=True)
     disposition = _disposition(point)
-    if disposition in {"add", "refine", "supersede", "confirm"} and (
+    if disposition in {"add", "refine", "replace", "confirm"} and (
         project_root is None or not source_refs
     ):
         resolved_root, resolved_refs, resolved_verified_at = (
             await resolve_candidate_source_context(
                 backend,
-                candidate=separated,
-                evidence_items=await store.list_evidence(separated.id),
+                candidate=candidate,
+                evidence_items=await store.list_evidence(candidate.id),
                 project_root=project_root,
             )
         )
@@ -114,8 +59,9 @@ async def record_assimilation_result(
     predecessor_truth_ids: list[str] = []
     predecessor_entries: list[KnowledgeEntry] = []
     new_entries: list[KnowledgeEntry] = []
-    if disposition in {"add", "refine", "supersede"}:
-        for _index, item in enumerate(_knowledge_items(candidate, point), 1):
+    decision_id: str | None = None
+    if disposition in {"add", "refine", "replace"}:
+        for _index, item in enumerate(_knowledge_items(point), 1):
             if not source_refs:
                 raise ValueError("knowledge write requires a real source reference")
             identity = "\0".join(
@@ -144,7 +90,42 @@ async def record_assimilation_result(
             )
             new_entries.append(entry)
             knowledge_ids.append(entry.id)
-        if disposition in {"refine", "supersede"}:
+        decision_id = assimilation_decision_id(
+            candidate_id=candidate.id,
+            disposition=disposition,
+            knowledge_ids=knowledge_ids,
+            predecessor_ids=matched_truth_ids,
+            reason=str(point.get("reason", "")),
+        )
+        if await store.current_change_committed(decision_id):
+            current_entries_match = await _current_entries_match(
+                store,
+                project_name=candidate.project_name,
+                expected_entries=new_entries,
+            )
+            predecessor_still_current = False
+            for entry_id in matched_truth_ids:
+                if await store.get_entry(
+                    entry_id,
+                    project_name=candidate.project_name,
+                ) is not None:
+                    predecessor_still_current = True
+                    break
+            if not current_entries_match or predecessor_still_current:
+                raise RuntimeError(
+                    "committed knowledge change no longer matches current knowledge"
+                )
+            await _verify_normal_search_after_truth_write(
+                backend,
+                project_name=candidate.project_name,
+                project_root=_required_project_root(project_root),
+                added_entries=new_entries,
+                predecessor_entries=[],
+            )
+            candidate.status = _separated_status(disposition)
+            await store.save_candidate(candidate)
+            return knowledge_ids
+        if disposition in {"refine", "replace"}:
             missing_target_ids: list[str] = []
             for target_id in matched_truth_ids:
                 target = await store.get_entry(
@@ -153,39 +134,21 @@ async def record_assimilation_result(
                     project_root=project_root,
                 )
                 if target is None:
-                    # The legacy compatibility path still applies its own
-                    # supersede transition to a legacy truth type.  It may
-                    # mirror the replacement into current knowledge, but must
-                    # not pretend that the legacy target is a current
-                    # ``knowledge_entries`` row or copy it into this ledger.
-                    if isinstance(candidate, KnowledgeCandidate):
-                        missing_target_ids.append(target_id)
+                    missing_target_ids.append(target_id)
                     continue
                 predecessor_truth_ids.append(target.id)
                 predecessor_entries.append(target)
             if missing_target_ids:
-                decision_id = assimilation_decision_id(
-                    candidate_id=candidate.id,
-                    disposition=disposition,
-                    knowledge_ids=knowledge_ids,
-                    reason=str(point.get("reason", "")),
-                )
-                if await _is_committed_replacement_replay(
-                    store,
-                    decision_id=decision_id,
-                    project_name=candidate.project_name,
-                    disposition=disposition,
-                    new_entries=new_entries,
-                    predecessor_truth_ids=matched_truth_ids,
-                ):
-                    separated.status = _separated_status(disposition)
-                    await store.save_candidate(separated)
-                    return knowledge_ids
                 raise ValueError(
                     "assimilation replacement target is not current knowledge"
                 )
-            if any(
-                entry.id in predecessor_truth_ids for entry in new_entries
+            if len(predecessor_entries) == 1 and any(
+                entry.project_name == predecessor.project_name
+                and entry.module_path == predecessor.module_path
+                and entry.title == predecessor.title
+                and entry.statement == predecessor.statement
+                for entry in new_entries
+                for predecessor in predecessor_entries
             ):
                 raise ValueError(
                     f"{disposition} replacement is identical to current knowledge; "
@@ -205,17 +168,18 @@ async def record_assimilation_result(
         if len(knowledge_ids) != 1:
             raise ValueError("confirm target is no longer current project knowledge")
 
-    separated.status = _separated_status(disposition)
-    separated.updated_at = getattr(candidate, "updated_at", candidate.created_at)
+    candidate.status = _separated_status(disposition)
     decision = AssimilationDecision(
-        id=assimilation_decision_id(
+        id=decision_id
+        or assimilation_decision_id(
             candidate_id=candidate.id,
             disposition=disposition,
             knowledge_ids=knowledge_ids,
+            predecessor_ids=matched_truth_ids,
             reason=str(point.get("reason", "")),
         ),
         project_name=candidate.project_name,
-        candidate_id=separated.id,
+        candidate_id=candidate.id,
         disposition=disposition,
         canonical_truth_ids=knowledge_ids,
         predecessor_truth_ids=predecessor_truth_ids,
@@ -223,10 +187,10 @@ async def record_assimilation_result(
         reason=str(point.get("reason") or disposition),
     )
     if new_entries:
-        await store.apply_truth_mutation(
+        await store.apply_current_change(
             project_root=_required_project_root(project_root),
             candidate_before=candidate_before,
-            candidate_after=separated,
+            candidate_after=candidate,
             decision=decision,
             added_entries=new_entries,
             predecessor_entries=predecessor_entries,
@@ -234,14 +198,59 @@ async def record_assimilation_result(
                 entry.id: list(source_refs) for entry in new_entries
             },
         )
+        await _verify_normal_search_after_truth_write(
+            backend,
+            project_name=candidate.project_name,
+            project_root=_required_project_root(project_root),
+            added_entries=new_entries,
+            predecessor_entries=predecessor_entries,
+        )
         # The SQLite truth transaction is the commit point.  Persisting a
         # terminal workspace status before it succeeds would make a retry skip
         # a candidate whose durable knowledge was never written.
-        await store.save_candidate(separated)
+        await store.save_candidate(candidate)
     else:
-        await store.save_candidate(separated)
+        await store.save_candidate(candidate)
         await store.save_decision(decision, project_root=project_root)
     return knowledge_ids
+
+
+async def _verify_normal_search_after_truth_write(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+    project_root: Path | None,
+    added_entries: Sequence[KnowledgeEntry],
+    predecessor_entries: Sequence[KnowledgeEntry],
+) -> None:
+    """Require the ordinary search path to observe the committed mutation."""
+
+    from harness_mem.read_knowledge import search_current_knowledge
+
+    for entry in added_entries:
+        results = await search_current_knowledge(
+            backend,
+            project_name=project_name,
+            query=entry.statement,
+            limit=100000,
+            project_root=project_root,
+        )
+        if not any(item.id == entry.id for item in results):
+            raise RuntimeError(
+                "current knowledge write is not readable through normal search"
+            )
+    for predecessor in predecessor_entries:
+        results = await search_current_knowledge(
+            backend,
+            project_name=project_name,
+            query=predecessor.statement,
+            limit=100000,
+            project_root=project_root,
+        )
+        if any(item.id == predecessor.id for item in results):
+            raise RuntimeError(
+                "replaced knowledge remains readable through normal search"
+            )
 
 
 def assimilation_decision_id(
@@ -249,42 +258,28 @@ def assimilation_decision_id(
     candidate_id: str,
     disposition: str,
     knowledge_ids: Sequence[str],
+    predecessor_ids: Sequence[str] = (),
     reason: str,
 ) -> str:
     return str(
         uuid5(
             NAMESPACE_URL,
             "harness-mem:assimilation-decision:"
-            f"{candidate_id}:{disposition}:{','.join(knowledge_ids)}:{reason}",
+            f"{candidate_id}:{disposition}:{','.join(knowledge_ids)}:"
+            f"{','.join(predecessor_ids)}:{reason}",
         )
     )
 
 
-async def _is_committed_replacement_replay(
+async def _current_entries_match(
     store: Any,
     *,
-    decision_id: str,
     project_name: str,
-    disposition: str,
-    new_entries: Sequence[KnowledgeEntry],
-    predecessor_truth_ids: Sequence[str],
+    expected_entries: Sequence[KnowledgeEntry],
 ) -> bool:
-    mutation = await store.get_mutation(decision_id)
-    if mutation is None or (
-        mutation.project_name != project_name
-        or mutation.disposition != disposition
-        or mutation.current_knowledge_ids != [entry.id for entry in new_entries]
-    ):
+    if not expected_entries:
         return False
-    versions = [
-        await store.get_version(version_id)
-        for version_id in mutation.predecessor_version_ids
-    ]
-    if {item.knowledge_id for item in versions if item is not None} != set(
-        predecessor_truth_ids
-    ):
-        return False
-    for expected in new_entries:
+    for expected in expected_entries:
         current = await store.get_entry(expected.id, project_name=project_name)
         if current is None or (
             current.project_name != expected.project_name
@@ -298,7 +293,7 @@ async def _is_committed_replacement_replay(
 
 def _required_project_root(value: str | Path | None) -> Path:
     if value is None:
-        raise ValueError("knowledge mutation requires an explicit project root")
+        raise ValueError("knowledge change requires an explicit project root")
     return Path(value).expanduser().resolve()
 
 
@@ -424,11 +419,10 @@ async def resolve_separated_review(
         raise ValueError("knowledge review candidate already has a terminal decision")
     if candidate.status not in {"pending", "deferred", "conflict"}:
         raise ValueError("knowledge review candidate has an unsupported status")
-    candidate_before = candidate.model_copy(deep=True)
     evidence_items = await store.list_evidence(candidate.id)
 
     items = [dict(item) for item in knowledge_items]
-    writes_truth = disposition in {"add", "refine", "supersede"}
+    writes_truth = disposition in {"add", "refine", "replace"}
     needs_verified_evidence = writes_truth or disposition == "confirm"
     resolved_root: Path | None = None
     source_refs: list[ProjectKnowledgeSourceRef] = []
@@ -472,171 +466,133 @@ async def resolve_separated_review(
         raise ValueError(
             "knowledge review truth write requires canonical knowledge items"
         )
-    if disposition in {"refine", "supersede"} and len(target_knowledge_ids) != 1:
-        raise ValueError(f"{disposition} requires exactly one current knowledge target")
+    if disposition in {"refine", "replace"} and not target_knowledge_ids:
+        raise ValueError(f"{disposition} requires at least one current knowledge target")
     if disposition == "confirm" and len(target_knowledge_ids) != 1:
         raise ValueError("confirm requires exactly one current knowledge target")
 
     # Resolve every existing-truth dependency before creating a replacement.
     # Otherwise an invalid target would leave an orphan current entry behind
     # even though no assimilation decision can validly own it.
-    target: KnowledgeEntry | None = None
-    if disposition in {"refine", "supersede", "confirm"}:
+    targets: list[KnowledgeEntry] = []
+    if disposition in {"refine", "replace", "confirm"}:
         assert resolved_root is not None
-        target = await store.get_entry(
-            str(target_knowledge_ids[0]),
-            project_name=candidate.project_name,
-            project_root=resolved_root,
-        )
-        if target is None or target.project_name != candidate.project_name:
-            raise ValueError("review target is not current project knowledge")
-        target_validation = await validate_knowledge_sources(
-            backend,
-            project_name=candidate.project_name,
-            sources=await store.list_sources(target.id),
-            project_root=resolved_root,
-        )
-        if target_validation.verification_outcome != "verified":
-            reasons = ", ".join(target_validation.reason_codes)
-            raise ValueError(
-                "review target source is no longer current: " + reasons
+        for target_id in target_knowledge_ids:
+            target = await store.get_entry(
+                str(target_id),
+                project_name=candidate.project_name,
+                project_root=resolved_root,
             )
-
-    truth_ids: list[str] = []
-    predecessor_truth_ids: list[str] = []
-    predecessor_entries: list[KnowledgeEntry] = []
-    new_entries: list[KnowledgeEntry] = []
-    if writes_truth:
-        if disposition == "refine" and len(items) != 1:
-            raise ValueError("refine requires exactly one replacement item")
-        if disposition == "supersede" and not 1 <= len(items) <= 3:
-            raise ValueError("supersede requires one to three replacement items")
-        for index, item in enumerate(items, 1):
-            entry = _review_entry(
-                candidate,
-                item,
-                index,
-                source_refs=source_refs,
-                verified_at=verified_at,
+            if target is None or target.project_name != candidate.project_name:
+                raise ValueError("review target is not current project knowledge")
+            targets.append(target)
+        if disposition == "confirm":
+            target_validation = await validate_knowledge_sources(
+                backend,
+                project_name=candidate.project_name,
+                sources=await store.list_sources(targets[0].id),
+                project_root=resolved_root,
             )
-            new_entries.append(entry)
-            truth_ids.append(entry.id)
-        if disposition in {"refine", "supersede"}:
-            if target is None:  # Defensive: preflight above is required.
-                raise AssertionError("review replacement target was not preflighted")
-            predecessor_truth_ids = [target.id]
-            predecessor_entries = [target]
-            if any(
-                entry.project_name == target.project_name
-                and entry.module_path == target.module_path
-                and entry.title == target.title
-                and entry.statement == target.statement
-                for entry in new_entries
-            ):
+            if target_validation.verification_outcome != "verified":
+                reasons = ", ".join(target_validation.reason_codes)
                 raise ValueError(
-                    f"{disposition} replacement is identical to current knowledge; "
-                    "use confirm"
+                    "review target source is no longer current: " + reasons
                 )
-    elif disposition == "confirm":
-        if target is None:  # Defensive: preflight above is required.
-            raise AssertionError("review confirmation target was not preflighted")
-        truth_ids = [target.id]
 
-    candidate.status = _separated_status(disposition)
-    decision = AssimilationDecision(
-        id=str(
-            uuid5(
-                NAMESPACE_URL,
-                "harness-mem:review-decision:"
-                f"{candidate.id}:{disposition}:{','.join(truth_ids)}:{reason}",
-            )
-        ),
-        project_name=candidate.project_name,
-        candidate_id=candidate.id,
-        disposition=disposition,
-        canonical_truth_ids=truth_ids,
-        predecessor_truth_ids=predecessor_truth_ids,
-        predecessor_entries=predecessor_entries,
-        reason=reason,
+    if disposition in {"refine", "replace", "confirm"} and not targets:
+        raise AssertionError("review target was not preflighted")
+    point = {
+        "disposition": disposition,
+        "matched_truth_ids": list(target_knowledge_ids),
+        "knowledge_items": items,
+        "reason": reason,
+        "verified_at": verified_at,
+    }
+    truth_ids = await record_assimilation_result(
+        backend,
+        candidate=candidate,
+        point=point,
+        project_root=resolved_root,
+        source_refs=source_refs,
     )
-    if new_entries:
-        assert resolved_root is not None
-        await store.apply_truth_mutation(
-            project_root=resolved_root,
-            candidate_before=candidate_before,
-            candidate_after=candidate,
-            decision=decision,
-            added_entries=new_entries,
-            predecessor_entries=predecessor_entries,
-            source_refs_by_entry={
-                entry.id: list(source_refs) for entry in new_entries
-            },
-        )
-        await store.save_candidate(candidate)
-    else:
-        await store.save_candidate(candidate)
-        await store.save_decision(decision, project_root=resolved_root)
     return {
         "candidate_id": candidate.id,
         "disposition": disposition,
         "canonical_truth_ids": truth_ids,
-        "mutation_id": decision.id if new_entries else None,
+        "changed": bool(writes_truth),
     }
 
 
-async def undo_separated_review(
+async def delete_current_knowledge(
     backend: LocalMemoryBackend,
     *,
-    decision_id: str,
-    reason: str,
-    project_root: str | Path | None = None,
-    expected_project_name: str | None = None,
+    project_name: str,
+    target_knowledge_ids: Sequence[str],
 ) -> dict[str, Any]:
-    """Reverse a Review change using its audit snapshot, not historical truth.
+    """Delete exactly one current project-knowledge entry."""
 
-    Current truth is intentionally the only knowledge held in canonical
-    SQLite.  The original decision carries the replaced-entry snapshot needed
-    to restore it; entries created by that decision are removed from current
-    truth and remain described only by the audit record.
-    """
+    normalized_project = str(project_name).strip()
+    targets = [str(value).strip() for value in target_knowledge_ids]
+    if not normalized_project:
+        raise ValueError("knowledge delete requires project_name")
+    if len(targets) != 1 or not targets[0]:
+        raise ValueError("knowledge delete requires exactly one target knowledge id")
 
-    del project_root
+    entry_id = targets[0]
     store = backend.structured_store.knowledge_store
-    original = await store.get_decision(decision_id)
-    if original is None:
-        raise ValueError("knowledge review decision is missing")
-    if expected_project_name and original.project_name != expected_project_name:
-        raise ValueError("knowledge review decision belongs to another project")
-    reversal_id = str(
-        uuid5(
-            NAMESPACE_URL,
-            f"harness-mem:review-undo:{decision_id}:{reason}",
-        )
+    current = await store.get_entry(
+        entry_id,
+        project_name=normalized_project,
     )
-    outcome = await store.undo_truth_mutation(
-        mutation_id=decision_id,
-        reversal_id=reversal_id,
+    if current is None:
+        raise ValueError("knowledge delete target is not current project knowledge")
+    await store.delete_current_entry(
+        project_name=normalized_project,
+        entry_id=entry_id,
     )
+    await _verify_normal_search_after_truth_write(
+        backend,
+        project_name=normalized_project,
+        project_root=None,
+        added_entries=[],
+        predecessor_entries=[current],
+    )
+    if await store.list_sources(entry_id):
+        raise RuntimeError("deleted knowledge sources remain in current storage")
     return {
-        "decision_id": decision_id,
-        "reversal_decision_id": reversal_id,
-        "restored_truth_ids": outcome["restored_knowledge_ids"],
-        "retired_truth_ids": outcome["retired_knowledge_ids"],
+        "deleted_knowledge_ids": [entry_id],
     }
 
 
-def _knowledge_items(candidate: Any, point: Mapping[str, Any]) -> list[dict[str, Any]]:
+def _knowledge_items(point: Mapping[str, Any]) -> list[dict[str, Any]]:
     supplied = list(point.get("knowledge_items") or [])
     if supplied:
-        return [
-            {
-                "title": str(item["title"]).strip(),
-                "statement": str(item["statement"]).strip(),
-                "topic_path": [str(part).strip() for part in item["topic_path"]],
-                "claim_kind": str(item["claim_kind"]),
-            }
-            for item in supplied
-        ]
+        normalized: list[dict[str, Any]] = []
+        for item in supplied:
+            title = str(item.get("title") or "").strip()
+            statement = str(item.get("statement") or "").strip()
+            topic_path = [str(part).strip() for part in item.get("topic_path") or []]
+            claim_kind = str(item.get("claim_kind") or "")
+            if not title or not statement or not topic_path:
+                raise ValueError(
+                    "review knowledge item must have title, statement, and topic path"
+                )
+            if claim_kind not in {
+                "design_requirement",
+                "implementation_fact",
+                "durable_preference",
+                "procedure",
+            }:
+                raise ValueError("review knowledge item has an invalid claim kind")
+            normalized.append(
+                {
+                    "title": title,
+                    "statement": statement,
+                    "topic_path": topic_path,
+                    "claim_kind": claim_kind,
+                }
+            )
+        return normalized
 
     title = str(point.get("canonical_title") or "").strip()
     statement = str(point.get("canonical_statement") or "").strip()
@@ -648,77 +604,9 @@ def _knowledge_items(candidate: Any, point: Mapping[str, Any]) -> list[dict[str,
             "title": title,
             "statement": statement,
             "topic_path": topic_path,
-            "claim_kind": str(point.get("claim_kind") or _infer_claim_kind(candidate)),
+            "claim_kind": str(point.get("claim_kind") or "procedure"),
         }
     ]
-
-
-def _review_entry(
-    candidate: KnowledgeCandidate,
-    item: Mapping[str, Any],
-    _index: int,
-    *,
-    source_refs: Sequence[ProjectKnowledgeSourceRef],
-    verified_at: Any,
-) -> KnowledgeEntry:
-    title = str(item.get("title") or "").strip()
-    statement = str(item.get("statement") or "").strip()
-    topic_path = [str(part).strip() for part in item.get("topic_path") or []]
-    claim_kind = str(item.get("claim_kind") or "")
-    if not title or not statement or not topic_path:
-        raise ValueError(
-            "review knowledge item must have title, statement, and topic path"
-        )
-    if claim_kind not in {
-        "design_requirement",
-        "implementation_fact",
-        "durable_preference",
-        "procedure",
-    }:
-        raise ValueError("review knowledge item has an invalid claim kind")
-    identity = "\0".join(
-        [candidate.project_name, *topic_path, title, statement]
-    )
-    return KnowledgeEntry(
-        id=str(
-            uuid5(
-                NAMESPACE_URL,
-                f"harness-mem:knowledge:{identity}",
-            )
-        ),
-        project_name=candidate.project_name,
-        title=title,
-        statement=statement,
-        module_path=topic_path,
-        verified_at=verified_at,
-    )
-
-
-def _candidate_statement(candidate: Any) -> str:
-    if isinstance(candidate, MemoryEntry):
-        return candidate.content
-    if isinstance(candidate, RuleCandidate):
-        return f"When {candidate.trigger}, {candidate.pattern}".strip()
-    if isinstance(candidate, RelationFact):
-        return f"{candidate.source_entity} {candidate.relation_type} {candidate.target_entity}"
-    raise TypeError(f"unsupported candidate type: {type(candidate).__name__}")
-
-
-def _candidate_type(candidate: Any) -> KnowledgeCandidateType:
-    if isinstance(candidate, MemoryEntry):
-        return "memory"
-    if isinstance(candidate, RuleCandidate):
-        return "rule"
-    if isinstance(candidate, RelationFact):
-        return "relation"
-    raise TypeError(f"unsupported candidate type: {type(candidate).__name__}")
-
-
-def _candidate_status(candidate: Any) -> KnowledgeCandidateStatus:
-    status = str(getattr(candidate, "status", "pending"))
-    if status in {"pending", "deferred", "rejected"}:
-        return cast(KnowledgeCandidateStatus, status)
-    return "assimilated"
 
 
 def _separated_status(disposition: AssimilationDisposition) -> KnowledgeCandidateStatus:
@@ -731,30 +619,13 @@ def _separated_status(disposition: AssimilationDisposition) -> KnowledgeCandidat
     return "assimilated"
 
 
-def _infer_claim_kind(candidate: Any) -> str:
-    if isinstance(candidate, KnowledgeCandidate):
-        if candidate.candidate_type == "rule":
-            return "procedure"
-        return "procedure"
-    if isinstance(candidate, RuleCandidate):
-        return "procedure"
-    if isinstance(candidate, MemoryEntry):
-        if candidate.category in {"architecture", "decision"}:
-            return "design_requirement"
-        if candidate.evidence_basis == "repository":
-            return "implementation_fact"
-        if candidate.evidence_basis == "user_statement":
-            return "durable_preference"
-    return "procedure"
-
-
 def _disposition(point: Mapping[str, Any]) -> AssimilationDisposition:
     value = str(point.get("disposition") or "reject")
     allowed = {
         "add",
         "refine",
         "confirm",
-        "supersede",
+        "replace",
         "no_write",
         "handoff",
         "defer",
@@ -767,9 +638,8 @@ def _disposition(point: Mapping[str, Any]) -> AssimilationDisposition:
 
 
 __all__ = [
-    "mirror_candidate_and_evidence",
+    "delete_current_knowledge",
     "record_assimilation_result",
     "resolve_candidate_source_context",
     "resolve_separated_review",
-    "undo_separated_review",
 ]

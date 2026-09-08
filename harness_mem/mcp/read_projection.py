@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from typing import Iterable
 
 
 def _text(value: object) -> str:
@@ -74,30 +74,7 @@ def project_relation_facts(
     return projected
 
 
-def project_wake_snapshot(snapshot: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
-    """Keep ordinary wake useful while removing its plan and audit machinery."""
-
-    def entries(field: str, *, title: str) -> list[dict[str, str]]:
-        seen: set[str] = set()
-        projected: list[dict[str, str]] = []
-        for entry in snapshot.get(field) or []:
-            if not isinstance(entry, dict):
-                continue
-            statement = _text(entry.get("summary"))
-            if not statement or statement in seen:
-                continue
-            seen.add(statement)
-            projected.append({"title": title, "statement": statement})
-        return projected
-
-    return {
-        "long_term_memory": entries("essential_truth", title="Project memory"),
-        "active_context": entries("active_task", title="Current context"),
-    }
-
-
 __all__ = [
     "project_memory_entries",
     "project_relation_facts",
-    "project_wake_snapshot",
 ]

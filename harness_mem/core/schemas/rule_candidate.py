@@ -47,6 +47,7 @@ class RuleCandidate(BaseModel):
     verified_at: datetime | None = None
     assimilation_disposition: AssimilationDisposition | None = None
     assimilation_reason: str | None = None
+    assimilation_target_id: str | None = None
     canonical_title: str | None = None
     topic_path: list[str] = Field(default_factory=list)
     created_at: datetime = Field(
@@ -73,6 +74,7 @@ class RuleCandidate(BaseModel):
             "verified_at": self.verified_at.isoformat() if self.verified_at else None,
             "assimilation_disposition": self.assimilation_disposition,
             "assimilation_reason": self.assimilation_reason,
+            "assimilation_target_id": self.assimilation_target_id,
             "canonical_title": self.canonical_title,
             "topic_path": list(self.topic_path),
             "created_at": self.created_at.isoformat(),
@@ -100,6 +102,7 @@ class RuleCandidate(BaseModel):
         data.setdefault("verified_at", None)
         data.setdefault("assimilation_disposition", None)
         data.setdefault("assimilation_reason", None)
+        data.setdefault("assimilation_target_id", None)
         data.setdefault("canonical_title", None)
         data.setdefault("topic_path", [])
         return cls(**data)

@@ -669,7 +669,7 @@ def test_retrieval_probe_requires_current_truth_to_return_from_normal_search(
         )
         asyncio.run(backend.structured_store.knowledge_store.save_candidate(candidate))
         asyncio.run(
-            backend.structured_store.knowledge_store.apply_truth_mutation(
+            backend.structured_store.knowledge_store.apply_current_change(
                 candidate_before=candidate,
                 candidate_after=candidate.model_copy(update={"status": "assimilated"}),
                 decision=decision,

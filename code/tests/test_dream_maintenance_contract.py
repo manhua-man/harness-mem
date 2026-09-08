@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-import builtins
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import hashlib
 from pathlib import Path
-import struct
 import threading
 from types import SimpleNamespace
 from typing import Any
@@ -15,7 +13,6 @@ import pytest
 
 import harness_mem.commands.dream as dream_module
 import harness_mem.commands.maintenance as maintenance_module
-import harness_mem.embedding as embedding_module
 import harness_mem.mcp.tool_handlers as tool_handlers
 from harness_mem.commands.dream import (
     DreamSchedulerDecision,
@@ -23,7 +20,11 @@ from harness_mem.commands.dream import (
     dream_once,
     dream_status_snapshot,
     latest_dream_ledger,
-    undo_dream_item,
+)
+from harness_mem.commands.dream_assimilation import (
+    DreamAssimilationCandidate,
+    prepare_dream_assimilation,
+    validate_dream_assimilation_decision,
 )
 from harness_mem.autonomous.models import (
     AssimilationDecision as ProviderAssimilationDecision,
@@ -31,10 +32,6 @@ from harness_mem.autonomous.models import (
 )
 from harness_mem.autonomous.provider import ProviderError, ProviderResult
 from harness_mem.commands.maintenance import run_post_turn_maintenance
-from harness_mem.commands.metabolism_pass import MetabolismPass
-from harness_mem.commands.metabolism_pass import _load_pool_embeddings
-from harness_mem.commands.replay_window import ReplayWindow
-from harness_mem.commands.support import get_embedding_model_id
 from harness_mem.config.merge import MergedConfig
 from harness_mem.core.schemas.dream_run import DreamRun
 from harness_mem.core.schemas.knowledge import (
@@ -43,14 +40,8 @@ from harness_mem.core.schemas.knowledge import (
     KnowledgeEntry,
 )
 from harness_mem.core.schemas.project_knowledge_base import ProjectKnowledgeSourceRef
-from harness_mem.core.schemas.memory_entry import MemoryEntry
-from harness_mem.core.schemas.merge_suggestion_candidate import MergeSuggestionCandidate
 from harness_mem.core.schemas.reflection_job import ReflectionJob
-from harness_mem.core.schemas.stale_truth_suggestion_candidate import (
-    StaleTruthSuggestionCandidate,
-)
-from harness_mem.core.schemas.supersede_candidate import SupersedeCandidate
-from harness_mem.embedding import embeddings_disabled, temporarily_disable_embeddings
+from harness_mem.embedding import embeddings_disabled
 from harness_mem.retrieval_signals import record_retrieval_signal
 from harness_mem.storage.reflection_job_store import ReflectionJobStore
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
@@ -75,14 +66,6 @@ def backend(tmp_path, monkeypatch):
         yield backend
     finally:
         _run(backend.close())
-
-
-def _empty_window() -> ReplayWindow:
-    now = datetime.now(timezone.utc)
-    return ReplayWindow(
-        time_range=(now - timedelta(days=1), now),
-        dimensions={},
-    )
 
 
 def _publish_current_knowledge(
@@ -122,7 +105,7 @@ def _publish_current_knowledge(
     )
     _run(store.save_candidate(candidate))
     _run(
-        store.apply_truth_mutation(
+        store.apply_current_change(
             candidate_before=candidate,
             candidate_after=candidate.model_copy(update={"status": "assimilated"}),
             decision=decision,
@@ -395,137 +378,34 @@ def test_hook_dream_uses_job_host_when_project_selects_another_cli(
     assert captured["provider"] is None
 
 
-def test_dream_closes_legacy_supersede_candidates_without_pending_review(
+def test_dream_does_not_read_legacy_candidate_stores(
     backend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    old_id = _run(
-        backend.structured_store.save_memory_entry(
-            MemoryEntry(
-                project_name="demo",
-                category="decision",
-                content="supersede-review-token old local-first storage decision",
-                source="test",
-                status="user_confirmed",
-            )
-        )
-    )
-    new_id = _run(
-        backend.structured_store.save_memory_entry(
-            MemoryEntry(
-                project_name="demo",
-                category="decision",
-                content="supersede-review-token new canonical storage decision",
-                source="test",
-                status="user_confirmed",
-            )
-        )
-    )
-    candidate = SupersedeCandidate(
-        project_name="demo",
-        target_type="memory_entry",
-        target_id=old_id,
-        replacement_type="memory_entry",
-        replacement_id=new_id,
-        reason="New current decision supersedes the old one.",
-        evidence="dream found matching evidence",
-        source="test",
-        confidence=0.92,
-    )
+    async def fail_legacy_read(*_args, **_kwargs):
+        raise AssertionError("Dream must not read legacy candidate stores")
 
-    async def fake_select_metabolism_pass(*_args, **_kwargs) -> MetabolismPass:
-        return MetabolismPass(
-            window=_empty_window(),
-            merge=[],
-            stale=[],
-            supersede=[candidate],
-            notes=["fake supersede pass"],
+    for method_name in (
+        "list_merge_suggestion_candidates",
+        "list_stale_truth_suggestion_candidates",
+        "list_supersede_candidates",
+    ):
+        monkeypatch.setattr(
+            backend.structured_store,
+            method_name,
+            fail_legacy_read,
         )
 
-    monkeypatch.setattr(
-        dream_module,
-        "select_metabolism_pass",
-        fake_select_metabolism_pass,
-    )
-
-    run = _run(dream_once(backend, project_name="demo", config=None, source="agent"))
-
-    reloaded_candidate = _run(
-        backend.structured_store.get_supersede_candidate(candidate.id)
-    )
-    old_entry = _run(backend.structured_store.get_memory_entry(old_id))
-    new_entry = _run(backend.structured_store.get_memory_entry(new_id))
-
-    assert reloaded_candidate is not None
-    assert reloaded_candidate.status == "rejected"
-    assert old_entry is not None
-    assert old_entry.valid_to is None
-    assert old_entry.superseded_by == []
-    assert new_entry is not None
-    assert new_entry.supersedes == []
-    assert "pending_review" not in run.handling_summary
-    assert run.handling_summary["applied"] == 0
-    assert run.items[0].final_action == "archived"
-
-
-def test_dream_never_directly_mutates_legacy_merge_or_stale_truth(
-    backend,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    first = MemoryEntry(
-        id="legacy-a",
-        project_name="demo",
-        category="decision",
-        content="Keep the first legacy truth.",
-        source="fixture",
-        status="user_confirmed",
-    )
-    second = MemoryEntry(
-        id="legacy-b",
-        project_name="demo",
-        category="decision",
-        content="Keep the second legacy truth.",
-        source="fixture",
-        status="user_confirmed",
-    )
-    _run(backend.structured_store.save_memory_entry(first))
-    _run(backend.structured_store.save_memory_entry(second))
-    merge = MergeSuggestionCandidate(
-        id="legacy-merge",
-        project_name="demo",
-        target_a_id=first.id,
-        target_a_kind="memory_entry",
-        target_b_id=second.id,
-        target_b_kind="memory_entry",
-        similarity_score=0.99,
-        metabolism_run_id="pending",
-    )
-    stale = StaleTruthSuggestionCandidate(
-        id="legacy-stale",
-        project_name="demo",
-        target_id=first.id,
-        target_kind="memory_entry",
-        days_since_last_surface=365,
-        metabolism_run_id="pending",
-    )
-
-    async def fake_select_metabolism_pass(*_args, **_kwargs) -> MetabolismPass:
-        return MetabolismPass(
-            window=_empty_window(), merge=[merge], stale=[stale], supersede=[]
-        )
-
-    monkeypatch.setattr(
-        dream_module, "select_metabolism_pass", fake_select_metabolism_pass
-    )
     run = _run(dream_once(backend, project_name="demo", config=MergedConfig()))
 
-    assert [item.final_action for item in run.items] == ["archived", "archived"]
-    assert _run(backend.structured_store.get_memory_entry(first.id)).valid_to is None
-    assert _run(backend.structured_store.get_memory_entry(second.id)).valid_to is None
-    assert _run(backend.structured_store.get_merge_suggestion_candidate(merge.id)).status == "rejected"
-    assert _run(backend.structured_store.get_stale_truth_suggestion_candidate(stale.id)).status == "rejected"
-
-
+    assert run.items == []
+    assert run.handling_summary == {
+        "processed": 0,
+        "applied": 0,
+        "rejected": 0,
+        "skipped": 0,
+        "failed": 0,
+    }
 def test_dream_compares_and_deduplicates_source_backed_current_knowledge(
     backend,
     monkeypatch: pytest.MonkeyPatch,
@@ -548,12 +428,6 @@ def test_dream_compares_and_deduplicates_source_backed_current_knowledge(
     project_root, current = _publish_current_knowledge(backend, first, second)
     first, second = current
 
-    async def fake_select_metabolism_pass(*_args, **_kwargs) -> MetabolismPass:
-        return MetabolismPass(window=_empty_window(), merge=[], stale=[], supersede=[])
-
-    monkeypatch.setattr(
-        dream_module, "select_metabolism_pass", fake_select_metabolism_pass
-    )
     run = _run(
         dream_once(
             backend,
@@ -574,8 +448,8 @@ def test_dream_compares_and_deduplicates_source_backed_current_knowledge(
     assert _run(
         store.get_entry("knowledge-second", project_name="demo", project_root=project_root)
     ) is None
-    assert run.items[1].result["truth_change"] == "retired"
-    assert run.items[1].undo["kind"] == "knowledge_mutation"
+    assert run.items[1].result["truth_change"] == "deleted"
+    assert "undo" not in run.items[1].to_dict()
 
 
 def test_dream_archives_multi_entry_conflict_without_selecting_a_winner(
@@ -600,12 +474,6 @@ def test_dream_archives_multi_entry_conflict_without_selecting_a_winner(
     project_root, current = _publish_current_knowledge(backend, first, second)
     first, second = current
 
-    async def fake_select_metabolism_pass(*_args, **_kwargs) -> MetabolismPass:
-        return MetabolismPass(window=_empty_window(), merge=[], stale=[], supersede=[])
-
-    monkeypatch.setattr(
-        dream_module, "select_metabolism_pass", fake_select_metabolism_pass
-    )
     run = _run(
         dream_once(
             backend,
@@ -651,9 +519,6 @@ def test_dream_compares_source_backed_conflict_and_rejects_a_guess(
     project_root, current = _publish_current_knowledge(backend, first, second)
     first, second = current
 
-    async def fake_select_metabolism_pass(*_args, **_kwargs) -> MetabolismPass:
-        return MetabolismPass(window=_empty_window(), merge=[], stale=[], supersede=[])
-
     class _ConflictProvider(_DreamVerificationProvider):
         def assimilate(self, manifest, *, runtime_dir, heartbeat=None):
             del runtime_dir, heartbeat
@@ -687,9 +552,6 @@ def test_dream_compares_source_backed_conflict_and_rejects_a_guess(
                 event_count=1,
             )
 
-    monkeypatch.setattr(
-        dream_module, "select_metabolism_pass", fake_select_metabolism_pass
-    )
     provider = _ConflictProvider()
     run = _run(
         dream_once(
@@ -740,12 +602,6 @@ def test_dream_archives_aged_claim_and_negative_feedback_without_profile(
         )
     )
 
-    async def fake_select_metabolism_pass(*_args, **_kwargs) -> MetabolismPass:
-        return MetabolismPass(window=_empty_window(), merge=[], stale=[], supersede=[])
-
-    monkeypatch.setattr(
-        dream_module, "select_metabolism_pass", fake_select_metabolism_pass
-    )
     run = _run(
         dream_once(
             backend,
@@ -782,12 +638,6 @@ def test_dream_refreshes_one_reopenable_entry_with_restricted_provider(
     project_root, current = _publish_current_knowledge(backend, entry)
     entry = current[0]
 
-    async def fake_select_metabolism_pass(*_args, **_kwargs) -> MetabolismPass:
-        return MetabolismPass(window=_empty_window(), merge=[], stale=[], supersede=[])
-
-    monkeypatch.setattr(
-        dream_module, "select_metabolism_pass", fake_select_metabolism_pass
-    )
     provider = _DreamVerificationProvider()
     run = _run(
         dream_once(
@@ -805,14 +655,13 @@ def test_dream_refreshes_one_reopenable_entry_with_restricted_provider(
     assert run.items[0].result["truth_change"] == "verification_refreshed"
     assert refreshed is not None
     assert refreshed.statement == entry.statement
-    assert refreshed.revision == entry.revision
     assert refreshed.verified_at is not None and refreshed.verified_at > entry.verified_at
     assert _run(store.list_candidates("demo")) == []
     assert provider.manifests[0]["source_excerpts"][0]["content"] == entry.statement
     assert "file:" not in str(provider.manifests[0])
 
 
-def test_dream_retires_one_entry_only_when_current_source_contradicts(
+def test_dream_deletes_one_entry_only_when_current_source_contradicts(
     backend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -828,12 +677,6 @@ def test_dream_retires_one_entry_only_when_current_source_contradicts(
     project_root, current = _publish_current_knowledge(backend, entry)
     entry = current[0]
 
-    async def fake_select_metabolism_pass(*_args, **_kwargs) -> MetabolismPass:
-        return MetabolismPass(window=_empty_window(), merge=[], stale=[], supersede=[])
-
-    monkeypatch.setattr(
-        dream_module, "select_metabolism_pass", fake_select_metabolism_pass
-    )
     run = _run(
         dream_once(
             backend,
@@ -846,22 +689,10 @@ def test_dream_retires_one_entry_only_when_current_source_contradicts(
     )
 
     assert run.items[0].final_action == "applied"
-    assert run.items[0].result["truth_change"] == "retired"
+    assert run.items[0].result["truth_change"] == "deleted"
     assert _run(store.get_entry(entry.id, project_name="demo")) is None
-    assert len(_run(store.list_mutations("demo"))) == 2
-
-    undone = _run(
-        undo_dream_item(
-            backend,
-            project_name="demo",
-            run_id=run.id,
-            item_id=run.items[0].id,
-        )
-    )
-    assert undone["success"] is True
-    restored = _run(store.get_entry(entry.id, project_name="demo"))
-    assert restored is not None
-    assert restored.statement == entry.statement
+    assert _run(store.list_sources(entry.id)) == []
+    assert "undo" not in run.items[0].to_dict()
 
 
 def test_dream_refines_changed_local_source_through_assimilation(
@@ -888,9 +719,6 @@ def test_dream_refines_changed_local_source_through_assimilation(
     )
     source_path = project_root / "source.md"
     source_path.write_text(new_statement, encoding="utf-8")
-
-    async def fake_select_metabolism_pass(*_args, **_kwargs) -> MetabolismPass:
-        return MetabolismPass(window=_empty_window(), merge=[], stale=[], supersede=[])
 
     class _RefiningProvider(_DreamVerificationProvider):
         def __init__(self) -> None:
@@ -935,9 +763,6 @@ def test_dream_refines_changed_local_source_through_assimilation(
                 event_count=1,
             )
 
-    monkeypatch.setattr(
-        dream_module, "select_metabolism_pass", fake_select_metabolism_pass
-    )
     provider = _RefiningProvider()
     run = _run(
         dream_once(
@@ -964,6 +789,79 @@ def test_dream_refines_changed_local_source_through_assimilation(
     assert _run(store.list_candidates("demo")) == []
 
 
+def test_dream_replace_can_target_multiple_current_rows() -> None:
+    first = KnowledgeEntry(
+        id="dream-old-one",
+        project_name="demo",
+        title="Old one",
+        statement="The first old rule is no longer correct.",
+        module_path=["rules"],
+    )
+    second = KnowledgeEntry(
+        id="dream-old-two",
+        project_name="demo",
+        title="Old two",
+        statement="The second old rule is no longer correct.",
+        module_path=["rules"],
+    )
+    prepared = prepare_dream_assimilation(
+        project_name="demo",
+        project_root=".",
+        run_id="dream-multi-target",
+        signal_kind="conflict",
+        candidates=[
+            DreamAssimilationCandidate(
+                candidate_id="candidate-one",
+                entry=first,
+                sources=(),
+                semantic_support="contradicted",
+                future_scope="durable",
+                verification_reason="The source contradicts the old rule.",
+                source_excerpts=(),
+            ),
+            DreamAssimilationCandidate(
+                candidate_id="candidate-two",
+                entry=second,
+                sources=(),
+                semantic_support="contradicted",
+                future_scope="durable",
+                verification_reason="The source contradicts the old rule.",
+                source_excerpts=(),
+            ),
+        ],
+    )
+    decision = ProviderAssimilationDecision.model_validate(
+        {
+            "points": [
+                {
+                    "candidate_id": "candidate-one",
+                    "disposition": "replace",
+                    "matched_truth_handles": ["T1", "T2"],
+                    "knowledge_items": [
+                        {
+                            "title": "Current combined rule",
+                            "statement": "The two old rules are replaced by one clear rule.",
+                            "topic_path": ["rules"],
+                            "claim_kind": "implementation_fact",
+                        }
+                    ],
+                    "reason": "Both old rows are contradicted by the same source.",
+                },
+                {
+                    "candidate_id": "candidate-two",
+                    "disposition": "no_write",
+                    "matched_truth_handles": [],
+                    "reason": "Its row is handled by the combined replacement.",
+                },
+            ]
+        }
+    )
+
+    plan = validate_dream_assimilation_decision(prepared, decision)
+
+    assert plan[0]["matched_truth_ids"] == [first.id, second.id]
+
+
 def test_dream_never_retires_knowledge_from_a_truncated_source_excerpt(
     backend,
     monkeypatch: pytest.MonkeyPatch,
@@ -987,12 +885,6 @@ def test_dream_never_retires_knowledge_from_a_truncated_source_excerpt(
     )
     entry = current[0]
 
-    async def fake_select_metabolism_pass(*_args, **_kwargs) -> MetabolismPass:
-        return MetabolismPass(window=_empty_window(), merge=[], stale=[], supersede=[])
-
-    monkeypatch.setattr(
-        dream_module, "select_metabolism_pass", fake_select_metabolism_pass
-    )
     provider = _DreamVerificationProvider(support="contradicted")
     run = _run(
         dream_once(
@@ -1005,7 +897,7 @@ def test_dream_never_retires_knowledge_from_a_truncated_source_excerpt(
         )
     )
 
-    assert run.items[0].final_action == "archived"
+    assert run.items[0].final_action == "skipped"
     assert run.items[0].result["source_status"] == "truncated"
     assert provider.manifests == []
     assert _run(store.get_entry(entry.id, project_name="demo")) == entry
@@ -1025,18 +917,12 @@ def test_dream_provider_failure_closes_the_processing_ledger_run(
     )
     project_root, _current = _publish_current_knowledge(backend, entry)
 
-    async def fake_select_metabolism_pass(*_args, **_kwargs) -> MetabolismPass:
-        return MetabolismPass(window=_empty_window(), merge=[], stale=[], supersede=[])
-
     class _FailingProvider:
         name = "failing-dream-provider"
 
         def verify(self, *_args, **_kwargs):
             raise ProviderError("simulated provider failure", kind="transient")
 
-    monkeypatch.setattr(
-        dream_module, "select_metabolism_pass", fake_select_metabolism_pass
-    )
     with pytest.raises(ProviderError, match="simulated provider failure"):
         _run(
             dream_once(
@@ -1069,15 +955,9 @@ def test_dream_provider_construction_failure_closes_the_processing_ledger_run(
     )
     project_root, _current = _publish_current_knowledge(backend, entry)
 
-    async def fake_select_metabolism_pass(*_args, **_kwargs) -> MetabolismPass:
-        return MetabolismPass(window=_empty_window(), merge=[], stale=[], supersede=[])
-
     def fail_provider_construction(_config: Any, _client: str) -> None:
         raise ProviderError("simulated provider construction failure", kind="transient")
 
-    monkeypatch.setattr(
-        dream_module, "select_metabolism_pass", fake_select_metabolism_pass
-    )
     from harness_mem.autonomous.executors import registry as executor_registry
 
     monkeypatch.setattr(
@@ -1131,12 +1011,6 @@ def test_dream_archives_latest_ignored_feedback_without_workspace_candidate(
         )
     )
 
-    async def fake_select_metabolism_pass(*_args, **_kwargs) -> MetabolismPass:
-        return MetabolismPass(window=_empty_window(), merge=[], stale=[], supersede=[])
-
-    monkeypatch.setattr(
-        dream_module, "select_metabolism_pass", fake_select_metabolism_pass
-    )
     run = _run(
         dream_once(
             backend,
@@ -1199,12 +1073,6 @@ def test_dream_positive_feedback_does_not_create_a_pending_recheck(
     project_root, current = _publish_current_knowledge(backend, entry)
     entry = current[0]
 
-    async def fake_select_metabolism_pass(*_args, **_kwargs) -> MetabolismPass:
-        return MetabolismPass(window=_empty_window(), merge=[], stale=[], supersede=[])
-
-    monkeypatch.setattr(
-        dream_module, "select_metabolism_pass", fake_select_metabolism_pass
-    )
     _run(
         record_retrieval_signal(
             backend,
@@ -1478,61 +1346,6 @@ def test_dream_wall_clock_timeout_fails_job_and_records_tick(
     assert runs[0].status == "failed"
     assert runs[0].completed_at is not None
     assert "dream runtime exceeded" in " ".join(runs[0].notes or [])
-
-
-def test_disabled_embedding_context_uses_only_persisted_vectors(
-    backend,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    ids = [
-        _run(
-            backend.structured_store.save_memory_entry(
-                MemoryEntry(
-                    project_name="demo",
-                    category="decision",
-                    content=f"entry {index}",
-                    source="test",
-                    status="user_confirmed",
-                )
-            )
-        )
-        for index in range(2)
-    ]
-    model_id = get_embedding_model_id()
-    with backend.structured_store.index.locked_connection() as conn:
-        conn.execute(
-            """
-            INSERT INTO vec_embeddings
-                (entry_id, model_id, model_version, embedding, created_at)
-            VALUES (?, ?, 'test', ?, 1)
-            """,
-            (ids[0], model_id, struct.pack("=ff", 3.0, 4.0)),
-        )
-        conn.commit()
-
-    def fail_loader(*_args, **_kwargs):
-        raise AssertionError("post-turn Dream must not load an embedding model")
-
-    real_import = builtins.__import__
-
-    def reject_numpy(name, *args, **kwargs):
-        if name == "numpy" or name.startswith("numpy."):
-            raise ModuleNotFoundError("numpy is intentionally unavailable")
-        return real_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(embedding_module, "get_model_loader", fail_loader)
-    monkeypatch.setattr(builtins, "__import__", reject_numpy)
-    with temporarily_disable_embeddings():
-        assert embeddings_disabled() is True
-        vectors = _run(
-            _load_pool_embeddings(
-                backend,
-                backend.structured_store,
-                ids,
-            )
-        )
-    assert set(vectors) == {ids[0]}
-    assert vectors[ids[0]] == pytest.approx([0.6, 0.8])
 
 
 def test_post_turn_stages_before_waking_dream_with_embeddings_disabled(

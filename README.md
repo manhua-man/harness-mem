@@ -4,7 +4,7 @@
 
 <h1 align="center">harness-mem</h1>
 
-<p align="center"><strong>Local-first, auditable project memory for AI Agents.</strong></p>
+<p align="center"><strong>Local project memory for AI Agents.</strong></p>
 
 <p align="center"><a href="README.zh-CN.md">简体中文</a></p>
 
@@ -25,8 +25,8 @@ Install the release:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.27 \
-  harness-mem==0.9.27
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.28 \
+  harness-mem==0.9.28
 ```
 
 Run this once for each Agent app you actually use. You do not rerun it for every
@@ -49,7 +49,7 @@ plugin already provides it. Start a new task after setup and use `hm` in any
 project. The first use in each project prepares that project and its Hooks.
 The package is distributed through GitHub Releases, not PyPI.
 
-For optional local vector or hybrid search, install `"harness-mem[hybrid]==0.9.27"`
+For optional local vector or hybrid search, install `"harness-mem[hybrid]==0.9.28"`
 from the same release index. For the complete setup and host-specific exception,
 see [Quickstart](docs/quickstart.md).
 
@@ -74,6 +74,10 @@ The unified entry replies in your language with what it remembered, what it
 found, or what needs correction. You do not have to choose a storage system,
 model connection, or internal workflow.
 
+harness-mem keeps only current memory. A correction replaces the old item, and
+an item that is no longer valid is deleted. It does not keep old knowledge
+versions, archived knowledge copies, change history, or undo.
+
 At a new session, relevant context is loaded automatically. If you separately
 turn on automatic organization, completed sessions are processed in the
 background through the command-line Agent you selected. If it is unavailable,
@@ -82,11 +86,13 @@ harness-mem reports that instead of silently using a different one.
 ## What stays out of the way
 
 The terminal CLI is for setup, diagnosis, integration repair, and explicit
-maintenance—not everyday recall. `status`, Doctor, and maintenance are there
-when something is wrong or when an operator needs to inspect or repair the
-system. The underlying MCP tools, session hooks, background governance, SQLite
-store, evidence checks, and audit trail remain available, but are not steps you
-need to learn to remember or retrieve work.
+maintenance—not everyday recall. `hm` performs only a short project and Hook
+check before the requested action. When something is wrong or an operator needs
+the full diagnosis, use `harness-mem doctor`; detailed statistics, versions,
+queues, and repair evidence do not belong in the daily reply. The underlying
+MCP tools, session hooks, background organization, SQLite store, source checks,
+and diagnostics remain available, but are not steps you need to learn to
+remember or retrieve work.
 
 Project memory is local by default. Evidence is checked before durable knowledge
 is changed, and uncertain or unsafe source cleanup remains opt-in. Read the
@@ -128,5 +134,5 @@ python code/tools/outcome-verifier/scripts/verify_outcomes.py \
   --output .tmp/outcome-verifier/harness-mem-report.json
 ```
 
-Current source package version: **0.9.27**. See GitHub for the
+Current source package version: **0.9.28**. See GitHub for the
 [latest public Release](https://github.com/manhua-man/harness-mem/releases/latest).

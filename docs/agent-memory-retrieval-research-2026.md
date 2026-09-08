@@ -1,5 +1,10 @@
 # Agent Memory & Retrieval 调研纪要（2026）
 
+> 历史调研快照。下文的产品和运行时描述记录的是当时用于调研的基线，
+> 不是当前使用说明；当前 `hm` 入口与存储真值以根 README 和 `AGENTS.md` 为准。
+> 下文的 ledger、知识版本、归档知识、undo 和旧 MCP 数量均已被 `0.9.28`
+> 取代；当前只有 `knowledge_entries` 中的一份当前记忆和 20 个公开 MCP 工具。
+
 **版本：** 1.0  
 **日期：** 2026-06-28  
 **范围：** harness-mem 对外产品方向（Truth / retrieval / maintenance / recall contract / 边界）+ 检索内核改进（不换 SearchFacade / SQLite）  
@@ -34,7 +39,7 @@
 
 - **不要换搜索引擎**，不要上 store v3，不要把 Tantivy/LanceDB/完整图库作为默认路径。
 - **先做 retrieval-isolated benchmark**（测「检索对了没」，不是 LoCoMo 答题分），再在小步上改 hybrid 栈。
-- **对外产品**继续加厚 core loop：`wake → search → distill → review → dream`，`autopilot_search_tick` 负责任务态检索调度，`/hm:review` 是 audit inbox，dream 默认维护、recall contract、单 MCP 公开面不变。
+- **当时的产品基线**继续加厚内部 core loop：`wake → search → distill → review → dream`，`autopilot_search_tick` 负责任务态检索调度，review 是 audit inbox，dream 默认维护、recall contract、单 MCP 公开面不变。
 - **2026 前沿**从「embedding-first + chat QA benchmark」转向 **agent-native memory = 数据管理系统**：canonical truth、filter-first retrieval、localized maintenance、可审计边界。
 
 **一句话：** 借鉴 Mem0/Zep 的 retrieval quality 思路 + sqlite-vec/vstash 的 local-first 实现 + Tenure/MemoryData 的评测与 Truth 结构；Rust 只做 optional 热点加速。
@@ -197,7 +202,7 @@ maintenance                 →  合并、失效、压缩、生命周期治理
 
 | 维度 | 现状 |
 |------|------|
-| Core loop | `wake → search → distill → review → dream`（README、v4） |
+| Core loop | 当时的内部 `wake → search → distill → review → dream` |
 | Truth | TruthStore canonical；CandidateStore + auto preflight；audit inbox + supersede / valid_to |
 | 公开面 | 单 MCP public memory surface；dream 默认维护 + ledger + undo |
 | Retrieval | SearchFacade 统一 `source_kind` / `truth_status` / `project_name` / temporal metadata |
@@ -283,7 +288,7 @@ code/tests/benchmarks/test_search_golden.py
 
 ---
 
-## 7. 对外产品应继续加厚什么
+## 7. 当时建议继续加厚什么
 
 与 v4 §5、README 一致；调研补充如下。
 
@@ -317,7 +322,7 @@ code/tests/benchmarks/test_search_golden.py
 **宣称：**
 
 ```text
-local-first · auditable · wake→search→distill→review→dream
+local-first · auditable · one hm entry
 truth canonical · index rebuildable · vector optional
 dream = default maintenance (ledger + undo)
 single public MCP surface

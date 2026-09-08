@@ -25,7 +25,9 @@ def _entry(entity_id: str, statement: str) -> dict[str, object]:
     }
 
 
-def test_transaction_commits_multiple_collections_on_same_database_inode(tmp_path):
+def test_transaction_commits_current_knowledge_and_sources_on_same_database_inode(
+    tmp_path,
+):
     store = LocalStructuredStore(tmp_path)
     db_path = canonical_store_path(tmp_path)
     store.write_record_payload(
@@ -65,19 +67,6 @@ def test_transaction_commits_multiple_collections_on_same_database_inode(tmp_pat
                     "expected_sha256": None,
                 },
                 {
-                    "operation": "upsert",
-                    "collection": "knowledge_versions",
-                    "entity_id": "version-k1-1",
-                    "payload": {
-                        "id": "version-k1-1",
-                        "project_name": "fixture-project",
-                        "knowledge_id": "k1",
-                        "revision": 1,
-                        "statement": "SQLite remains authoritative.",
-                    },
-                    "expected_sha256": None,
-                },
-                {
                     "operation": "delete",
                     "collection": "knowledge_sources",
                     "entity_id": "obsolete-source",
@@ -86,13 +75,12 @@ def test_transaction_commits_multiple_collections_on_same_database_inode(tmp_pat
             ],
         )
 
-        assert result["mutation_count"] == 4
+        assert result["mutation_count"] == 3
         assert result["replayed"] is False
         assert store.read_record_payload("knowledge_entries", "k1")["statement"] == (
             "SQLite remains authoritative."
         )
         assert store.record_payload_exists("knowledge_sources", "source-k1-1")
-        assert store.record_payload_exists("knowledge_versions", "version-k1-1")
         assert not store.record_payload_exists("knowledge_sources", "obsolete-source")
         assert db_path.stat().st_ino == inode_before
     finally:

@@ -179,7 +179,7 @@ def test_current_docs_distinguish_five_modules_from_core_governance_feedback() -
 
     assert "not a sixth linear" in adoption
     assert "not operator-only maintenance" in governance
-    assert "Review and Dream remain the governance feedback loop" in plan
+    assert "`knowledge_entries` is the only source of current long-term memory" in plan
     assert not Path("docs/roadmap/0.9.13-four-stage-memory-quality.md").exists()
     assert "memory-adoption.md" in readme
     assert "docs/memory-adoption.md" in chinese
@@ -202,14 +202,14 @@ def test_five_module_contract_covers_unit_boundary_and_quality_for_each_stage() 
 
     for boundary in (
         "**Unit:** one native session plus one immutable session revision",
-        "**Unit:** zero to twelve independently addressable candidate promotion points",
+        "**Unit:** every independently addressable candidate promotion point found in the session",
         "**Unit:** one candidate promotion point, never a whole session.",
         "**Unit:** one verified promotion point reconciled against current project",
         "**Unit:** one task or query together with the long-term knowledge returned",
         "**Does not own:** deciding what the project should remember.",
         "`ANSWERED` means only that the evidence question is answered",
         "garbage writes approach zero",
-        "zero audit-noise or obsolete-knowledge leakage by default",
+        "zero internal-noise or obsolete-knowledge leakage by default",
     ):
         assert boundary in adoption
 
@@ -217,23 +217,26 @@ def test_five_module_contract_covers_unit_boundary_and_quality_for_each_stage() 
     assert "`ANSWERED` 只证明第 2 模块的证据问题已回答" in test_plan
 
 
-def test_current_roadmap_requires_sqlite_truth_and_temporary_job_material() -> None:
+def test_current_roadmap_requires_one_current_memory_and_temporary_job_material() -> None:
     plan = Path("docs/roadmap/knowledge-truth-separation.md").read_text(
         encoding="utf-8"
     )
     roadmap = Path("docs/roadmap.md").read_text(encoding="utf-8")
     adoption = Path("docs/memory-adoption.md").read_text(encoding="utf-8")
 
-    assert "single persistence authority" in plan
-    assert "`knowledge_entries`" in plan
-    assert "There is no permanent generic `knowledge_audit/` product layer" in plan
-    assert "job-scoped working material" in plan
-    assert "Review and Dream remain the governance feedback loop" in plan
-    assert "Markdown is an on-demand human-readable rendering" in plan
-    assert "no allowlist or fixed taxonomy" in plan
-    assert "does not authorize migration" in plan
-    assert "SQLite current-knowledge convergence" in roadmap
-    assert "SQLite Current-Knowledge Convergence" in adoption
+    normalized_plan = " ".join(plan.split())
+    normalized_roadmap = " ".join(roadmap.split())
+    normalized_adoption = " ".join(adoption.split())
+    assert "`knowledge_entries` is the only source of current long-term memory" in plan
+    assert "Temporary work for retry or an unfinished task" in plan
+    assert "do not keep old knowledge versions, archived knowledge copies" in normalized_plan
+    assert "replacement or deletion, ordinary search must not return the old wording" in normalized_plan
+    assert "Normal startup does not migrate, rewrite, or delete them" in normalized_plan
+    assert "`knowledge_entries` is the only current memory" in normalized_roadmap
+    assert (
+        "`knowledge_entries` is the only authority for current long-term knowledge"
+        in normalized_adoption
+    )
 
 
 def test_legacy_lifecycle_docs_use_lossless_session_distill_contract() -> None:
@@ -249,7 +252,10 @@ def test_legacy_lifecycle_docs_use_lossless_session_distill_contract() -> None:
 
     assert "explicit distill -> active host" in combined
     assert "Hook -> immutable session + job" in combined
-    assert "review -> post-hoc audit / correction / undo" in combined
+    assert "review -> correction, replacement, or deletion" in combined
+    assert "review -> correct, replace, or delete current memory" in combined
+    assert "handles human correction, replacement, and deletion." in combined
+    assert "review -> post-hoc audit / correction / undo" not in combined
     assert "wake -> search -> distill -> review -> dream" not in combined
     assert "immutable source revision" in combined
     assert "without truncation" in combined
@@ -301,7 +307,7 @@ def test_runtime_diagram_matches_current_storage_and_truth_contract() -> None:
     assert "current package version 0.8.9" not in diagram
 
 
-def test_current_canvases_match_0910_automation_and_live_status_contract() -> None:
+def test_historical_0910_canvases_are_labeled_and_point_to_current_contract() -> None:
     catalog = Path("docs/canvases/README.md").read_text(encoding="utf-8")
     how_it_works = Path(
         "docs/canvases/harness-mem-how-it-works-0-9-10.canvas.tsx"
@@ -313,7 +319,8 @@ def test_current_canvases_match_0910_automation_and_live_status_contract() -> No
     assert "harness-mem-how-it-works-0-9-10.canvas.tsx" in catalog
     assert "harness-mem-readiness-0-9-10.canvas.tsx" in catalog
     assert "7 Daily actions" in how_it_works
-    assert "27 public MCP tools" in how_it_works
+    assert "historical 0.9.10" in how_it_works
+    assert "当前 0.9.28 只有 hm 日常入口、20 个公开 MCP 工具" in how_it_works
     assert "promoted / no_candidate" in how_it_works
     assert "review 是用户主动审计与纠错支路" in how_it_works
     assert "suggest_*" not in how_it_works
@@ -366,7 +373,7 @@ def test_repo_local_duplicate_distill_runtime_is_removed() -> None:
     assert not Path("code/tools/hm-distill/SYNC_POLICY.md").exists()
     assert not Path("code/tools/hm-distill/UPSTREAM_ALIGNMENT.md").exists()
     assert "name: hm-distill" in skill
-    assert "Use one public flow" in skill
+    assert "不是用户要学习的命令清单" in skill
 
 
 def test_hm_distill_keeps_one_public_flow_without_helper_skills() -> None:
@@ -376,11 +383,9 @@ def test_hm_distill_keeps_one_public_flow_without_helper_skills() -> None:
         "smart-search",
         "trellis",
     )
-    assert "candidate admission" in skill
-    assert "only runtime-derived `answered`" in skill
-    assert "gather that proof before deciding" in skill
-    assert "pressure-test high-impact" in skill
-    assert "formal `answer_packet`" in skill
+    assert "写入前只问五件事" in skill
+    assert "先补齐证据再决定" in skill
+    assert "只有本机核对通过的内容才能写入" in skill
     assert not any(term in skill for term in retired_terms)
 
 
@@ -427,9 +432,8 @@ def test_active_governance_docs_use_single_public_write_surface() -> None:
         assert not any(name in content for name in retired_names), path
 
     combined = "\n".join(path.read_text(encoding="utf-8") for path in active_paths)
-    assert 'govern_memory(action="suggest")' in combined
-    assert 'govern_memory(action="decide")' in combined
-    assert 'govern_memory(action="handoff")' in combined
+    assert "govern_memory" in combined
+    assert "写入、修改和交接由现有工具在内部完成" in combined
 
 
 def test_current_roadmap_is_0_9_x_and_internal_doc_duplicates_are_removed() -> None:

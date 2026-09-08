@@ -14,7 +14,7 @@ async def search_current_knowledge(
     *,
     project_name: str,
     query: str,
-    limit: int,
+    limit: int | None = None,
     project_root: str | Path | None = None,
 ) -> list[KnowledgeEntry]:
     """Return only current, separated knowledge with deterministic text ranking."""
@@ -41,14 +41,15 @@ async def search_current_knowledge(
     ranked = sorted(entries, key=score)
     if terms:
         ranked = [entry for entry in ranked if score(entry)[0] < 0]
-    return _deduplicate_current(ranked)[:limit]
+    results = _deduplicate_current(ranked)
+    return results if limit is None else results[: max(0, int(limit))]
 
 
 async def list_current_knowledge(
     backend: LocalMemoryBackend,
     *,
     project_name: str,
-    limit: int,
+    limit: int | None = None,
     project_root: str | Path | None = None,
 ) -> list[KnowledgeEntry]:
     """Return the module-organizable current knowledge library for one project."""
@@ -58,7 +59,8 @@ async def list_current_knowledge(
         project_root=project_root,
     )
     ordered = sorted(entries, key=lambda entry: (entry.module_path, entry.title, entry.id))
-    return _deduplicate_current(ordered)[:limit]
+    results = _deduplicate_current(ordered)
+    return results if limit is None else results[: max(0, int(limit))]
 
 
 def _deduplicate_current(entries: list[KnowledgeEntry]) -> list[KnowledgeEntry]:

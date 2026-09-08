@@ -41,8 +41,8 @@ VALID_TARGET_KINDS: frozenset[str] = frozenset(
 class RetrievalSignal(BaseModel):
     """A single observable event about how memory was used.
 
-    The signal itself is not truth; it's evidence that the replay-window
-    selector consumes when picking the next metabolism input window.
+    The signal itself is not truth; it is bounded feedback about how a result
+    was used by a caller.
 
     ``signal_type`` and ``target_kind`` are kept as plain ``str`` (not
     ``Literal``) because the design lists them as extendable whitelists.

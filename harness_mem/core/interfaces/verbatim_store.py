@@ -28,7 +28,7 @@ class VerbatimStore(Protocol):
     async def list(
         self,
         session_id: str | None = None,
-        limit: int = 100,
+        limit: int | None = 100,
         project_name: str | None = None,
     ) -> builtins.list[Observation]:
         """List observations, optionally filtered by session or project."""
@@ -52,7 +52,7 @@ class VerbatimStore(Protocol):
         pattern: str,
         *,
         project_name: str | None = None,
-        limit: int = 20,
+        limit: int | None = 20,
         flags: int = 0,
     ) -> builtins.list[Any]:
         """Regex search raw observations with exact evidence snippets."""
@@ -69,7 +69,7 @@ class VerbatimStore(Protocol):
     async def timeline(
         self,
         project_name: str | None = None,
-        limit: int = 50,
+        limit: int | None = 50,
     ) -> builtins.list[Observation]:
         """Get observations in chronological order."""
         ...

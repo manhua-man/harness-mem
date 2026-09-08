@@ -44,9 +44,9 @@ def test_single_command_and_canonical_distill_skill_use_logical_tool_names() -> 
     assert "mcp__harness_mem__" not in command
     assert "prepare_session_distill" in skill
     assert "finalize_session_distill" in skill
-    assert "answer_packet" in skill
-    assert "promoted_items" in skill
-    assert "never copy an Agent-authored status" in skill
+    assert "当前项目" in skill
+    assert "一场会话可以产生多条记忆" in skill
+    assert "不要人为加入每场、每批或每天的数量限制" in skill
     assert "mcp__mcp_router__" not in skill
     assert "mcp__harness_mem__" not in skill
 

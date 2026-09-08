@@ -15,15 +15,14 @@ import {
 } from "cursor/canvas";
 
 const MODEL_VERSION = "v1";
-const AS_OF = "2026-09-04";
-const RUNTIME_VERSION = "0.9.27";
-const PUBLIC_RELEASE_VERSION = "0.9.27";
+const AS_OF = "2026-09-06";
+const RUNTIME_VERSION = "0.9.28";
 
 const MODULES = [
   { code: "0", title: "会话接入与生命周期", unit: "1 session + 1 immutable revision", owns: "宿主接入、chunk、job、receipt、重试与来源生命周期" },
-  { code: "1", title: "提取", unit: "0–12 promotion points", owns: "完整 manifest、窄 claim 与可重开 source location" },
-  { code: "2", title: "逐点验证", unit: "1 promotion point", owns: "reference integrity、当前语义支持与 fail-closed Answer Gate" },
-  { code: "3", title: "归纳吸收", unit: "1 verified point", owns: "拆分、去重、替代、明确 no-write 与 SQLite mutation" },
+  { code: "1", title: "提取", unit: "每个可独立处理的 promotion point", owns: "完整 manifest、窄 claim 与可重开 source location" },
+  { code: "2", title: "逐点验证", unit: "1 promotion point", owns: "核对来源与当前事实；证据不足就不写" },
+  { code: "3", title: "归纳吸收", unit: "1 verified point", owns: "拆分、去重、替换、删除、明确 no-write 与 SQLite 当前记忆变更" },
   { code: "4", title: "检索与使用", unit: "1 task / query", owns: "干净 wake/search、排序、去重与 bounded feedback" },
 ];
 
@@ -47,24 +46,24 @@ export default function HarnessMemReadinessV1() {
         <Row gap={10} align="center" wrap>
           <H1>harness-mem 当前源码架构与发布边界</H1>
           <Pill tone="info">source {RUNTIME_VERSION}</Pill>
-          <Pill tone="success">public {PUBLIC_RELEASE_VERSION}</Pill>
+          <Pill tone="warning">preparing release</Pill>
           <Pill tone="info">{MODEL_VERSION}</Pill>
         </Row>
         <Text tone="secondary">
-          0.9.27 源码面板 · 核对日期 {AS_OF} · 历史 canvas 不作为当前版本真值
+          0.9.28 源码面板 · 核对日期 {AS_OF} · 历史 canvas 不作为当前版本真值
         </Text>
       </Stack>
 
       <Grid columns={4} gap={12}>
         <Stat label="功能模块" value="5" tone="info" />
         <Stat label="原生宿主" value="7" tone="info" />
-        <Stat label="公开 MCP 工具" value="27" tone="success" />
-        <Stat label="实际结果检查" value="12" tone="success" />
+        <Stat label="公开 MCP 工具" value="20" tone="success" />
+        <Stat label="待重新运行的实际检查" value="12" tone="warning" />
       </Grid>
 
       <Callout tone="info">
-        当前结论：SQLite knowledge_entries 是当前长期知识唯一权威；原始会话是证据；
-        候选、验证与拟议决定是 job 范围临时材料。completed / queued 字段本身不是用户结果证据。
+        当前结论：SQLite knowledge_entries 是当前长期记忆唯一来源；替换会删除旧条目并写入新条目，
+        失效会直接删除。系统不保留知识历史、归档副本或撤销链。原始会话与 job 临时材料都不是记忆。
       </Callout>
 
       <Callout tone="info">
@@ -104,7 +103,7 @@ export default function HarnessMemReadinessV1() {
         </Grid>
         <Callout tone="warning">
           Dream 只在真实来源完整、可重开、项目已开启后台（`distill.autonomous.enabled=true`）且所选 CLI 可用时执行。
-          多条知识关系无法安全裁决时关闭比较而不改写；Review 是事后纠错与 undo 支路。
+          多条知识关系无法安全裁决时关闭比较而不改写；Review 只负责纠错、替换和删除当前记忆。
         </Callout>
       </Stack>
 
@@ -121,8 +120,8 @@ export default function HarnessMemReadinessV1() {
       </Stack>
 
       <Callout tone="info">
-        版本事实：源码、runtime 与 plugin manifest 均为 0.9.27；公开版本以 GitHub Releases 为准。
-        冻结六会话 oracle、隔离的真实 Hook 全链路与 12 项当前实际结果检查是仓库记录的用户结果证据。
+        版本事实：源码、runtime 与 plugin manifest 均为 0.9.28；公开版本以 GitHub Releases 为准。
+        本次记忆简化修改后，旧的实际结果检查已失效；必须重新运行 12 项检查后才能声明发布就绪。
       </Callout>
 
       <Text tone="tertiary" size="small">

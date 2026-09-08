@@ -1224,7 +1224,7 @@ class SQLiteIndex:
         where: str | None = None,
         where_params: tuple = (),
         order_by: str = "created_at DESC",
-        limit: int = 100,
+        limit: int | None = 100,
         offset: int = 0,
     ) -> list[dict]:
         """List rows with optional WHERE clause."""
@@ -1232,11 +1232,13 @@ class SQLiteIndex:
         sql = f"SELECT * FROM {table}"
         if where:
             sql += f" WHERE {where}"
-        sql += f" ORDER BY {order_by} LIMIT ? OFFSET ?"
+        if limit is None:
+            sql += f" ORDER BY {order_by} LIMIT -1 OFFSET ?"
+        else:
+            sql += f" ORDER BY {order_by} LIMIT ? OFFSET ?"
         with self._lock:
-            rows = conn.execute(
-                sql, (*where_params, limit, offset)
-            ).fetchall()
+            params = (*where_params, offset) if limit is None else (*where_params, limit, offset)
+            rows = conn.execute(sql, params).fetchall()
         return [self._row_to_dict(dict(r), table) for r in rows]
 
     def search(
@@ -1569,7 +1571,7 @@ class SQLiteIndex:
         self,
         trigrams: set[str],
         *,
-        limit: int = 1000,
+        limit: int | None = 1000,
     ) -> builtins.list[str]:
         """Return observation ids containing every requested trigram."""
         if not trigrams:
@@ -1583,10 +1585,12 @@ class SQLiteIndex:
             WHERE ngram IN ({placeholders})
             GROUP BY observation_id
             HAVING COUNT(DISTINCT ngram) = ?
-            LIMIT ?
         """
+        if limit is not None:
+            sql += " LIMIT ?"
         with self._lock:
-            rows = conn.execute(sql, (*ordered, len(ordered), limit)).fetchall()
+            params = (*ordered, len(ordered)) if limit is None else (*ordered, len(ordered), limit)
+            rows = conn.execute(sql, params).fetchall()
         return [str(row["observation_id"]) for row in rows]
 
     def observation_trigram_stats(self) -> dict[str, int]:

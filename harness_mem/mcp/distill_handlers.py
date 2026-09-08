@@ -17,6 +17,9 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from pydantic import ValidationError
 
+from harness_mem.autonomous.models import (
+    AssimilationDecision as ProviderAssimilationDecision,
+)
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
     SUPPORTED_INGEST_CLIENTS,
@@ -26,16 +29,17 @@ from harness_mem.commands.support import (
     resolve_ingest_client,
 )
 from harness_mem.commands.distill_lifecycle import distill_drainer_metrics
-from harness_mem.commands.assimilation import apply_assimilation
 from harness_mem.commands.separated_assimilation import (
     apply_separated_assimilation,
+    prepare_separated_assimilation,
     separated_job_candidate_ids,
+    validate_separated_assimilation_decision,
 )
-from harness_mem.commands.evidence_admission import answer_gate_status
-from harness_mem.config.errors import ConfigError
-from harness_mem.config.merge import MergedConfig, load_merged_config
+from harness_mem.commands.evidence_admission import (
+    answer_gate_status,
+    evidence_summary_key,
+)
 from harness_mem.adapters.projection_repair import repair_source_observation_projection
-from harness_mem.governance_status import CANDIDATE_LAYER_STATUSES, TRUTH_LAYER_STATUSES
 from harness_mem.core.schemas.session_distill import (
     AssimilationPacketPoint,
     AnswerPacket,
@@ -44,7 +48,7 @@ from harness_mem.core.schemas.session_distill import (
     ZeroCandidateChallenge,
 )
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
-from harness_mem.session_notes import materialize_session_note
+from harness_mem.session_notes import delete_session_notes, materialize_session_note
 from harness_mem.transcript_chunking import sha256_text
 from harness_mem.mcp.distill_projection import (
     DISTILL_INCREMENTAL_PROJECTION,
@@ -62,6 +66,9 @@ from .handler_facade_proxy import tool_handlers_facade as _core
 
 
 _SIGNAL_GATE_RECHECK_PIPELINE_VERSION = "lossless-distill-v1-signal-gate-v2"
+_CURRENT_KNOWLEDGE_RECHECK_PIPELINE_VERSION = (
+    "lossless-distill-v1-current-knowledge-v1"
+)
 
 
 def _session_notes_dir(backend: LocalMemoryBackend) -> Path:
@@ -77,57 +84,30 @@ def _get_backend():
     return _core._get_backend()
 
 
-def _observer_data_dir():
-    return _core._observer_data_dir()
-
-
-def _cost_surface_budgets(project_name):
-    return _core._cost_surface_budgets(project_name)
-
-
-def _record_state_event(*args, **kwargs):
-    return _core._record_state_event(*args, **kwargs)
-
-
-def _run_command_to_payload(coro):
-    return _core._run_command_to_payload(coro)
-
-
-async def _gather_project_status(*args, **kwargs):
-    return await _core._gather_project_status(*args, **kwargs)
-
-
 def _ingest_sessions(*args, **kwargs):
     return _core._ingest_sessions(*args, **kwargs)
-
-
-async def auto_review_candidates(*args, **kwargs):
-    return await _core.auto_review_candidates(*args, **kwargs)
-
-
-async def dream_auto_tick(*args, **kwargs):
-    return await _core.dream_auto_tick(*args, **kwargs)
 
 
 async def _recent_project_observations(
     backend: LocalMemoryBackend,
     *,
     project_name: str,
-    limit: int,
+    limit: int | None,
 ) -> list[Any]:
-    observations = await backend.verbatim_store.list(limit=100000)
+    observations = await backend.verbatim_store.list(limit=None)
     project_observations = [
         observation
         for observation in observations
         if observation.metadata.get("project_name") == project_name
     ]
-    return sorted(
+    ordered = sorted(
         project_observations,
         key=lambda observation: (
             observation.timestamp or datetime.min.replace(tzinfo=timezone.utc)
         ),
         reverse=True,
-    )[:limit]
+    )
+    return ordered if limit is None else ordered[:limit]
 
 
 # Deterministic semantic projections live in distill_projection.py.
@@ -363,7 +343,7 @@ def _attach_semantic_decision_bundle(
             [],
         )
         if int(index) >= 1
-    ][:8]
+    ]
     windows = _load_distill_exchange_windows(
         backend,
         source_id=source_id,
@@ -483,14 +463,13 @@ def _checkpoint_distill_structural_projection(
 def tool_prepare_session_distill(
     project_name: str | None = None,
     client: str = "auto",
-    limit: int = 5,
+    limit: int | None = None,
     full_rescan: bool = False,
     scope: str = "project",
     project_root: str | None = None,
-    observation_limit: int = 5,
-    max_chars_per_observation: int = 6000,
-    chunk_limit: int = 1,
-    evidence_mode: str = "raw",
+    observation_limit: int | None = None,
+    chunk_limit: int | None = None,
+    evidence_mode: str = "semantic",
     detail_level: str = "compact",
     budget_tokens: int = 3000,
     drilldown_exchange_indexes: list[int] | None = None,
@@ -531,10 +510,10 @@ def tool_prepare_session_distill(
     resolved_budget_tokens = max(256, int(budget_tokens or 3000))
     requested_exchange_indexes = sorted(
         {int(index) for index in (drilldown_exchange_indexes or []) if int(index) >= 1}
-    )[:8]
+    )
     requested_drilldown_indexes = sorted(
         {int(index) for index in (drilldown_chunk_indexes or []) if int(index) >= 0}
-    )[:8]
+    )
     requested_drilldown_query = str(drilldown_query or "").strip()[:200]
     requested_session_id = str(session_id or "").strip() or None
     requested_job_id = str(distill_job_id or "").strip() or None
@@ -560,9 +539,10 @@ def tool_prepare_session_distill(
         else project_root
     )
 
-    effective_limit = max(1, min(int(limit), 50))
-    effective_observation_limit = max(1, min(int(observation_limit), 20))
-    effective_max_chars = max(500, min(int(max_chars_per_observation), 20000))
+    effective_limit = None if limit is None else max(1, int(limit))
+    effective_observation_limit = (
+        None if observation_limit is None else max(0, int(observation_limit))
+    )
 
     ingest_payload: dict[str, Any] = {
         "success": True,
@@ -581,13 +561,6 @@ def tool_prepare_session_distill(
         )
 
     backend = _get_backend()
-    distill_config = (
-        load_merged_config(Path(resolved_project_root))
-        if resolved_project_root
-        and Path(resolved_project_root).is_absolute()
-        and Path(resolved_project_root).is_dir()
-        else MergedConfig()
-    )
     deferred_id: str | None = None
     if defer_job_id:
         deferred = backend.transcript_store.get_distill_job(defer_job_id)
@@ -607,11 +580,15 @@ def tool_prepare_session_distill(
             "error": "distill_job_id cannot be the job deferred by the same call",
             "distill_job_id": requested_job_id,
         }
-    backend.transcript_store.rebalance_distill_jobs(
-        resolved_project_name,
-        target_active=distill_config.distill_auto_target_backlog,
-        recent_first=distill_config.distill_auto_recent_first,
-    )
+    # Explicit recovery must observe durable checkpoints before lane selection.
+    # Do not run the crash reconciler during an ordinary multi-call raw read:
+    # between calls a healthy interactive job has completed checkpoints but no
+    # active chunk lease, which is not evidence that its worker crashed.
+    if requested_session_id or requested_job_id:
+        backend.transcript_store.reconcile_distill_jobs(
+            project_name=resolved_project_name,
+            recovery_budget=3,
+        )
     if requested_session_id:
         matching_jobs = [
             job
@@ -631,15 +608,23 @@ def tool_prepare_session_distill(
             matching_jobs,
             key=lambda item: (item.created_at, item.updated_at),
         )
-        if (
-            requested_job_id is None
-            and _completed_job_requires_signal_gate_recheck(session_job)
-        ):
+        recheck_pipeline: str | None = None
+        if requested_job_id is None:
+            if _completed_job_requires_signal_gate_recheck(session_job):
+                recheck_pipeline = _SIGNAL_GATE_RECHECK_PIPELINE_VERSION
+            elif (
+                session_job.pipeline_version
+                != _CURRENT_KNOWLEDGE_RECHECK_PIPELINE_VERSION
+                and asyncio.run(
+                    _completed_promotion_result_error(backend, job=session_job)
+                )
+                is not None
+            ):
+                recheck_pipeline = _CURRENT_KNOWLEDGE_RECHECK_PIPELINE_VERSION
+        if recheck_pipeline is not None:
             session_job = backend.transcript_store.enqueue_distill_job(
                 session_job.source_id,
-                pipeline_version=_SIGNAL_GATE_RECHECK_PIPELINE_VERSION,
-                active_limit=distill_config.distill_auto_target_backlog,
-                recent_first=distill_config.distill_auto_recent_first,
+                pipeline_version=recheck_pipeline,
             )
         if requested_job_id and requested_job_id != session_job.id:
             return {
@@ -663,6 +648,27 @@ def tool_prepare_session_distill(
             "distill_job_id": requested_job_id,
         }
     if requested_job and requested_job.status == "completed":
+        current_result_error = asyncio.run(
+            _completed_promotion_result_error(backend, job=requested_job)
+        )
+        if current_result_error is not None:
+            return {
+                "success": False,
+                "project_name": resolved_project_name,
+                "project_root": resolved_project_root,
+                "session_id": requested_job.session_id,
+                "distill_job_id": requested_job.id,
+                "selection_source": (
+                    "explicit_session" if requested_session_id else "explicit"
+                ),
+                "distill_status": requested_job.status,
+                "error": "completed result is not present in current knowledge",
+                "reason_codes": [current_result_error],
+            }
+        source_cleanup = _replay_completed_source_cleanup(
+            backend,
+            job=requested_job,
+        )
         return {
             "success": True,
             "project_name": resolved_project_name,
@@ -679,10 +685,7 @@ def tool_prepare_session_distill(
             },
             "session_summary": _session_summary_payload(requested_job),
             "promotion": dict(requested_job.promotion_summary),
-            "source_cleanup": {
-                "status": requested_job.source_cleanup_status,
-                "receipt_id": requested_job.source_cleanup_receipt_id,
-            },
+            "source_cleanup": source_cleanup,
             "agent_execution": {
                 "contract_version": "agent-distill-fast-path-v1",
                 "path": "already_completed",
@@ -709,7 +712,6 @@ def tool_prepare_session_distill(
             backend.transcript_store.list_distill_jobs(
                 project_name=resolved_project_name,
                 status=job_status,
-                limit=100,
             )
         )
     if deferred_id:
@@ -736,26 +738,10 @@ def tool_prepare_session_distill(
                 else None
             ),
         }
-    if (
-        requested_job_id
-        and requested_job
-        and _distill_source != "autonomous_worker"
-        and (
-            requested_job.agent_offer_day != now.date().isoformat()
-            or requested_job.agent_offer_count <= 0
-        )
-    ):
-        return {
-            "success": False,
-            "error": "distill_job_id was not offered for Agent processing today",
-            "distill_job_id": requested_job_id,
-            "distill_status": requested_job.status,
-            "agent_offer_day": requested_job.agent_offer_day,
-        }
     if lossless_jobs:
-        # Daily automation is recent-first: one malformed historical session
-        # cannot head-of-line block every newer task.  Old work is still
-        # reached once the recent lane is drained.
+        # Automatic selection is recent-first: one malformed historical
+        # session cannot head-of-line block every newer task. Old work is
+        # still reached once the recent lane is drained.
         status_priority = {"reviewing": 4, "processing": 3, "queued": 2, "retryable": 1}
         lossless_job = (
             next(job for job in lossless_jobs if job.id == requested_job_id)
@@ -870,7 +856,7 @@ def tool_prepare_session_distill(
                         selected_by_index.setdefault(chunk.chunk_index, chunk)
                 selected_chunks = [
                     selected_by_index[index] for index in sorted(selected_by_index)
-                ][:8]
+                ]
                 base_payload.update(
                     {
                         "raw_drilldown_chunks": [
@@ -1066,7 +1052,7 @@ def tool_prepare_session_distill(
         claims = backend.transcript_store.claim_distill_chunks(
             lossless_job.id,
             lease_owner=lease_owner,
-            limit=max(1, min(int(chunk_limit), 3)),
+            limit=None if chunk_limit is None else max(1, int(chunk_limit)),
         )
         base_payload.update(
             {
@@ -1100,8 +1086,6 @@ def tool_prepare_session_distill(
             limit=effective_observation_limit,
         )
     )
-    counts = asyncio.run(_gather_project_status(backend, resolved_project_name))
-
     packet_observations = []
     for observation in observations:
         packet_observations.append(
@@ -1138,9 +1122,7 @@ def tool_prepare_session_distill(
         "scope": scope,
         "limit": effective_limit,
         "ingest": ingest_payload,
-        "status": counts,
         "observation_limit": effective_observation_limit,
-        "max_chars_per_observation": effective_max_chars,
         "observations": packet_observations,
         "observation_count": len(packet_observations),
         "distill_mode": "legacy_partial",
@@ -1207,31 +1189,6 @@ def _session_summary_payload(job: SessionDistillJob) -> dict[str, Any]:
     }
 
 
-def _knowledge_projection(candidate: Any) -> tuple[str, str, str, str]:
-    """Project a governed candidate into one ID-free, user-readable fact."""
-
-    if hasattr(candidate, "content"):
-        fact = str(candidate.content).strip()
-        category = str(getattr(candidate, "category", "knowledge") or "knowledge")
-        kind = str(getattr(candidate, "memory_type", "memory") or "memory")
-        title = str(getattr(candidate, "canonical_title", "") or "").strip()
-        if not title:
-            title = f"{category}：{fact.split('。', 1)[0].split('.', 1)[0][:80]}"
-        return title, fact, kind, category
-    if hasattr(candidate, "pattern"):
-        fact = str(candidate.pattern).strip()
-        trigger = str(getattr(candidate, "trigger", "") or "").strip()
-        title = str(getattr(candidate, "canonical_title", "") or "").strip()
-        if not title:
-            title = trigger[:80] or fact.split("。", 1)[0].split(".", 1)[0][:80]
-        return title, fact, "rule", "rule"
-    source = str(getattr(candidate, "source_entity", "") or "").strip()
-    target = str(getattr(candidate, "target_entity", "") or "").strip()
-    relation = str(getattr(candidate, "relation_type", "relation") or "relation")
-    fact = f"{source} {relation} {target}".strip()
-    return f"{source} {relation} {target}"[:80], fact, "relation", relation
-
-
 async def _distill_candidates(
     backend: LocalMemoryBackend, candidate_ids: list[str]
 ) -> list[Any]:
@@ -1245,6 +1202,138 @@ async def _distill_candidates(
         if candidate is not None:
             candidates.append(candidate)
     return candidates
+
+
+async def _interactive_assimilation_plan(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+    project_root: str,
+    candidate_ids: list[str],
+) -> dict[str, Any]:
+    """Turn explicit Agent proposals into the normal separated write plan.
+
+    The interactive Agent already decides what each admitted point means.  The
+    local runtime still revalidates its evidence, resolves any named current
+    target from the bounded SQLite view, and applies the same validator used by
+    the autonomous worker.  A missing decision is an incomplete review, never
+    permission to promote a legacy ``MemoryEntry`` status.
+    """
+
+    prepared = await prepare_separated_assimilation(
+        backend,
+        project_name=project_name,
+        project_root=project_root,
+        candidate_ids=candidate_ids,
+    )
+    handle_by_truth_id = {
+        truth_id: handle for handle, truth_id in prepared.truth_by_handle.items()
+    }
+    points: list[dict[str, Any]] = []
+    for candidate_id in prepared.eligible_candidate_ids:
+        separated = await backend.structured_store.knowledge_store.get_candidate(
+            candidate_id
+        )
+        if separated is None:
+            raise ValueError("interactive candidate is no longer readable")
+        disposition = str(
+            separated.assimilation_disposition or ""
+        ).strip()
+        if disposition not in {
+            "add",
+            "refine",
+            "confirm",
+            "replace",
+            "no_write",
+            "handoff",
+            "defer",
+            "conflict",
+            "reject",
+        }:
+            raise ValueError(
+                "interactive candidate is missing a valid assimilation decision"
+            )
+        reason = str(separated.assimilation_reason or "").strip()
+        if len(reason) < 8:
+            raise ValueError("interactive candidate decision needs a concrete reason")
+
+        target_ids = [
+            str(value).strip()
+            for value in separated.assimilation_target_ids
+            if str(value).strip()
+        ]
+        matched_handles: list[str] = []
+        if disposition in {"confirm", "refine", "replace"}:
+            if disposition == "confirm" and len(target_ids) != 1:
+                raise ValueError("interactive confirm requires one current target")
+            if not target_ids:
+                raise ValueError(
+                    f"interactive {disposition} requires a current project target"
+                )
+            for target_id in target_ids:
+                handle = handle_by_truth_id.get(target_id)
+                if handle is None:
+                    raise ValueError(
+                        "interactive candidate target is not current project knowledge"
+                    )
+                matched_handles.append(handle)
+        elif disposition == "conflict" and target_ids:
+            if len(target_ids) > 1:
+                raise ValueError("interactive conflict may name one current target")
+            handle = handle_by_truth_id.get(target_ids[0])
+            if handle is None:
+                raise ValueError(
+                    "interactive candidate conflict target is not current project knowledge"
+                )
+            matched_handles = [handle]
+        elif target_ids:
+            raise ValueError(
+                f"interactive {disposition} candidate must not name a current target"
+            )
+
+        knowledge_items: list[dict[str, Any]] = []
+        if disposition in {"add", "refine", "replace"}:
+            title = str(separated.canonical_title or "").strip()
+            topic_path = [
+                str(part).strip()
+                for part in separated.topic_path
+                if str(part).strip()
+            ]
+            if not title or not topic_path:
+                raise ValueError(
+                    "interactive writing candidate needs a title and project module"
+                )
+            evidence = await backend.structured_store.knowledge_store.list_evidence(
+                candidate_id
+            )
+            basis = evidence[0].evidence_basis if len(evidence) == 1 else None
+            claim_kind = (
+                "procedure"
+                if separated.candidate_type == "rule"
+                else "durable_preference"
+                if basis == "user_statement"
+                else "implementation_fact"
+            )
+            knowledge_items = [
+                {
+                    "title": title,
+                    "statement": separated.statement,
+                    "topic_path": topic_path,
+                    "claim_kind": claim_kind,
+                }
+            ]
+        points.append(
+            {
+                "candidate_id": candidate_id,
+                "disposition": disposition,
+                "matched_truth_handles": matched_handles,
+                "knowledge_items": knowledge_items,
+                "reason": reason,
+            }
+        )
+
+    decision = ProviderAssimilationDecision.model_validate({"points": points})
+    return validate_separated_assimilation_decision(prepared, decision)
 
 
 def _aggregate_answer_status(
@@ -1290,24 +1379,23 @@ async def _build_answer_packet(
             point_results=separated_point_results,
         )
     else:
-        candidates = await _distill_candidates(backend, candidate_ids)
-        promoted_candidates = [
-            candidate
-            for candidate in candidates
-            if str(getattr(candidate, "status", "")) in TRUTH_LAYER_STATUSES
-        ]
+        candidates, _ignored_items = await _separated_answer_packet_state(
+            backend,
+            candidate_ids=candidate_ids,
+            project_name=job.project_name,
+            project_root=job.project_root,
+            point_results=[],
+        )
+        if not candidates:
+            candidates = await _distill_candidates(backend, candidate_ids)
+        # Compatibility rows can explain an old receipt, but never populate
+        # current user-visible knowledge.
         items = []
-        for candidate in promoted_candidates:
-            title, fact, kind, category = _knowledge_projection(candidate)
-            items.append(
-                PromotedKnowledgeItem(
-                    title=title or category,
-                    fact=fact,
-                    kind=kind,
-                    category=category,
-                )
-            )
-    promoted_count = int(promotion_counts.get("promoted") or 0)
+    promoted_count = (
+        int(promotion_counts.get("promoted") or 0)
+        if _uses_separated_assimilation(job.semantic_review)
+        else 0
+    )
     suggested_count = int(promotion_counts.get("suggested") or 0)
     promotion_status = (
         "promoted"
@@ -1450,10 +1538,156 @@ async def _separated_answer_packet_state(
     return candidates, items
 
 
+async def _separated_evidence_summary(
+    backend: LocalMemoryBackend,
+    *,
+    candidate_ids: list[str],
+) -> tuple[dict[str, int], dict[str, int]]:
+    """Summarize the runtime-revalidated evidence used by current knowledge."""
+
+    admission = {
+        "repository_verified": 0,
+        "user_stated": 0,
+        "unverified_blocked": 0,
+        "contradicted": 0,
+        "legacy_or_unknown": 0,
+    }
+    gate = {
+        "ANSWERED": 0,
+        "PARTIAL": 0,
+        "UNANSWERED": 0,
+        "CONTRADICTED": 0,
+        "STALE": 0,
+        "NOT_APPLICABLE": 0,
+    }
+    store = backend.structured_store.knowledge_store
+    for candidate_id in candidate_ids:
+        evidence_rows = await store.list_evidence(candidate_id)
+        if len(evidence_rows) != 1:
+            admission["legacy_or_unknown"] += 1
+            gate["UNANSWERED"] += 1
+            continue
+        evidence = evidence_rows[0]
+        admission[evidence_summary_key(evidence)] += 1
+        gate[answer_gate_status(evidence)] += 1
+    return admission, gate
+
+
 def _uses_separated_assimilation(review: Mapping[str, Any] | None) -> bool:
     payload = dict(review or {})
     plan = payload.get("assimilation")
     return isinstance(plan, dict) and plan.get("version") == "separated-v1"
+
+
+async def _promotion_commit_error(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+    promotion_summary: Mapping[str, Any],
+) -> str | None:
+    """Require every reported write to be current and readable before success."""
+
+    promoted = int(promotion_summary.get("promoted") or 0)
+    if promoted <= 0:
+        return None
+    raw_points = promotion_summary.get("points")
+    if not isinstance(raw_points, list):
+        return "promotion_points_missing"
+    writing_points = [
+        item
+        for item in raw_points
+        if isinstance(item, Mapping)
+        and str(item.get("disposition") or "") in {"add", "refine", "replace"}
+    ]
+    if len(writing_points) != promoted:
+        return "promotion_count_mismatch"
+    store = backend.structured_store.knowledge_store
+    from harness_mem.read_knowledge import search_current_knowledge
+
+    for point in writing_points:
+        truth_ids = [
+            str(value) for value in point.get("canonical_truth_ids") or [] if value
+        ]
+        if not truth_ids:
+            return "promotion_write_missing"
+        for truth_id in truth_ids:
+            entry = await store.get_entry(truth_id, project_name=project_name)
+            if entry is None:
+                return "promotion_write_unreadable"
+            results = await search_current_knowledge(
+                backend,
+                project_name=project_name,
+                query=entry.statement,
+                limit=100000,
+            )
+            if not any(item.id == truth_id for item in results):
+                return "promotion_write_unreadable"
+    return None
+
+
+async def _completed_promotion_result_error(
+    backend: LocalMemoryBackend,
+    *,
+    job: SessionDistillJob,
+) -> str | None:
+    """Reject a completed write claim that current knowledge cannot prove."""
+
+    if job.status != "completed":
+        return None
+    promotion = dict(job.promotion_summary or {})
+    if job.completion_disposition != "promoted" and int(
+        promotion.get("promoted") or 0
+    ) <= 0:
+        return None
+    result_error = _candidate_result_error(
+        candidate_ids=list(job.output_candidate_ids),
+        promotion_summary=promotion,
+    )
+    if result_error is not None:
+        return result_error
+    return await _promotion_commit_error(
+        backend,
+        project_name=job.project_name,
+        promotion_summary=promotion,
+    )
+
+
+def _candidate_result_error(
+    *,
+    candidate_ids: list[str],
+    promotion_summary: Mapping[str, Any],
+) -> str | None:
+    """Require complete non-pending coverage before completion.
+
+    One extracted candidate may legitimately split into several current
+    knowledge items or several point decisions.  Completion therefore checks
+    that every candidate appears at least once, rather than requiring a
+    one-to-one candidate/result mapping.
+    """
+
+    if int(promotion_summary.get("missing") or 0) != 0:
+        return "assimilation_candidate_missing"
+    if int(promotion_summary.get("pending") or 0) != 0:
+        return "assimilation_candidate_pending"
+    if int(promotion_summary.get("suggested") or 0) != len(candidate_ids):
+        return "assimilation_candidate_count_mismatch"
+    raw_points = promotion_summary.get("points")
+    points = raw_points if isinstance(raw_points, list) else []
+    result_ids = [
+        str(item.get("candidate_id") or "")
+        for item in points
+        if isinstance(item, Mapping)
+    ]
+    if set(result_ids) != set(candidate_ids):
+        return "assimilation_candidate_results_incomplete"
+    if any(
+        str(item.get("disposition") or "") in {"handoff", "defer", "conflict"}
+        and not str(item.get("handoff_id") or "").strip()
+        for item in points
+        if isinstance(item, Mapping)
+    ):
+        return "assimilation_unfinished_point_missing_handoff"
+    return None
 
 
 def _trusted_assimilation_preflight(
@@ -1524,42 +1758,13 @@ def _trusted_assimilation_preflight(
     return []
 
 
-async def _rollback_stale_assimilation(
-    backend: LocalMemoryBackend,
-    *,
-    job_id: str,
-    assimilation: Mapping[str, Any],
-) -> list[str]:
-    """Reverse truth committed for a job that lost its source CAS at finalize."""
-
-    store = backend.structured_store.knowledge_store
-    reversed_ids: list[str] = []
-    points = list(assimilation.get("points") or [])
-    for point in reversed(points):
-        mutation_id = str(point.get("mutation_id") or "").strip()
-        if not mutation_id:
-            continue
-        reversal_id = str(
-            uuid5(
-                NAMESPACE_URL,
-                f"harness-mem:stale-distill-rollback:{job_id}:{mutation_id}",
-            )
-        )
-        await store.undo_truth_mutation(
-            mutation_id=mutation_id,
-            reversal_id=reversal_id,
-        )
-        reversed_ids.append(mutation_id)
-    return reversed_ids
-
-
 def tool_finalize_session_distill(
     project_name: str,
     job_id: str,
     semantic_review: dict,
     _review_lease_owner: str | None = None,
 ) -> dict:
-    """Validate and finalize one explicit job, then auto-review and run Dream."""
+    """Validate, write current knowledge, and finalize one explicit job."""
 
     backend = _get_backend()
     job = backend.transcript_store.get_distill_job(job_id)
@@ -1571,15 +1776,25 @@ def tool_finalize_session_distill(
         }
     if job.project_name != project_name:
         return {"success": False, "error": "distill job belongs to another project"}
-    config, config_reason_code = _load_completion_config(job.project_root)
     recovering_completion = (
         job.status == "completed" and job.completion_disposition is None
     )
     if job.status == "completed" and not recovering_completion:
+        current_result_error = asyncio.run(
+            _completed_promotion_result_error(backend, job=job)
+        )
+        if current_result_error is not None:
+            return {
+                "success": False,
+                "project_name": project_name,
+                "distill_job_id": job.id,
+                "distill_status": job.status,
+                "error": "completed result is not present in current knowledge",
+                "reason_codes": [current_result_error],
+            }
         queue = distill_drainer_metrics(
             backend,
             project_name=project_name,
-            daily_job_budget=config.distill_auto_daily_job_budget,
         )
         answer_packet = dict(job.promotion_summary.get("answer_packet") or {})
         if not answer_packet:
@@ -1607,6 +1822,7 @@ def tool_finalize_session_distill(
             )
         note = materialize_session_note(job, notes_dir=_session_notes_dir(backend))
         asyncio.run(backend.structured_store.knowledge_store.cleanup_job(job.id))
+        source_cleanup = _replay_completed_source_cleanup(backend, job=job)
         return {
             "success": True,
             "idempotent_replay": True,
@@ -1626,19 +1842,22 @@ def tool_finalize_session_distill(
                 "removed_from_pending": True,
                 "pending_total_after": queue["pending_total"],
             },
-            "source_cleanup": {
-                "configured": bool(
-                    config.distill_delete_source_after_complete
-                    or job.source_cleanup_receipt_id
-                    or job.source_cleanup_status
-                    in {"deleted", "partial_failure", "unsupported"}
-                ),
-                "status": job.source_cleanup_status,
-                "receipt_id": job.source_cleanup_receipt_id,
-            },
+            "source_cleanup": source_cleanup,
             "note": note,
         }
     supplied_assimilation = semantic_review.get("assimilation")
+    if (
+        isinstance(supplied_assimilation, dict)
+        and supplied_assimilation.get("version") == "v1"
+    ):
+        return {
+            "success": False,
+            "project_name": project_name,
+            "distill_job_id": job.id,
+            "distill_status": job.status,
+            "error": "legacy assimilation does not write current project knowledge",
+            "reason_codes": ["legacy_assimilation_retired"],
+        }
     if isinstance(supplied_assimilation, dict) and not _review_lease_owner:
         return {
             "success": False,
@@ -1654,6 +1873,7 @@ def tool_finalize_session_distill(
         prefinalized_assimilation: dict[str, Any] | None = None
     else:
         prefinalized_assimilation = None
+        interactive_lease = False
         checkpoints = backend.transcript_store.list_distill_checkpoints(job.id)
         completed_checkpoints = sum(
             item.status == "completed" for item in checkpoints
@@ -1687,7 +1907,7 @@ def tool_finalize_session_distill(
                 }
         else:
             candidate_ids = asyncio.run(
-                _distill_job_candidate_ids(
+                separated_job_candidate_ids(
                     backend,
                     project_name=project_name,
                     distill_job_id=job_id,
@@ -1715,12 +1935,60 @@ def tool_finalize_session_distill(
                 "distill_status": job.status,
                 **challenge_error,
             }
+        if _review_lease_owner is None:
+            lease_owner = f"interactive:{uuid4()}"
+            claimed = backend.transcript_store.claim_distill_review(
+                job_id,
+                lease_owner=lease_owner,
+                execution_source="interactive_agent",
+            )
+            if claimed is None:
+                return {
+                    "success": False,
+                    "project_name": project_name,
+                    "distill_job_id": job.id,
+                    "distill_status": job.status,
+                    "error": "distill review is already running",
+                    "reason_codes": ["review_already_owned"],
+                }
+            _review_lease_owner = lease_owner
+            interactive_lease = True
+        if (
+            not isinstance(supplied_assimilation, dict)
+            and candidate_ids
+            and _semantic_review_allows_candidate_review(semantic_review)
+        ):
+            try:
+                supplied_assimilation = asyncio.run(
+                    _interactive_assimilation_plan(
+                        backend,
+                        project_name=project_name,
+                        project_root=job.project_root,
+                        candidate_ids=candidate_ids,
+                    )
+                )
+            except (TypeError, ValueError, ValidationError) as exc:
+                if interactive_lease:
+                    backend.transcript_store.release_distill_review_lease(
+                        job_id,
+                        lease_owner=_review_lease_owner,
+                    )
+                return {
+                    "success": False,
+                    "project_name": project_name,
+                    "distill_job_id": job.id,
+                    "distill_status": job.status,
+                    "error": str(exc),
+                    "reason_codes": ["interactive_assimilation_incomplete"],
+                }
+            semantic_review = {
+                **semantic_review,
+                "assimilation": supplied_assimilation,
+            }
         if _uses_separated_assimilation(semantic_review):
-            # Current knowledge is the user-visible result, so it must commit
-            # before the job can claim a completed terminal state.  Each
-            # knowledge mutation is deterministic and replay-safe; if final
-            # job persistence fails, a retry replays these transactions and
-            # then commits the job exactly once.
+            # Revalidate the source and save current knowledge before the job
+            # can become completed. A failed write therefore leaves the job
+            # available for retry instead of creating a false completion.
             assert _review_lease_owner is not None
             preflight_reason_codes = _trusted_assimilation_preflight(
                 backend,
@@ -1728,6 +1996,11 @@ def tool_finalize_session_distill(
                 review_lease_owner=_review_lease_owner,
             )
             if preflight_reason_codes:
+                if interactive_lease:
+                    backend.transcript_store.release_distill_review_lease(
+                        job_id,
+                        lease_owner=_review_lease_owner,
+                    )
                 return {
                     "success": False,
                     "project_name": project_name,
@@ -1736,30 +2009,99 @@ def tool_finalize_session_distill(
                     "error": "trusted_assimilation_precondition_failed",
                     "reason_codes": preflight_reason_codes,
                 }
+            try:
+                prefinalized_assimilation = asyncio.run(
+                    apply_separated_assimilation(
+                        backend,
+                        project_name=project_name,
+                        project_root=job.project_root,
+                        candidate_ids=candidate_ids,
+                        plan=semantic_review["assimilation"],
+                    )
+                )
+            except (RuntimeError, TypeError, ValueError) as exc:
+                if interactive_lease:
+                    backend.transcript_store.release_distill_review_lease(
+                        job_id,
+                        lease_owner=_review_lease_owner,
+                    )
+                return {
+                    "success": False,
+                    "project_name": project_name,
+                    "distill_job_id": job.id,
+                    "distill_status": job.status,
+                    "error": "current knowledge was not saved",
+                    "reason_codes": [str(exc)],
+                }
+        else:
             prefinalized_assimilation = asyncio.run(
-                apply_separated_assimilation(
+                _settle_distill_candidates(
                     backend,
                     project_name=project_name,
-                    project_root=job.project_root,
                     candidate_ids=candidate_ids,
-                    plan=semantic_review["assimilation"],
                 )
             )
-        completed = backend.transcript_store.finalize_distill_job(
-            job_id,
-            semantic_review=semantic_review,
-            output_candidate_ids=candidate_ids,
-            review_lease_owner=_review_lease_owner,
-        )
-        if completed.status == "stale" and prefinalized_assimilation is not None:
-            rolled_back = asyncio.run(
-                _rollback_stale_assimilation(
+        if prefinalized_assimilation is not None:
+            result_error = _candidate_result_error(
+                candidate_ids=candidate_ids,
+                promotion_summary=prefinalized_assimilation,
+            )
+            if result_error is not None:
+                if interactive_lease:
+                    backend.transcript_store.release_distill_review_lease(
+                        job_id,
+                        lease_owner=_review_lease_owner,
+                    )
+                return {
+                    "success": False,
+                    "project_name": project_name,
+                    "distill_job_id": job.id,
+                    "distill_status": job.status,
+                    "error": "every candidate needs an explicit non-pending result",
+                    "reason_codes": [result_error],
+                }
+            commit_error = asyncio.run(
+                _promotion_commit_error(
                     backend,
-                    job_id=job.id,
-                    assimilation=prefinalized_assimilation,
+                    project_name=project_name,
+                    promotion_summary=prefinalized_assimilation,
                 )
             )
-            prefinalized_assimilation["rolled_back_mutation_ids"] = rolled_back
+            if commit_error is not None:
+                if interactive_lease:
+                    backend.transcript_store.release_distill_review_lease(
+                        job_id,
+                        lease_owner=_review_lease_owner,
+                    )
+                return {
+                    "success": False,
+                    "project_name": project_name,
+                    "distill_job_id": job.id,
+                    "distill_status": job.status,
+                    "error": "current knowledge was not saved",
+                    "reason_codes": [commit_error],
+                }
+        handoff_ids = asyncio.run(
+            _distill_job_handoff_ids(
+                backend,
+                project_name=project_name,
+                distill_job_id=job_id,
+            )
+        )
+        try:
+            completed = backend.transcript_store.finalize_distill_job(
+                job_id,
+                semantic_review=semantic_review,
+                output_candidate_ids=candidate_ids,
+                review_lease_owner=_review_lease_owner,
+            )
+        except Exception:
+            if interactive_lease:
+                backend.transcript_store.release_distill_review_lease(
+                    job_id,
+                    lease_owner=_review_lease_owner,
+                )
+            raise
     payload: dict[str, Any] = {
         "success": completed.status == "completed",
         "project_name": project_name,
@@ -1779,7 +2121,6 @@ def tool_finalize_session_distill(
     semantic_allows_candidate_review = _semantic_review_allows_candidate_review(
         completed.semantic_review
     )
-    dream_result: dict[str, Any] | None = None
     evidence_admission = {
         "repository_verified": 0,
         "user_stated": 0,
@@ -1817,48 +2158,58 @@ def tool_finalize_session_distill(
             "reason": "separated_autonomous_assimilation_applied",
             "candidate_ids": candidate_ids,
         }
-    elif isinstance(assimilation_plan, dict) and assimilation_plan.get("version") == "v1":
-        assimilation_summary = asyncio.run(
-            apply_assimilation(
-                backend,
-                project_name=project_name,
-                candidate_ids=candidate_ids,
-                plan=assimilation_plan,
-            )
-        )
+    elif semantic_allows_candidate_review:
+        assimilation_summary = prefinalized_assimilation
         payload["auto_review"] = {
             "skipped": True,
-            "reason": "autonomous_assimilation_applied",
+            "reason": "current_knowledge_assimilation_required",
             "candidate_ids": candidate_ids,
         }
-    elif semantic_allows_candidate_review:
-        summary = asyncio.run(
-            auto_review_candidates(
-                backend,
-                project_name=project_name,
-                apply=True,
-                candidate_ids=candidate_ids,
-            )
-        )
-        auto_review_payload = summary.to_dict()
-        payload["auto_review"] = auto_review_payload
-        evidence_admission = dict(auto_review_payload["evidence_admission"])
-        answer_gate = dict(auto_review_payload["answer_gate"])
     else:
+        assimilation_summary = prefinalized_assimilation
         payload["auto_review"] = {
             "skipped": True,
             "reason": "semantic_review_blocks_candidate_review",
             "candidate_ids": candidate_ids,
         }
-    promotion_counts = (
-        assimilation_summary
-        if assimilation_summary is not None
-        else asyncio.run(
+    if assimilation_summary is None:
+        assimilation_summary = asyncio.run(
             _settle_distill_candidates(
                 backend,
                 project_name=project_name,
                 candidate_ids=candidate_ids,
             )
+        )
+    result_error = _candidate_result_error(
+        candidate_ids=candidate_ids,
+        promotion_summary=assimilation_summary,
+    )
+    if result_error is not None:
+        return {
+            **payload,
+            "success": False,
+            "error": "every candidate needs an explicit non-pending result",
+            "reason_codes": [result_error],
+        }
+    commit_error = asyncio.run(
+        _promotion_commit_error(
+            backend,
+            project_name=project_name,
+            promotion_summary=assimilation_summary,
+        )
+    )
+    if commit_error is not None:
+        return {
+            **payload,
+            "success": False,
+            "error": "current knowledge was not saved",
+            "reason_codes": [commit_error],
+        }
+    promotion_counts = assimilation_summary
+    evidence_admission, answer_gate = asyncio.run(
+        _separated_evidence_summary(
+            backend,
+            candidate_ids=candidate_ids,
         )
     )
     promotion: dict[str, Any] = {
@@ -1895,16 +2246,15 @@ def tool_finalize_session_distill(
             )
         ]
     )
-    if dream_result is not None and dream_result.get("success") is False:
-        reason_codes.append("dream_postprocess_failed")
-    if config_reason_code is not None:
-        reason_codes.append(config_reason_code)
-
     source_cleanup = {
-        "configured": config.distill_delete_source_after_complete,
+        "configured": _source_cleanup_allowed(completed),
         "status": "retained",
         "receipt_id": None,
-        "reason_codes": ["retention_default"],
+        "reason_codes": (
+            ["source_cleanup_after_active_processing"]
+            if _source_cleanup_allowed(completed)
+            else ["dream_keeps_source"]
+        ),
     }
     backend.transcript_store.record_distill_completion_outcome(
         completed.id,
@@ -1921,11 +2271,10 @@ def tool_finalize_session_distill(
         pre_cleanup,
         notes_dir=_session_notes_dir(backend),
     )
-    if config.distill_delete_source_after_complete:
+    if _source_cleanup_allowed(completed):
         source_cleanup = _cleanup_completed_distill_source(
             backend,
             completed=completed,
-            dream_result=dream_result,
         )
     stored = backend.transcript_store.record_distill_completion_outcome(
         completed.id,
@@ -1942,7 +2291,6 @@ def tool_finalize_session_distill(
     queue = distill_drainer_metrics(
         backend,
         project_name=project_name,
-        daily_job_budget=config.distill_auto_daily_job_budget,
     )
     payload["completion"] = {
         "disposition": stored.completion_disposition,
@@ -1960,20 +2308,43 @@ def tool_finalize_session_distill(
     return payload
 
 
-def _load_completion_config(project_root: str) -> tuple[MergedConfig, str | None]:
-    """Load completion policy without stranding an already-reviewed job."""
+def _source_cleanup_allowed(job: Any) -> bool:
+    """Return whether a completed job came from active user processing."""
 
-    safe_fallback = MergedConfig(distill_delete_source_after_complete=False)
-    if not project_root or not Path(project_root).is_dir():
-        return safe_fallback, "completion_project_root_unavailable"
-    try:
-        return load_merged_config(project_root), None
-    except (ConfigError, OSError):
-        # A malformed or temporarily unreadable Config_File must not leave the
-        # distill job completed but missing its terminal outcome. Even though
-        # the normal default is cleanup-on-success, unreadable policy cannot
-        # authorize deletion, so recovery remains fail-safe and retains source.
-        return safe_fallback, "completion_config_invalid"
+    return bool(
+        getattr(job, "review_execution_source", None) == "interactive_agent"
+        or getattr(job, "client", None) == "codex-archive"
+    )
+
+
+def _source_cleanup_payload(job: Any) -> dict[str, Any]:
+    return {
+        "configured": _source_cleanup_allowed(job),
+        "status": job.source_cleanup_status,
+        "receipt_id": job.source_cleanup_receipt_id,
+    }
+
+
+def _replay_completed_source_cleanup(
+    backend: LocalMemoryBackend,
+    *,
+    job: Any,
+) -> dict[str, Any]:
+    """Finish cleanup for an already completed active job, if needed."""
+
+    if not _source_cleanup_allowed(job):
+        return {
+            **_source_cleanup_payload(job),
+            "reason_codes": ["dream_keeps_source"],
+        }
+    if job.source_cleanup_status == "deleted":
+        note_cleanup = delete_session_notes(_session_notes_dir(backend), job)
+        result = {**_source_cleanup_payload(job), "note_cleanup": note_cleanup}
+        if note_cleanup.get("failed"):
+            result["status"] = "partial_failure"
+            result["reason_codes"] = ["session_note_cleanup_failed"]
+        return result
+    return _cleanup_completed_distill_source(backend, completed=job)
 
 
 async def _settle_distill_candidates(
@@ -1981,59 +2352,78 @@ async def _settle_distill_candidates(
     *,
     project_name: str,
     candidate_ids: list[str],
-) -> dict[str, int]:
-    """Make one distill job terminal without leaving a daily review burden."""
+) -> dict[str, Any]:
+    """Record an explicit non-writing result for every separated candidate."""
 
-    promoted = 0
-    rejected = 0
-    missing = 0
-    for candidate_id in candidate_ids:
-        candidate: Any | None = await backend.structured_store.get_memory_entry(
-            candidate_id
-        )
-        update_status = backend.structured_store.update_memory_entry_status
-        if candidate is None:
-            candidate = await backend.structured_store.get_rule_candidate(candidate_id)
-            update_status = backend.structured_store.update_rule_candidate_status
-        if candidate is None:
-            candidate = await backend.structured_store.get_relation_fact(candidate_id)
-            update_status = backend.structured_store.update_relation_fact_status
-        if candidate is None:
-            missing += 1
-            continue
-        status = str(getattr(candidate, "status", "pending"))
-        if status in TRUTH_LAYER_STATUSES:
-            promoted += 1
-            continue
-        if status in CANDIDATE_LAYER_STATUSES and status != "rejected":
-            await update_status(candidate_id, "rejected")
-            status = "rejected"
-        if status == "rejected":
-            rejected += 1
-    return {
+    from harness_mem.commands.knowledge_assimilation import (
+        record_assimilation_result,
+    )
+
+    counts: dict[str, Any] = {
         "suggested": len(candidate_ids),
-        "promoted": promoted,
-        "rejected": rejected,
+        "promoted": 0,
+        "confirmed": 0,
+        "no_write": 0,
+        "handoff": 0,
+        "deferred": 0,
+        "conflict": 0,
+        "rejected": 0,
+        "missing": 0,
         "pending": 0,
-        "missing": missing,
     }
+    points: list[dict[str, Any]] = []
+    store = backend.structured_store.knowledge_store
+    for candidate_id in candidate_ids:
+        candidate = await store.get_candidate(candidate_id)
+        if candidate is None:
+            counts["missing"] += 1
+            continue
+        if candidate.project_name != project_name:
+            raise ValueError("distill candidate belongs to another project")
+        if candidate.status == "pending":
+            await record_assimilation_result(
+                backend,
+                candidate=candidate,
+                point={
+                    "disposition": "reject",
+                    "reason": "Session review did not admit this point to current knowledge.",
+                },
+            )
+            candidate = await store.get_candidate(candidate_id)
+            if candidate is None:
+                counts["missing"] += 1
+                continue
+        if candidate.status == "rejected":
+            disposition = "reject"
+            counts["rejected"] += 1
+        elif candidate.status == "deferred":
+            disposition = "defer"
+            counts["deferred"] += 1
+        elif candidate.status == "conflict":
+            disposition = "conflict"
+            counts["conflict"] += 1
+        else:
+            counts["pending"] += 1
+            continue
+        points.append(
+            {
+                "candidate_id": candidate.id,
+                "answer_status": "UNANSWERED",
+                "disposition": disposition,
+                "canonical_truth_ids": [],
+                "separated_knowledge_ids": [],
+                "handoff_id": None,
+            }
+        )
+    return {**counts, "points": points}
 
 
 def _cleanup_completed_distill_source(
     backend: LocalMemoryBackend,
     *,
     completed: Any,
-    dream_result: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    """Run the content-free source-cleanup saga after automatic post-processing."""
-
-    if dream_result is not None and dream_result.get("success") is False:
-        return {
-            "configured": True,
-            "status": "retained",
-            "receipt_id": None,
-            "reason_codes": ["dream_postprocess_failed"],
-        }
+    """Run source cleanup after the explicit distill result is durable."""
     source = backend.transcript_store.get_source(completed.source_id)
     if source is None or source.source_revision != completed.source_revision:
         return {
@@ -2054,7 +2444,7 @@ def _cleanup_completed_distill_source(
 
         native_plan = plan_native_source_cleanup(source)
         native_preview = native_plan.to_preview()
-        if native_plan.retained:
+        if native_plan.retained or not native_plan.supported:
             return {
                 "configured": True,
                 "status": "retained",
@@ -2086,6 +2476,17 @@ def _cleanup_completed_distill_source(
                 receipt_id=receipt_id,
             )
         )
+        note_cleanup = (
+            delete_session_notes(_session_notes_dir(backend), completed)
+            if result.get("status") == "deleted"
+            else {"removed": 0, "failed": 0}
+        )
+        if note_cleanup.get("failed"):
+            result["status"] = "partial_failure"
+            result.setdefault("reason_codes", []).append(
+                "session_note_cleanup_failed"
+            )
+        result["note_cleanup"] = note_cleanup
         return {
             "configured": True,
             "status": result.get("status", "partial_failure"),
@@ -2100,35 +2501,6 @@ def _cleanup_completed_distill_source(
             "receipt_id": None,
             "reason_codes": [f"cleanup_failed:{type(exc).__name__}"],
         }
-
-
-async def _distill_job_candidate_ids(
-    backend: LocalMemoryBackend,
-    *,
-    project_name: str,
-    distill_job_id: str,
-) -> list[str]:
-    """Return only candidates explicitly produced by one lossless job."""
-
-    entries = await backend.structured_store.list_memory_entries(
-        project_name,
-        limit=100_000,
-        status="pending",
-    )
-    rules = await backend.structured_store.list_rule_candidates(
-        project_name,
-        status="pending",
-    )
-    facts = await backend.structured_store.list_relation_facts(
-        project_name,
-        limit=100_000,
-        status="pending",
-    )
-    return [
-        str(getattr(candidate, "id"))
-        for candidate in [*entries, *rules, *facts]
-        if getattr(candidate, "distill_job_id", None) == distill_job_id
-    ]
 
 
 async def _distill_job_handoff_ids(
@@ -2319,7 +2691,7 @@ def _semantic_review_allows_candidate_review(review: dict[str, Any]) -> bool:
     decision = review.get("promotion_decision")
     if decision == "promote":
         return _semantic_review_allows_promotion(review)
-    # A partial session may describe superseded plans or other historical
+    # A partial session may describe replaced plans or other historical
     # contradictions while still containing an independently ANSWERED
     # candidate. The candidate's own evidence envelope decides admission;
     # session-level contradictions continue to block Dream/full promotion.

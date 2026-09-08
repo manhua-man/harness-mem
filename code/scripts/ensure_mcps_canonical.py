@@ -40,6 +40,11 @@ def _regenerate_harness_mem_tools() -> None:
 
     output_dir = CODE_ROOT / "mcps" / "harness_mem" / "tools"
     written = export_tool_descriptors(output_dir)
+    exported_names = {path.stem for path in written}
+    for stale in output_dir.glob("*.json"):
+        if stale.stem not in exported_names:
+            stale.unlink()
+            print(f"removed stale harness_mem descriptor: {stale.name}")
     print(f"regenerated {len(written)} harness_mem tool descriptor(s)")
 
 

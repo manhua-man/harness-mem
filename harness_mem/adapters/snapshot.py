@@ -289,8 +289,6 @@ async def persist_session_snapshot(
 
     distill_job = backend.transcript_store.enqueue_distill_job(
         source.id,
-        active_limit=config.distill_auto_target_backlog,
-        recent_first=config.distill_auto_recent_first,
     )
 
     return TranscriptSyncResult(

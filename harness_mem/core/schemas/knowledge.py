@@ -1,8 +1,8 @@
-"""Schemas for current knowledge and its bounded supporting records.
+"""Schemas for current knowledge and short-lived processing material.
 
-``KnowledgeEntry`` is the small, durable row used by normal retrieval. Source
-revalidation and undo snapshots are separate records so processing metadata
-never leaks into the knowledge body or its embedding text.
+``KnowledgeEntry`` is the only durable memory row used by normal retrieval.
+Sources support revalidation of that current row. Candidates, evidence, and
+decisions exist only while a job is unfinished.
 """
 
 from __future__ import annotations
@@ -60,7 +60,6 @@ class KnowledgeEntry(BaseModel):
     title: str = Field(min_length=1)
     statement: str = Field(min_length=1)
     verified_at: datetime | None = None
-    revision: int = Field(default=1, ge=1)
     created_at: datetime = Field(default_factory=_utc_now)
     updated_at: datetime = Field(default_factory=_utc_now)
 
@@ -86,7 +85,6 @@ class KnowledgeEntry(BaseModel):
             "title": self.title,
             "statement": self.statement,
             "verified_at": self.verified_at.isoformat() if self.verified_at else None,
-            "revision": self.revision,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }
@@ -100,9 +98,8 @@ class KnowledgeEntry(BaseModel):
         # to rewrite them in the clean shape. New writes never emit these keys.
         if "module_path" not in normalized and "topic_path" in normalized:
             normalized["module_path"] = normalized.pop("topic_path")
-        for obsolete in ("source_refs", "claim_kind", "validity"):
+        for obsolete in ("source_refs", "claim_kind", "validity", "revision"):
             normalized.pop(obsolete, None)
-        normalized.setdefault("revision", 1)
         return cls(**normalized)
 
 
@@ -152,102 +149,24 @@ class KnowledgeSource(BaseModel):
         return cls(**_deserialize_datetimes(data, "verified_at"))
 
 
-class KnowledgeVersion(BaseModel):
-    """Bounded snapshot of a previous knowledge revision for Review undo."""
-
-    id: str = Field(default_factory=lambda: str(uuid4()))
-    knowledge_id: str = Field(min_length=1)
-    project_name: str = Field(min_length=1)
-    revision: int = Field(ge=1)
-    module_path: list[str] = Field(min_length=1)
-    title: str = Field(min_length=1)
-    statement: str = Field(min_length=1)
-    verified_at: datetime | None = None
-    sources: list[KnowledgeSource] = Field(default_factory=list)
-    recorded_at: datetime = Field(default_factory=_utc_now)
-
-    model_config = {"extra": "forbid"}
-
-    @field_validator("knowledge_id", "project_name", "title", "statement")
-    @classmethod
-    def normalize_single_line(cls, value: str, info) -> str:
-        return _single_line(value, field_name=info.field_name)
-
-    @field_validator("module_path")
-    @classmethod
-    def normalize_module_path(cls, value: list[str]) -> list[str]:
-        return [_single_line(part, field_name="module_path") for part in value]
-
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "knowledge_id": self.knowledge_id,
-            "project_name": self.project_name,
-            "revision": self.revision,
-            "module_path": list(self.module_path),
-            "title": self.title,
-            "statement": self.statement,
-            "verified_at": self.verified_at.isoformat() if self.verified_at else None,
-            "sources": [source.to_dict() for source in self.sources],
-            "recorded_at": self.recorded_at.isoformat(),
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "KnowledgeVersion":
-        normalized = _deserialize_datetimes(data, "verified_at", "recorded_at")
-        normalized["sources"] = [
-            source
-            if isinstance(source, KnowledgeSource)
-            else KnowledgeSource.from_dict(source)
-            for source in normalized.get("sources") or []
-        ]
-        return cls(**normalized)
-
-
-class KnowledgeMutation(BaseModel):
-    """Minimal durable lineage required to validate and reverse one mutation."""
-
-    id: str = Field(min_length=1)
-    project_name: str = Field(min_length=1)
-    disposition: Literal["add", "refine", "supersede", "archive"]
-    current_knowledge_ids: list[str] = Field(default_factory=list)
-    predecessor_version_ids: list[str] = Field(default_factory=list)
-    reverses_mutation_id: str | None = None
-    reason: str = Field(default="", max_length=2000)
-    recorded_at: datetime = Field(default_factory=_utc_now)
-
-    model_config = {"extra": "forbid"}
-
-    @field_validator("id", "project_name")
-    @classmethod
-    def normalize_required_line(cls, value: str, info) -> str:
-        return _single_line(value, field_name=info.field_name)
-
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "project_name": self.project_name,
-            "disposition": self.disposition,
-            "current_knowledge_ids": list(self.current_knowledge_ids),
-            "predecessor_version_ids": list(self.predecessor_version_ids),
-            "reverses_mutation_id": self.reverses_mutation_id,
-            "reason": self.reason,
-            "recorded_at": self.recorded_at.isoformat(),
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "KnowledgeMutation":
-        return cls(**_deserialize_datetimes(data, "recorded_at"))
-
-
 class KnowledgeCandidate(BaseModel):
-    """A proposed point that has not become current project knowledge."""
+    """Job-scoped proposed knowledge that is never current project truth.
+
+    The optional assimilation fields are an Agent proposal consumed by the
+    trusted finalizer.  They are not an applied decision and disappear with the
+    candidate workspace after a proved terminal result.
+    """
 
     id: str = Field(default_factory=lambda: str(uuid4()))
     project_name: str
     candidate_type: KnowledgeCandidateType
     statement: str = Field(min_length=1)
     status: KnowledgeCandidateStatus = "pending"
+    assimilation_disposition: AssimilationDisposition | None = None
+    assimilation_reason: str | None = None
+    assimilation_target_ids: list[str] = Field(default_factory=list)
+    canonical_title: str | None = None
+    topic_path: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=_utc_now)
     updated_at: datetime = Field(default_factory=_utc_now)
 
@@ -260,13 +179,34 @@ class KnowledgeCandidate(BaseModel):
             "candidate_type": self.candidate_type,
             "statement": self.statement,
             "status": self.status,
+            "assimilation_disposition": self.assimilation_disposition,
+            "assimilation_reason": self.assimilation_reason,
+            "assimilation_target_ids": list(self.assimilation_target_ids),
+            "canonical_title": self.canonical_title,
+            "topic_path": list(self.topic_path),
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "KnowledgeCandidate":
-        return cls(**_deserialize_datetimes(data, "created_at", "updated_at"))
+        normalized = _deserialize_datetimes(data, "created_at", "updated_at")
+        # Candidates are temporary work material and may survive a code
+        # upgrade while a job is waiting.  Older records used one optional
+        # target id; the current model uses a list so one candidate can name
+        # the exact current entries it is refining or replacing.  Normalize
+        # that old shape on read instead of letting one stale file block all
+        # archive processing.  A null old value carries no information.
+        legacy_target = normalized.pop("assimilation_target_id", None)
+        if "assimilation_target_ids" not in normalized:
+            normalized["assimilation_target_ids"] = (
+                [str(legacy_target).strip()]
+                if str(legacy_target or "").strip()
+                else []
+            )
+        elif normalized.get("assimilation_target_ids") is None:
+            normalized["assimilation_target_ids"] = []
+        return cls(**normalized)
 
 
 class KnowledgeEvidence(BaseModel):
@@ -319,7 +259,6 @@ class AssimilationDecision(BaseModel):
     canonical_truth_ids: list[str] = Field(default_factory=list)
     predecessor_truth_ids: list[str] = Field(default_factory=list)
     predecessor_entries: list[KnowledgeEntry] = Field(default_factory=list)
-    reverses_decision_id: str | None = None
     reason: str = Field(min_length=1)
     decided_at: datetime = Field(default_factory=_utc_now)
 
@@ -334,7 +273,6 @@ class AssimilationDecision(BaseModel):
             "canonical_truth_ids": list(self.canonical_truth_ids),
             "predecessor_truth_ids": list(self.predecessor_truth_ids),
             "predecessor_entries": [item.to_dict() for item in self.predecessor_entries],
-            "reverses_decision_id": self.reverses_decision_id,
             "reason": self.reason,
             "decided_at": self.decided_at.isoformat(),
         }
@@ -357,7 +295,5 @@ __all__ = [
     "KnowledgeCandidateType",
     "KnowledgeEntry",
     "KnowledgeEvidence",
-    "KnowledgeMutation",
     "KnowledgeSource",
-    "KnowledgeVersion",
 ]

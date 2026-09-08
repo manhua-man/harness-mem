@@ -41,8 +41,8 @@ AnswerStatus = Literal[
 class PromotedKnowledgeItem(BaseModel):
     """One user-visible promoted fact without internal storage identifiers."""
 
-    title: str = Field(min_length=1, max_length=160)
-    fact: str = Field(min_length=1, max_length=4000)
+    title: str = Field(min_length=1)
+    fact: str = Field(min_length=1)
     kind: str = Field(min_length=1, max_length=80)
     category: str = Field(min_length=1, max_length=160)
 

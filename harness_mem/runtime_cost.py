@@ -29,14 +29,12 @@ _SURFACE_FOR_TOOL: dict[str, str] = {
     "search_raw": "search",
     "search_skills": "search",
     "timeline": "timeline",
-    "temporal_query": "temporal_query",
     "trace_relations": "trace_relations",
     "file_context": "file_context",
     "prepare_session_distill": "distill",
     "dream_ledger": "dream",
     "dream_run": "dream",
     "dream_auto_tick": "dream",
-    "undo_dream_item": "dream",
     "get_project_status": "status",
 }
 
@@ -44,7 +42,6 @@ _SURFACE_THRESHOLDS: dict[str, int] = {
     "wake": 2000,
     "search": 1200,
     "timeline": 1200,
-    "temporal_query": 1600,
     "trace_relations": 1600,
     "file_context": 900,
     "distill": 3000,
@@ -363,7 +360,6 @@ def _argument_shape(arguments: Mapping[str, Any]) -> dict[str, Any]:
         "mode",
         "detail_level",
         "evidence_mode",
-        "include_history",
         "include_skill_hints",
         "no_auto_ingest",
         "run_ingest",
@@ -375,7 +371,6 @@ def _argument_shape(arguments: Mapping[str, Any]) -> dict[str, Any]:
     for key in (
         "limit",
         "observation_limit",
-        "max_chars_per_observation",
         "skill_hint_limit",
         "budget_tokens",
     ):
@@ -384,9 +379,6 @@ def _argument_shape(arguments: Mapping[str, Any]) -> dict[str, Any]:
                 shape[key] = int(arguments[key])
             except (TypeError, ValueError):
                 shape[key] = "invalid"
-    if "memory_type" in arguments:
-        memory_type = arguments.get("memory_type")
-        shape["memory_type_count"] = len(memory_type) if isinstance(memory_type, list) else 0
     return shape
 
 
@@ -395,7 +387,7 @@ def _result_shape(result: Mapping[str, Any] | Any) -> dict[str, Any]:
         return {"result_kind": type(result).__name__}
     shape: dict[str, Any] = {}
     for key in (
-        "memory_entry_count",
+        "memory_count",
         "relation_fact_count",
         "observation_count",
         "count",
@@ -511,15 +503,10 @@ def _cost_hints(
             "Use compact semantic evidence, then drill into only the selected raw proof."
         )
         kinds.extend(["compact_distill_outline", "source_drilldown"])
-    elif surface == "status" and high_output:
-        hints.append(
-            "Use get_project_status detail_level=compact and request full diagnostics only when needed."
-        )
-        kinds.append("compact_status")
     elif surface == "file_context" and high_output:
         hints.append("Ask file_context for the most specific path before reading broad context.")
         kinds.append("narrower_file_context")
-    elif surface in {"search", "timeline", "temporal_query"} and high_output:
+    elif surface in {"search", "timeline"} and high_output:
         hints.append("Reduce limit or drill into source ids instead of returning another wide payload.")
         kinds.append("source_drilldown")
     elif surface == "dream" and high_output:
@@ -536,12 +523,12 @@ def _is_broad_search(arguments: Mapping[str, Any], result_shape: Mapping[str, An
     terms = _query_terms(query)
     query_lower = query.strip().lower()
     total_results = 0
-    for key in ("memory_entry_count", "relation_fact_count", "observation_count", "count"):
+    for key in ("memory_count", "relation_fact_count", "observation_count", "count"):
         try:
             total_results += int(result_shape.get(key) or 0)
         except (TypeError, ValueError):
             pass
-    if arguments.get("scope") == "all" and not arguments.get("memory_type"):
+    if arguments.get("scope") == "all":
         return True
     return len(terms) <= 2 or query_lower in _BROAD_QUERY_WORDS or total_results >= 30
 

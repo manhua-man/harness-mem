@@ -10,14 +10,11 @@ from harness_mem.core.schemas.knowledge import ClaimKind
 from harness_mem.knowledge_validation import validate_atomic_knowledge_statement
 
 
-# ``archive`` is a maintenance-only truth mutation.  It remains part of the
-# internal audit vocabulary, but a semantic provider must never receive it as
-# a candidate-point disposition.
 ProviderAssimilationDisposition = Literal[
     "add",
     "refine",
     "confirm",
-    "supersede",
+    "replace",
     "no_write",
     "handoff",
     "defer",
@@ -46,8 +43,8 @@ class _CandidateBase(_StrictModel):
     verification_outcome: Literal["verified", "unverified", "contradicted"] = (
         "unverified"
     )
-    verification_refs: list[VerificationRef] = Field(default_factory=list, max_length=8)
-    verification_reason_codes: list[str] = Field(default_factory=list, max_length=8)
+    verification_refs: list[VerificationRef] = Field(default_factory=list)
+    verification_reason_codes: list[str] = Field(default_factory=list)
 
 
 def _assert_atomic_title(value: str) -> str:
@@ -79,12 +76,12 @@ class DistillCandidate(_CandidateBase):
 
     kind: Literal["memory", "rule", "relation"]
     category: str | None = Field(default=None, max_length=80)
-    content: str | None = Field(default=None, max_length=4000)
+    content: str | None = Field(default=None)
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
-    tags: list[str] | None = Field(default=None, max_length=12)
+    tags: list[str] | None = Field(default=None)
     pattern: str | None = Field(default=None, max_length=2000)
     trigger: str | None = Field(default=None, max_length=1000)
-    examples: list[str] | None = Field(default=None, max_length=8)
+    examples: list[str] | None = Field(default=None)
     source_entity: str | None = Field(default=None, max_length=200)
     target_entity: str | None = Field(default=None, max_length=200)
     relation_type: str | None = Field(default=None, max_length=100)
@@ -100,9 +97,9 @@ class CanonicalKnowledgeItem(_StrictModel):
     source-clause fallback.
     """
 
-    title: str = Field(min_length=1, max_length=160)
-    statement: str = Field(min_length=1, max_length=4000)
-    topic_path: list[str] = Field(min_length=1, max_length=8)
+    title: str = Field(min_length=1)
+    statement: str = Field(min_length=1)
+    topic_path: list[str] = Field(min_length=1)
     claim_kind: ClaimKind
 
     @model_validator(mode="after")
@@ -118,13 +115,11 @@ class AssimilationPoint(_StrictModel):
 
     candidate_id: str = Field(min_length=1, max_length=128)
     disposition: ProviderAssimilationDisposition
-    matched_truth_handles: list[str] = Field(default_factory=list, max_length=8)
-    canonical_title: str | None = Field(default=None, max_length=160)
-    canonical_statement: str | None = Field(default=None, max_length=4000)
-    topic_path: list[str] = Field(default_factory=list, max_length=8)
-    knowledge_items: list[CanonicalKnowledgeItem] = Field(
-        default_factory=list, max_length=3
-    )
+    matched_truth_handles: list[str] = Field(default_factory=list)
+    canonical_title: str | None = Field(default=None)
+    canonical_statement: str | None = Field(default=None)
+    topic_path: list[str] = Field(default_factory=list)
+    knowledge_items: list[CanonicalKnowledgeItem] = Field(default_factory=list)
     reason: str = Field(min_length=8, max_length=1000)
 
     @model_validator(mode="after")
@@ -139,9 +134,13 @@ class AssimilationPoint(_StrictModel):
             self.topic_path = []
         if self.disposition == "add" and target_count:
             raise ValueError("add must not target current truth")
-        if self.disposition in {"confirm", "refine", "supersede"} and target_count != 1:
+        if self.disposition == "confirm" and target_count != 1:
             raise ValueError(
-                f"{self.disposition} requires exactly one current truth handle"
+                "confirm requires exactly one current truth handle"
+            )
+        if self.disposition in {"refine", "replace"} and target_count < 1:
+            raise ValueError(
+                f"{self.disposition} requires at least one current truth handle"
             )
         if self.disposition == "conflict" and target_count > 1:
             raise ValueError("conflict may reference at most one current truth handle")
@@ -157,13 +156,13 @@ class AssimilationPoint(_StrictModel):
 class AssimilationDecision(_StrictModel):
     """Strict semantic decision over verified points and truth handles."""
 
-    points: list[AssimilationPoint] = Field(default_factory=list, max_length=12)
+    points: list[AssimilationPoint] = Field(default_factory=list)
 
 
 class CandidateVerificationPoint(_StrictModel):
     """Semantic source-support and future-scope result for one extracted point."""
 
-    candidate_index: int = Field(ge=0, le=11)
+    candidate_index: int = Field(ge=0)
     semantic_support: Literal["supported", "partial", "contradicted"]
     future_scope: Literal["durable", "session_only", "unclear"]
     reason: str = Field(min_length=8, max_length=1000)
@@ -172,7 +171,7 @@ class CandidateVerificationPoint(_StrictModel):
 class CandidateVerificationDecision(_StrictModel):
     """Complete per-point verification over bounded, content-addressed sources."""
 
-    points: list[CandidateVerificationPoint] = Field(default_factory=list, max_length=12)
+    points: list[CandidateVerificationPoint] = Field(default_factory=list)
 
 
 ChallengeChecks = Literal["absent", "not_durable", "candidate_required"]
@@ -220,8 +219,8 @@ class SemanticReview(_StrictModel):
     final_user_request: str = Field(min_length=1, max_length=4000)
     final_outcome: str = Field(min_length=1, max_length=4000)
     last_turn_status: Literal["answered", "unfinished", "unknown"]
-    contradictions: list[str] = Field(default_factory=list, max_length=20)
-    unfinished_work: list[str] = Field(default_factory=list, max_length=20)
+    contradictions: list[str] = Field(default_factory=list)
+    unfinished_work: list[str] = Field(default_factory=list)
     evidence_status: Literal["answered", "partial", "contradicted", "not_applicable"]
     promotion_decision: Literal["promote", "partial", "no_promotion", "blocked"]
     zero_candidate_challenge: ZeroCandidateChallenge | None = None
@@ -229,7 +228,7 @@ class SemanticReview(_StrictModel):
 
 class AutonomousDecision(_StrictModel):
     semantic_review: SemanticReview
-    candidates: list[DistillCandidate] = Field(default_factory=list, max_length=12)
+    candidates: list[DistillCandidate] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def require_zero_candidate_review(self) -> "AutonomousDecision":
@@ -255,10 +254,10 @@ class AgentExtractionReview(_StrictModel):
     summary: str = Field(min_length=12, max_length=4000)
     final_request: str = Field(min_length=1, max_length=4000)
     actual_result: str = Field(min_length=1, max_length=4000)
-    contradictions: list[str] = Field(default_factory=list, max_length=20)
-    unfinished: list[str] = Field(default_factory=list, max_length=20)
+    contradictions: list[str] = Field(default_factory=list)
+    unfinished: list[str] = Field(default_factory=list)
     no_candidate_reason: str | None = Field(default=None, min_length=24, max_length=4000)
-    not_durable_signals: list[MemorySignal] = Field(default_factory=list, max_length=8)
+    not_durable_signals: list[MemorySignal] = Field(default_factory=list)
 
     @field_validator("contradictions", "unfinished", mode="before")
     @classmethod
@@ -278,13 +277,13 @@ class AgentExtractionPoint(_StrictModel):
     """
 
     kind: Literal["memory", "rule", "relation"]
-    statement: str = Field(min_length=1, max_length=4000)
+    statement: str = Field(min_length=1)
     condition: str | None = Field(default=None, max_length=1000)
     source_entity: str | None = Field(default=None, max_length=200)
     target_entity: str | None = Field(default=None, max_length=200)
     relation_type: str | None = Field(default=None, max_length=100)
     evidence_basis: Literal["user_statement", "transcript", "repository"]
-    exchange_indexes: list[int] = Field(default_factory=list, max_length=8)
+    exchange_indexes: list[int] = Field(default_factory=list)
     repository_locator: str | None = Field(default=None, max_length=4096)
     repository_sha256: str | None = Field(default=None, min_length=64, max_length=64)
 
@@ -311,7 +310,7 @@ class AgentExtractionDecision(_StrictModel):
     """Minimal host-Agent output expanded into ``AutonomousDecision`` locally."""
 
     review: AgentExtractionReview
-    points: list[AgentExtractionPoint] = Field(default_factory=list, max_length=12)
+    points: list[AgentExtractionPoint] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def require_no_candidate_reason(self) -> "AgentExtractionDecision":

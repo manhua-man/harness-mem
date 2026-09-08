@@ -131,17 +131,20 @@ def test_wake_signal_failure_does_not_fail_context_and_is_reported(
         project_name = "demo"
 
         def layer(self, _layer_id: str):
-            return object()
+            return SimpleNamespace(
+                entries=[entry],
+                budget=SimpleNamespace(max_entries=1),
+            )
 
     entry = SimpleNamespace(
-        why_included="essential:high_confidence_truth",
+        why_included="essential:current_knowledge",
         source_ids=["entry-1"],
+        truth_status="confirmed_current",
     )
 
     async def fail_signal(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr(wake_module, "select_rendered_entries", lambda _layer: [entry])
     monkeypatch.setattr(wake_module, "record_retrieval_signal", fail_signal)
     backend = SimpleNamespace(structured_store=Store())
 

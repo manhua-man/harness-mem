@@ -68,7 +68,7 @@ class SessionAdapter(Protocol):
     async def ingest(
         self,
         project_name: str | None = None,
-        limit: int = 10,
+        limit: int | None = None,
         min_size_kb: int = 0,
     ) -> dict[str, Any]:
         """Scan and synchronize changed sessions into the backend."""

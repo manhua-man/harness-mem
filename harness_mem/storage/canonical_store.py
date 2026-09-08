@@ -29,8 +29,8 @@ from harness_mem.storage.store_v2_migration import (
 from harness_mem.version import legacy_storage_support_policy
 
 
-CANONICAL_STORE_SCHEMA_VERSION = 6
-CANONICAL_STORE_CONTRACT_VERSION = "canonical-store-v6.0.0"
+CANONICAL_STORE_SCHEMA_VERSION = 7
+CANONICAL_STORE_CONTRACT_VERSION = "canonical-store-v7.0.0"
 DUAL_WRITE_ENV = "HARNESS_MEM_STORAGE_V2_DUAL_WRITE"
 RUNTIME_STATE_FILE_NAME = "runtime_state.json"
 MIGRATION_RECEIPT_DIR_NAME = "migration_receipts"
@@ -46,8 +46,6 @@ CANONICAL_ENTITY_TABLES: tuple[str, ...] = (
     "memory_entries",
     "knowledge_entries",
     "knowledge_sources",
-    "knowledge_versions",
-    "knowledge_mutations",
     "rules",
     "skills",
     "relations",
@@ -63,8 +61,6 @@ _COLLECTION_TO_TABLE: dict[str, str] = {
     "memory_entries": "memory_entries",
     "knowledge_entries": "knowledge_entries",
     "knowledge_sources": "knowledge_sources",
-    "knowledge_versions": "knowledge_versions",
-    "knowledge_mutations": "knowledge_mutations",
     "confirmed_rules": "rules",
     "skills": "skills",
     "relation_facts": "relations",
@@ -558,49 +554,25 @@ class CanonicalStoreRuntime:
                     self._conn.rollback()
                 raise
 
+    def payload_transaction_result(
+        self,
+        idempotency_key: str,
+    ) -> dict[str, Any] | None:
+        """Return a committed transaction result without replaying its writes."""
 
-def count_managed_backup_observations(
-    data_dir: Path,
-    *,
-    project_name: str,
-    transcript_source_id: str,
-) -> int:
-    """Count raw observations for one source in managed migration backups.
-
-    Processed-source cleanup cannot mutate a rollback snapshot without also
-    changing its integrity contract.  Callers use this read-only probe to fail
-    closed before deleting the native source.
-    """
-
-    backup_dir = canonical_store_path(Path(data_dir)).parent / "backups"
-    matches = 0
-    for backup in sorted(backup_dir.glob("canonical-*.sqlite")):
-        connection = sqlite3.connect(
-            f"file:{backup.resolve().as_posix()}?mode=ro",
-            uri=True,
-        )
-        try:
-            for table in CANONICAL_ENTITY_TABLES:
-                if not _table_exists(connection, table):
-                    continue
-                quoted_table = _quote_sqlite_identifier(table)
-                rows = connection.execute(
-                    f"SELECT payload_json FROM {quoted_table} "
-                    "WHERE collection = 'observations' AND project_id = ?",
-                    (project_name,),
-                ).fetchall()
-                for row in rows:
-                    payload = json.loads(str(row[0]))
-                    metadata = payload.get("metadata")
-                    if (
-                        isinstance(metadata, dict)
-                        and str(metadata.get("transcript_source_id") or "")
-                        == transcript_source_id
-                    ):
-                        matches += 1
-        finally:
-            connection.close()
-    return matches
+        key = str(idempotency_key).strip()
+        if not key:
+            raise ValueError("idempotency_key must be non-empty")
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT result_json
+                FROM canonical_transaction_records
+                WHERE idempotency_key = ?
+                """,
+                (key,),
+            ).fetchone()
+        return json.loads(str(row[0])) if row is not None else None
 
 
 def canonical_store_path(data_dir: Path) -> Path:
@@ -2036,10 +2008,6 @@ def _entity_type(collection: str, payload: dict[str, Any]) -> str:
         return "knowledge_entry"
     if collection == "knowledge_sources":
         return "knowledge_source"
-    if collection == "knowledge_versions":
-        return "knowledge_version"
-    if collection == "knowledge_mutations":
-        return "knowledge_mutation"
     if collection == "memory_entries":
         return str(
             payload.get("memory_type") or payload.get("category") or "memory_entry"
@@ -2078,7 +2046,7 @@ def _truth_status(collection: str, payload: dict[str, Any]) -> str:
         return "historical"
     if collection == "knowledge_entries":
         return "confirmed_current"
-    if collection in {"knowledge_sources", "knowledge_versions", "knowledge_mutations"}:
+    if collection == "knowledge_sources":
         return "supporting"
     if collection in {"memory_entries", "confirmed_rules", "relation_facts", "skills"}:
         return "confirmed_current"

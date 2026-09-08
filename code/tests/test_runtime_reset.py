@@ -15,7 +15,12 @@ def _seed_archive(archive_dir: Path) -> None:
     )
 
 
-def test_runtime_reset_preview_and_apply_preserve_archive_sources(tmp_path: Path) -> None:
+def test_runtime_reset_preview_and_apply_preserve_archive_sources(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CODEX_SESSION_ID", raising=False)
+    monkeypatch.delenv("CODEX_THREAD_ID", raising=False)
     data_dir = tmp_path / "data"
     archive_dir = tmp_path / "archived_sessions"
     _seed_archive(archive_dir)

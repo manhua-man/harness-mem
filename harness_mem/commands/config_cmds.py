@@ -191,9 +191,6 @@ def cmd_config_set(
             "background model use may send compact transcript evidence to the "
             "selected Agent CLI and consume model quota"
         ),
-        "distill.delete_source_after_complete": (
-            "future completed session sources may be deleted automatically"
-        ),
     }
     if key in confirmed_enable_keys and value.strip().lower() in {
         "true",

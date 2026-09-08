@@ -39,4 +39,4 @@ BEAM 把系统被测面收敛到 `MemorySystemAdapter`：initialize/reset/add/se
 
 **Adapt，目标 `0.9.9`：** 为既有 Doctor/status/recall full response 增加非敏感的 run/trace identity、输入版本、失败类别和 `answered|abstained|degraded|failed` outcome；失败也产生日志/审计行。它是诊断增强，不增加 MCP tool、provider 或持久化根。
 
-**Reject：** 把 BEAM 的多服务 benchmark、外部 agent provider、实验 CLI 或所有 ROI/drift 指标直接产品化。harness-mem 应只吸收其可复核的行为契约和失败语义，保留本地 SQLite/canonical-store 与现有 27-tool 边界。
+**Reject：** 把 BEAM 的多服务 benchmark、外部 agent provider、实验 CLI 或所有 ROI/drift 指标直接产品化。harness-mem 应只吸收其可复核的行为契约和失败语义，保留本地 SQLite/canonical-store 与现有 25-tool 边界。

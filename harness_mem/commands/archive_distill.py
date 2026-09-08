@@ -24,11 +24,15 @@ from harness_mem.capture_policy import redact_private_bytes
 from harness_mem.autonomous.worker import run_autonomous_distill_batch
 from harness_mem.commands.support import DEFAULT_DATA_DIR, workspace_root_from_path
 from harness_mem.config.merge import MergedConfig, load_merged_config
-from harness_mem.governance_status import TRUTH_LAYER_STATUSES
 from harness_mem.maintenance_lock import exclusive_maintenance_run
 from harness_mem.session_notes import materialize_session_note
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.transcript_chunking import transcript_bytes_revision
+
+
+_SYSTEMIC_WORKER_ERROR_KINDS = frozenset(
+    {"auth_invalid", "quota_exhausted", "setup_required", "transient"}
+)
 
 
 def _now() -> datetime:
@@ -138,6 +142,8 @@ async def _repair_partial_completed_receipts(
     data_dir: Path,
     terminal_sessions: dict[str, Any],
     notes_dir: Path,
+    allowed_project_root: Path | None,
+    current_source_revisions: dict[str, str | None],
 ) -> dict[str, Any]:
     """Reverify completed jobs whose partial receipt was never admitted.
 
@@ -151,6 +157,22 @@ async def _repair_partial_completed_receipts(
 
     repaired: list[dict[str, Any]] = []
     repaired_session_ids: set[str] = set()
+
+    def _in_scope(outcome: dict[str, Any]) -> bool:
+        session_id = str(outcome.get("session_id") or "")
+        if allowed_project_root is not None:
+            raw_root = str(outcome.get("project_root") or "").strip()
+            if not raw_root:
+                return False
+            try:
+                if Path(raw_root).expanduser().resolve() != allowed_project_root:
+                    return False
+            except OSError:
+                return False
+        current_revision = current_source_revisions.get(session_id)
+        return current_revision is None or (
+            str(outcome.get("source_revision") or "") == current_revision
+        )
 
     def _admit(
         outcome: dict[str, Any],
@@ -187,7 +209,11 @@ async def _repair_partial_completed_receipts(
     for receipt in _partial_run_receipts(data_dir):
         pending_outcomes: list[dict[str, Any]] = []
         for outcome in receipt.get("outcomes", []):
-            if not isinstance(outcome, dict) or outcome.get("status") != "completed":
+            if (
+                not isinstance(outcome, dict)
+                or outcome.get("status") != "completed"
+                or not _in_scope(outcome)
+            ):
                 continue
             session_id = str(outcome.get("session_id") or "")
             prior = terminal_sessions.get(session_id)
@@ -220,43 +246,51 @@ async def _repair_partial_completed_receipts(
                 repair_kind="completed_receipt_reverification",
             )
 
-    # A previous archive pass can record ``deferred`` before an Agent finishes
-    # the semantic review through the normal MCP path.  Once that exact job is
-    # completed, its persisted Job/Note/Packet are a stronger authority than
-    # the stale batch outcome. Re-admit only the same quarantined job and
-    # immutable revision; this never retries a genuinely failed job.
+    # A previous archive pass can quarantine a semantic failure before an Agent
+    # finishes the review through the normal MCP path.  Re-admit only the newest
+    # completed job for that exact session, project, and immutable revision;
+    # its Job/Note/Packet must still pass the normal verifier below.  The stored
+    # reason is diagnostic text, not a state-machine value, so do not restrict
+    # recovery to the literal legacy reason ``deferred``.
     completed_after_deferred: list[dict[str, Any]] = []
+    completed_jobs = backend.transcript_store.list_distill_jobs(
+        project_name=allowed_project_root.name if allowed_project_root else None,
+        limit=100_000,
+    )
     for session_id, entry in terminal_sessions.items():
         if session_id in repaired_session_ids:
             continue
         if not isinstance(entry, dict) or entry.get("disposition") != "quarantined":
             continue
-        if entry.get("reason") != "deferred":
+        matching_jobs = [
+            job
+            for job in completed_jobs
+            if job.status == "completed"
+            and job.session_id == session_id
+            and job.source_revision == entry.get("source_revision")
+            and job.project_name == entry.get("project_name")
+            and job.project_root == entry.get("project_root")
+        ]
+        if not matching_jobs:
             continue
-        job_id = str(entry.get("distill_job_id") or "")
-        job = backend.transcript_store.get_distill_job(job_id) if job_id else None
-        if (
-            job is None
-            or job.status != "completed"
-            or job.session_id != session_id
-            or job.source_revision != entry.get("source_revision")
-            or job.project_name != entry.get("project_name")
-            or job.project_root != entry.get("project_root")
-        ):
-            continue
-        packet = dict((job.promotion_summary or {}).get("answer_packet") or {})
-        completed_after_deferred.append(
-            {
-                "session_id": session_id,
-                "project_name": job.project_name,
-                "project_root": job.project_root,
-                "distill_job_id": job.id,
-                "status": "completed",
-                "source_revision": job.source_revision,
-                "answer_packet": packet,
-                "note": materialize_session_note(job, notes_dir=notes_dir),
-            }
+        job = max(
+            matching_jobs,
+            key=lambda item: (item.completed_at or item.updated_at, item.updated_at),
         )
+        packet = dict((job.promotion_summary or {}).get("answer_packet") or {})
+        outcome = {
+            "session_id": session_id,
+            "project_name": job.project_name,
+            "project_root": job.project_root,
+            "distill_job_id": job.id,
+            "status": "completed",
+            "source_revision": job.source_revision,
+            "answer_packet": packet,
+        }
+        if not _in_scope(outcome):
+            continue
+        outcome["note"] = materialize_session_note(job, notes_dir=notes_dir)
+        completed_after_deferred.append(outcome)
     if completed_after_deferred:
         verification = await _verify_archive_distill_run(
             backend,
@@ -324,6 +358,69 @@ def _trivial_archive_request(adapter: CodexArchiveAdapter, source_path: Path) ->
     ):
         return user_messages[0]
     return None
+
+
+def _empty_archive_source_revision(
+    source_path: Path,
+    *,
+    capture_private_tags: bool,
+) -> str | None:
+    """Return the revision only when an archive has no real conversation.
+
+    Host lifecycle and tool records may still be present in the native JSONL.
+    They keep the archive in the inventory, but they are not user/assistant
+    dialogue and must not be sent to a semantic provider.
+    """
+
+    meta, turns = parse_codex_archive_jsonl_session(source_path)
+    if render_codex_conversation(turns).strip():
+        return None
+    # A malformed record could contain the missing conversation. Without a
+    # complete parse, "empty" is not proven and must remain retryable.
+    if int(meta.get("invalid_json_lines") or 0) != 0:
+        return None
+    return _source_revision(
+        source_path,
+        capture_private_tags=capture_private_tags,
+    )
+
+
+async def _current_knowledge_snapshot(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+) -> dict[str, Any]:
+    """Bind an empty-archive result to an unchanged current-knowledge set."""
+
+    entries = await backend.structured_store.knowledge_store.list_entries(project_name)
+    payload = [entry.to_dict() for entry in entries]
+    serialized = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return {
+        "count": len(payload),
+        "sha256": hashlib.sha256(serialized).hexdigest(),
+    }
+
+
+def _session_note_files(notes_dir: Path, session_id: str) -> list[Path]:
+    """Find Note files for one session without trusting it as a path."""
+
+    matches: list[Path] = []
+    try:
+        for path in notes_dir.glob("*.md"):
+            if path.is_file() and path.stem == session_id:
+                matches.append(path)
+        revisions_dir = notes_dir / "revisions"
+        for path in revisions_dir.glob("*/*.md"):
+            if path.is_file() and path.stem == session_id:
+                matches.append(path)
+    except OSError:
+        return matches
+    return matches
 
 
 def _active_distill_worker_jobs(
@@ -539,7 +636,6 @@ async def run_archive_distill_batch(
     now: datetime | None = None,
     verify: bool = False,
     batch_size: int | None = None,
-    daily_limit: int | None = None,
     repair_only: bool = False,
 ) -> dict[str, Any]:
     """Inventory or process one configured batch through the canonical distill chain."""
@@ -552,10 +648,8 @@ async def run_archive_distill_batch(
         archive_dir=archive_dir,
     )
     current = now or _now()
-    effective_batch_size = batch_size or config.archive_distill_batch_size
-    effective_daily_limit = daily_limit or config.archive_distill_daily_limit
-    if effective_batch_size < 1 or effective_daily_limit < 1:
-        raise ValueError("archive distill limits must be positive")
+    if batch_size is not None and batch_size < 1:
+        raise ValueError("batch_size must be positive when provided")
     run_id = f"{current.strftime('%Y%m%dT%H%M%S.%fZ')}-{uuid4().hex[:12]}"
     day = current.date().isoformat()
     ledger = _read_ledger(data_dir, day)
@@ -585,8 +679,8 @@ async def run_archive_distill_batch(
         session_id: max(1, int(raw_attempt_counts.get(session_id) or 1))
         for session_id in attempted_today
     }
-    remaining_daily = max(0, effective_daily_limit - sum(attempt_counts.values()))
     eligible: list[dict[str, Any]] = []
+    current_source_revisions: dict[str, str | None] = {}
     verified_terminal = 0
     quarantined_terminal = 0
     for row in inventory["eligible_sessions"]:
@@ -596,6 +690,7 @@ async def run_archive_distill_batch(
             source_revision = _row_source_revision(row)
         except OSError:
             pass
+        current_source_revisions[session_id] = source_revision
         entry = terminal_sessions.get(session_id)
         if entry is not None:
             candidate = {**row, "source_revision": source_revision}
@@ -616,8 +711,7 @@ async def run_archive_distill_batch(
             )
         elif isinstance(durable_attempt, dict):
             attempt_counts[session_id] = 0
-        if attempt_counts.get(session_id, 0) < 2:
-            eligible.append(row)
+        eligible.append(row)
     unresolved_count = int(inventory["unresolved"])
     excluded_count = int(inventory["excluded"])
     terminal_counts = {
@@ -665,7 +759,11 @@ async def run_archive_distill_batch(
         lifecycle_counts["total"]
         == len(terminal_sessions) + len(eligible) + unresolved_count + excluded_count
     )
-    selected = eligible[: min(effective_batch_size, remaining_daily)]
+    selected = (
+        eligible
+        if batch_size is None
+        else eligible[: int(batch_size)]
+    )
     if repair_only:
         selected = []
     unresolved_resolution = {
@@ -679,9 +777,7 @@ async def run_archive_distill_batch(
         "repair_only": repair_only,
         "enabled": config.archive_distill_enabled,
         "policy": {
-            "batch_size": effective_batch_size,
-            "daily_limit": effective_daily_limit,
-            "remaining_daily": remaining_daily,
+            "batch_size": batch_size,
             "order": config.archive_distill_order,
             "project_scope": config.archive_distill_project_scope,
             "unresolved_project": config.archive_distill_unresolved_project,
@@ -737,6 +833,10 @@ async def run_archive_distill_batch(
             data_dir=data_dir,
             terminal_sessions=terminal_sessions,
             notes_dir=resolved_notes_dir,
+            allowed_project_root=(
+                root if config.archive_distill_project_scope == "current" else None
+            ),
+            current_source_revisions=current_source_revisions,
         )
         selected_projects = sorted(
             {str(row.get("project_name") or "") for row in selected}
@@ -772,16 +872,62 @@ async def run_archive_distill_batch(
             _write_json_atomic(receipt_path, blocked)
             return blocked
         outcomes: list[dict[str, Any]] = []
+        attempted_selection: list[dict[str, Any]] = []
         attempted_ids: list[str] = []
+        systemic_stop_error: dict[str, str] | None = None
         for row in selected:
+            attempted_selection.append(row)
             project_root = Path(str(row["project_root"])).resolve()
             project_name = str(row["project_name"])
             project_config = load_merged_config(project_root)
+            source_path = Path(str(row["source_path"]))
             outcome: dict[str, Any] = {
                 "session_id": row["session_id"],
                 "project_name": project_name,
                 "project_root": str(project_root),
             }
+            try:
+                empty_revision = _empty_archive_source_revision(
+                    source_path,
+                    capture_private_tags=project_config.capture_private_tags,
+                )
+            except Exception as exc:  # noqa: BLE001 - malformed source remains retryable.
+                outcome.update(
+                    status="deferred",
+                    reason=f"{type(exc).__name__}: {exc}"[:512],
+                )
+                outcomes.append(outcome)
+                continue
+            if empty_revision is not None:
+                attempted_ids.append(str(row["session_id"]))
+                knowledge_before = await _current_knowledge_snapshot(
+                    backend,
+                    project_name=project_name,
+                )
+                outcome.update(
+                    status="completed",
+                    classification="empty_archive",
+                    execution="deterministic_empty",
+                    source_revision=empty_revision,
+                    distill_job_id=None,
+                    note=None,
+                    answer_packet=None,
+                    promoted_items=[],
+                    provider={
+                        "used": False,
+                        "total_tokens": 0,
+                        "duration_seconds": 0.0,
+                    },
+                    warnings=[],
+                    notes_dir=str(resolved_notes_dir),
+                    knowledge_before=knowledge_before,
+                    knowledge_after=await _current_knowledge_snapshot(
+                        backend,
+                        project_name=project_name,
+                    ),
+                )
+                outcomes.append(outcome)
+                continue
             if not project_config.distill_autonomous_enabled:
                 outcome.update(status="deferred", reason="project_autonomous_distill_not_authorized")
                 outcomes.append(outcome)
@@ -790,13 +936,13 @@ async def run_archive_distill_batch(
                 trivial_request = (
                     _trivial_archive_request(
                         adapter,
-                        Path(str(row["source_path"])),
+                        source_path,
                     )
                     if provider is None
                     else None
                 )
                 synced = await adapter.sync_session(
-                    Path(str(row["source_path"])),
+                    source_path,
                     str(row["session_id"]),
                     project_name,
                     project_root=project_root,
@@ -808,8 +954,8 @@ async def run_archive_distill_batch(
                 job = backend.transcript_store.get_distill_job(synced.distill_job_id)
                 # Selecting an archive and actually attempting its semantic
                 # job are deliberately different events.  A worker that has
-                # asked for retry backoff must not consume the archive's
-                # bounded attempt budget before it can be claimed again.
+                # asked for retry backoff must not consume another attempt
+                # before it can be claimed again.
                 if (
                     job is not None
                     and job.status == "retryable"
@@ -827,6 +973,19 @@ async def run_archive_distill_batch(
                     continue
                 attempted_ids.append(str(row["session_id"]))
                 if job is not None and job.status == "completed":
+                    # Explicit archive processing is user-requested work.  A
+                    # completed job must clear its selected archive source;
+                    # Dream uses a different path and keeps its source.
+                    from harness_mem.mcp.distill_handlers import (
+                        _cleanup_completed_distill_source,
+                    )
+
+                    cleanup = await asyncio.to_thread(
+                        _cleanup_completed_distill_source,
+                        backend,
+                        completed=job,
+                    )
+                    job = backend.transcript_store.get_distill_job(job.id) or job
                     batch: dict[str, Any] = {"state": "succeeded", "outcomes": []}
                     job_outcome = {
                         "job_id": job.id,
@@ -837,6 +996,7 @@ async def run_archive_distill_batch(
                             notes_dir=resolved_notes_dir,
                         ),
                         "provider": {"total_tokens": 0, "duration_seconds": 0.0},
+                        "source_cleanup": cleanup,
                     }
                     replay = "completed_job_reverified"
                 else:
@@ -887,6 +1047,33 @@ async def run_archive_distill_batch(
                 tokens = int((job_outcome.get("provider") or {}).get("total_tokens") or 0)
                 seconds = float((job_outcome.get("provider") or {}).get("duration_seconds") or 0.0)
                 status = str(job_outcome.get("status") or batch.get("state") or "deferred")
+                worker_error: dict[str, str] | None = None
+                raw_worker_error = job_outcome.get("error")
+                if isinstance(raw_worker_error, dict):
+                    error_kind = str(raw_worker_error.get("kind") or "deferred")
+                    error_message = str(
+                        raw_worker_error.get("message")
+                        or batch.get("reason")
+                        or f"worker stopped with {error_kind}"
+                    )[:1000]
+                    worker_error = {
+                        "kind": error_kind,
+                        "message": error_message,
+                    }
+                elif status != "completed":
+                    stored_error = str(job.error or "").strip() if job else ""
+                    batch_kind = str(batch.get("state") or status or "deferred")
+                    if stored_error:
+                        stored_kind, separator, stored_message = stored_error.partition(": ")
+                        worker_error = {
+                            "kind": stored_kind if separator else batch_kind,
+                            "message": (stored_message if separator else stored_error)[:1000],
+                        }
+                    elif batch.get("reason"):
+                        worker_error = {
+                            "kind": batch_kind,
+                            "message": str(batch["reason"])[:1000],
+                        }
                 outcome.update(
                     status=status,
                     distill_job_id=synced.distill_job_id,
@@ -898,7 +1085,12 @@ async def run_archive_distill_batch(
                         code for code, hit in (
                             ("token_regression", tokens > config.archive_distill_warn_tokens),
                             ("latency_regression", seconds > config.archive_distill_warn_seconds),
-                            ("answer_packet_missing", config.archive_distill_require_answer_packet and not packet),
+                            (
+                                "answer_packet_missing",
+                                status == "completed"
+                                and config.archive_distill_require_answer_packet
+                                and not packet,
+                            ),
                         ) if hit
                     ],
                     classification=(
@@ -907,16 +1099,28 @@ async def run_archive_distill_batch(
                     execution=replay,
                     source_revision=(job.source_revision if job else synced.source.source_revision if synced.source else None),
                 )
+                if worker_error is not None:
+                    outcome["error"] = worker_error
+                    outcome["reason"] = worker_error["message"]
+                    if worker_error["kind"] in _SYSTEMIC_WORKER_ERROR_KINDS:
+                        systemic_stop_error = worker_error
             except Exception as exc:  # noqa: BLE001 - one archive must not block later sessions.
                 outcome.update(status="deferred", reason=f"{type(exc).__name__}: {exc}"[:512])
             outcomes.append(outcome)
+            if systemic_stop_error is not None:
+                break
+        selected = attempted_selection
         result = {
             **base,
             "success": all(item.get("status") == "completed" for item in outcomes) if outcomes else True,
+            "selected": selected,
             "outcomes": outcomes,
             "completed": sum(item.get("status") == "completed" for item in outcomes),
             "deferred": sum(item.get("status") != "completed" for item in outcomes),
+            "stopped_early": systemic_stop_error is not None,
         }
+        if systemic_stop_error is not None:
+            result["stop_error"] = systemic_stop_error
         verification = await _verify_archive_distill_run(backend, result=result)
         verified_ids = {
             str(item["session_id"])
@@ -937,7 +1141,6 @@ async def run_archive_distill_batch(
         ledger["retryable_session_ids"] = sorted(
             session_id
             for session_id in retryable_ids
-            if attempt_counts.get(session_id, 0) < 2
         )
         ledger.setdefault("runs", []).append(
             {
@@ -962,17 +1165,8 @@ async def run_archive_distill_batch(
                 "verified_at": verification["verified_at"],
                 "run_id": run_id,
             }
-        verification_by_session = {
-            str(item.get("session_id") or ""): item
-            for item in verification["outcomes"]
-        }
         outcomes_by_session = {
             str(item.get("session_id") or ""): item for item in outcomes
-        }
-        quarantined_ids = {
-            session_id
-            for session_id in retryable_ids
-            if attempt_counts.get(session_id, 0) >= 2
         }
         selected_by_session = {
             str(item["session_id"]): item for item in selected
@@ -990,27 +1184,6 @@ async def run_archive_distill_batch(
                 "last_run_id": run_id,
                 "updated_at": verification["verified_at"],
             }
-        for session_id in quarantined_ids:
-            outcome = outcomes_by_session[session_id]
-            row = next(
-                item for item in selected if str(item["session_id"]) == session_id
-            )
-            terminal_sessions[session_id] = {
-                "session_id": session_id,
-                "source_revision": outcome.get("source_revision")
-                or _row_source_revision(row),
-                "project_name": outcome.get("project_name"),
-                "project_root": outcome.get("project_root"),
-                "distill_job_id": outcome.get("distill_job_id"),
-                "disposition": "quarantined",
-                "reason": outcome.get("reason") or outcome.get("status"),
-                "failed_checks": verification_by_session[session_id].get(
-                    "failed_checks", []
-                ),
-                "attempt_count": attempt_counts[session_id],
-                "verified_at": verification["verified_at"],
-                "run_id": run_id,
-            }
         terminal_index = {
             "version": 1,
             "updated_at": _now().isoformat(),
@@ -1023,7 +1196,7 @@ async def run_archive_distill_batch(
         result["terminal_index"] = str(terminal_path)
         result["partial_receipt_repair"] = partial_repair
         result["verified_completed"] = len(verified_ids)
-        result["quarantined"] = len(quarantined_ids)
+        result["quarantined"] = 0
         result["verification"] = verification if verify else {
             "status": verification["status"],
             "verified_at": verification["verified_at"],
@@ -1061,6 +1234,88 @@ async def _verify_archive_distill_run(
     for outcome in result.get("outcomes", []):
         session_id = str(outcome.get("session_id") or "")
         project_name = str(outcome.get("project_name") or "")
+        if outcome.get("classification") == "empty_archive":
+            source_path = Path(str(
+                next(
+                    (
+                        row.get("source_path")
+                        for row in result.get("selected", [])
+                        if row.get("session_id") == session_id
+                    ),
+                    "",
+                )
+            ))
+            source_exists = source_path.is_file()
+            reparsed_empty = False
+            current_revision: str | None = None
+            if source_exists:
+                try:
+                    meta, turns = parse_codex_archive_jsonl_session(source_path)
+                    reparsed_empty = bool(
+                        not render_codex_conversation(turns).strip()
+                        and int(meta.get("invalid_json_lines") or 0) == 0
+                    )
+                    project_root = Path(
+                        str(outcome.get("project_root") or "")
+                    ).expanduser()
+                    current_revision = _source_revision(
+                        source_path,
+                        capture_private_tags=load_merged_config(
+                            project_root
+                        ).capture_private_tags,
+                    )
+                except (OSError, TypeError, ValueError, json.JSONDecodeError):
+                    reparsed_empty = False
+            jobs = [
+                job
+                for job in backend.transcript_store.list_distill_jobs(
+                    project_name=project_name,
+                    limit=100_000,
+                )
+                if job.session_id == session_id
+            ]
+            current_knowledge = await _current_knowledge_snapshot(
+                backend,
+                project_name=project_name,
+            )
+            note_files = _session_note_files(
+                Path(str(outcome.get("notes_dir") or "")),
+                session_id,
+            )
+            checks = {
+                "source_exists": source_exists,
+                "source_revision_matches": bool(
+                    current_revision
+                    and current_revision == outcome.get("source_revision")
+                ),
+                "no_user_or_assistant_messages": reparsed_empty,
+                "no_job_created": not jobs,
+                "no_note_created": not note_files,
+                "knowledge_unchanged": (
+                    outcome.get("knowledge_after")
+                    == outcome.get("knowledge_before")
+                ),
+            }
+            failed = [name for name, passed in checks.items() if not passed]
+            verified_outcomes.append(
+                {
+                    "session_id": session_id,
+                    "project_name": project_name,
+                    "status": "passed" if not failed else "partial",
+                    "checks": checks,
+                    "failed_checks": failed,
+                    "classification": "empty_archive",
+                    "source": {
+                        "path": str(source_path),
+                        "revision": current_revision,
+                    },
+                    "jobs_found": [job.id for job in jobs],
+                    "note_files_found": [str(path) for path in note_files],
+                    "knowledge_after_empty_result": outcome.get("knowledge_after"),
+                    "current_knowledge": current_knowledge,
+                }
+            )
+            continue
         job_id = str(outcome.get("distill_job_id") or "")
         job = backend.transcript_store.get_distill_job(job_id) if job_id else None
         persisted_packet = dict(
@@ -1089,17 +1344,11 @@ async def _verify_archive_distill_run(
             pass
         promoted = list(persisted_packet.get("promoted_items") or [])
         cleanup_status = str(job.source_cleanup_status or "") if job else "missing"
-        cleanup_verified = bool(
-            cleanup_status == "deleted"
-            and cleanup
-            and (cleanup.get("verification") or {}).get("passed") is True
-        )
         retrieval = await _verify_promoted_items(
             backend,
             project_name=project_name,
             job_id=job_id,
             promoted_items=promoted,
-            allow_sanitized_project_retrieval=cleanup_verified,
         )
         identity_binding_valid = bool(
             job
@@ -1195,7 +1444,6 @@ async def _verify_promoted_items(
     project_name: str,
     job_id: str,
     promoted_items: list[dict[str, Any]],
-    allow_sanitized_project_retrieval: bool = False,
 ) -> dict[str, Any]:
     if not promoted_items:
         return {
@@ -1203,97 +1451,25 @@ async def _verify_promoted_items(
             "reason": "no_promoted_items",
             "items": [],
         }
-    job = backend.transcript_store.get_distill_job(job_id) if job_id else None
-    candidate_ids = set(job.output_candidate_ids if job else [])
-    knowledge_store = backend.structured_store.knowledge_store
-    # Current ``knowledge_entries`` are the post-job authority. Candidate,
-    # evidence, and proposed-decision workspaces are deliberately cleaned after
-    # the SQLite commit, Note, Packet, and receipt become durable, so a terminal
-    # verifier must not require those temporary files to remain. The job-bound
-    # Answer Packet supplies the exact claims; normal current-knowledge readback
-    # proves that each claim is now usable.
-    separated_truth = await knowledge_store.list_entries(project_name)
-    truth_candidates: list[Any] = []
-    if not separated_truth:
-        for candidate_id in candidate_ids:
-            legacy_candidate: Any = await backend.structured_store.get_memory_entry(
-                candidate_id
-            )
-            if legacy_candidate is None:
-                legacy_candidate = await backend.structured_store.get_rule_candidate(
-                    candidate_id
-                )
-            if legacy_candidate is None:
-                legacy_candidate = await backend.structured_store.get_relation_fact(
-                    candidate_id
-                )
-            if (
-                legacy_candidate is not None
-                and legacy_candidate.project_name == project_name
-                and legacy_candidate.distill_job_id == job_id
-                and legacy_candidate.status in TRUTH_LAYER_STATUSES
-            ):
-                truth_candidates.append(legacy_candidate)
+    del job_id
+    from harness_mem.read_knowledge import search_current_knowledge
+
+    # Candidate, evidence, and proposed-decision workspaces are deliberately
+    # cleaned after success. The job-bound Answer Packet supplies the exact
+    # claims; the same ordinary current-knowledge search used by users must be
+    # able to read every one back.
     checks: list[dict[str, Any]] = []
     for item in promoted_items:
         fact = str(item.get("fact") or "").strip()
         kind = str(item.get("kind") or "")
-        if separated_truth:
-            hit = any(entry.statement.strip() == fact for entry in separated_truth)
-        elif kind == "rule":
-            hit = any(
-                hasattr(candidate, "pattern") and candidate.pattern.strip() == fact
-                for candidate in truth_candidates
-            )
-        elif kind == "relation":
-            hit = any(
-                hasattr(candidate, "source_entity")
-                and f"{candidate.source_entity} {candidate.relation_type} "
-                f"{candidate.target_entity}".strip() == fact
-                for candidate in truth_candidates
-            )
-        else:
-            hit = any(
-                hasattr(candidate, "content") and candidate.content.strip() == fact
-                for candidate in truth_candidates
-            )
-        retrieval_mode = "current_project_knowledge"
-        if not hit and allow_sanitized_project_retrieval:
-            retrieval_mode = "legacy_project_truth"
-            knowledge_entries = await knowledge_store.list_entries(project_name)
-            if any(entry.statement.strip() == fact for entry in knowledge_entries):
-                hit = True
-            elif kind == "rule":
-                candidates = await backend.structured_store.list_rule_candidates(
-                    project_name
-                )
-                hit = any(
-                    candidate.status in TRUTH_LAYER_STATUSES
-                    and candidate.pattern.strip() == fact
-                    for candidate in candidates
-                )
-            elif kind == "relation":
-                relations = await backend.structured_store.list_relation_facts(
-                    project_name,
-                    limit=10_000,
-                    include_provisional=True,
-                )
-                hit = any(
-                    relation.status in TRUTH_LAYER_STATUSES
-                    and f"{relation.source_entity} {relation.relation_type} "
-                    f"{relation.target_entity}".strip() == fact
-                    for relation in relations
-                )
-            else:
-                matches = await backend.structured_store.search_memory_entries(
-                    fact,
-                    project_name=project_name,
-                    mode="fts",
-                    limit=20,
-                    include_provisional=True,
-                    deep_recall=True,
-                )
-                hit = any(entry.content.strip() == fact for entry in matches)
+        search_results = await search_current_knowledge(
+            backend,
+            project_name=project_name,
+            query=fact,
+            limit=100000,
+        )
+        hit = any(entry.statement.strip() == fact for entry in search_results)
+        retrieval_mode = "normal_current_search"
         checks.append(
             {
                 "title": item.get("title"),
@@ -1356,6 +1532,12 @@ def print_archive_distill_result(result: dict[str, Any], *, as_json: bool) -> No
             print(f"Note: {note['path']}")
         if item.get("warnings"):
             print("Warnings: " + ", ".join(item["warnings"]))
+        item_error = item.get("error")
+        if isinstance(item_error, dict):
+            print(
+                "Error: "
+                f"{item_error.get('kind')}: {item_error.get('message')}"
+            )
     if result.get("error"):
         print(f"Error: {result['error']}")
 

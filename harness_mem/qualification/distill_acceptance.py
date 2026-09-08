@@ -52,7 +52,7 @@ PATH_TESTS: dict[str, tuple[str, ...]] = {
     ),
     "B1": (
         "code/tests/test_distill_acceptance.py::test_b1_f2_user_preference_promotes_once_and_is_retrievable",
-        "code/tests/test_evidence_admission.py::test_explicit_user_statement_can_promote_but_transcript_only_cannot",
+        "code/tests/test_evidence_admission.py::test_user_statement_knowledge_source_current_missing_and_changed",
     ),
     "B2": (
         "code/tests/test_outcome_probe.py::test_partial_distill_runtime_outcome_probe",
@@ -85,18 +85,18 @@ PATH_TESTS: dict[str, tuple[str, ...]] = {
     ),
     "C4": (
         "code/tests/test_session_distill_store.py::test_rebalance_uses_three_recent_then_one_oldest_lane",
-        "code/tests/test_distill_lifecycle.py::test_agent_active_drainer_enforces_daily_new_job_budget",
+        "code/tests/test_agent_active_wake.py::test_wake_offers_all_jobs_and_configured_distill_budget",
     ),
     "D1": (
-        "code/tests/test_evidence_admission.py::test_repository_evidence_promotes_only_while_digest_is_current",
-        "code/tests/test_evidence_admission.py::test_repository_change_rejects_candidate_and_proposes_matching_truth_history",
+        "code/tests/test_evidence_admission.py::test_user_statement_knowledge_source_current_missing_and_changed",
+        "code/tests/test_evidence_admission.py::test_transcript_chunk_knowledge_source_current_missing_and_changed",
     ),
     "D2": (
         "code/tests/test_distill_acceptance.py::test_d2_assistant_role_cannot_impersonate_user_statement",
     ),
     "D3": (
         "code/tests/test_evidence_admission.py::test_answer_gate_status_is_runtime_derived",
-        "code/tests/test_evidence_admission.py::test_evidence_admission_golden_policy_matrix",
+        "code/tests/test_evidence_admission.py::test_knowledge_source_malformed_locators_fail_closed",
     ),
     "E1": (
         "code/tests/test_distill_acceptance.py::test_e1_finalize_replay_keeps_note_hash_and_truth_count",

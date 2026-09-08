@@ -4,7 +4,7 @@
 
 <h1 align="center">harness-mem</h1>
 
-<p align="center"><strong>面向 AI Agent 的本地优先、可审计项目记忆。</strong></p>
+<p align="center"><strong>面向 AI Agent 的本机项目记忆。</strong></p>
 
 <p align="center"><a href="README.md">English</a></p>
 
@@ -23,8 +23,8 @@ Agent 能读仓库，却不会自动保留前几次对话里重要的决定、�
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.27 \
-  harness-mem==0.9.27
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.28 \
+  harness-mem==0.9.28
 ```
 
 你每使用一种 Agent，只需为它运行一次；不需要每个项目重复运行：
@@ -44,7 +44,7 @@ Quickstart 会停下来，请你运行一次例如
 分发，不发布到 PyPI。
 
 如需本地 vector 或 hybrid search，可从同一 release 索引安装
-`"harness-mem[hybrid]==0.9.27"`。完整接入步骤与宿主例外见
+`"harness-mem[hybrid]==0.9.28"`。完整接入步骤与宿主例外见
 [Quickstart](docs/quickstart.md)。
 
 ## 日常只用一个入口
@@ -67,13 +67,17 @@ Quickstart 会停下来，请你运行一次例如
 统一入口会跟随你当前使用的语言，直接说明记住了什么、找到了什么，或需要如何纠正。
 你不需要选择存储方式、模型连接或内部流程。
 
+harness-mem 只保存当前有效记忆。纠错时直接替换旧内容，内容失效时直接删除；不保留
+旧知识版本、知识归档副本、知识修改记录或撤销链。
+
 新对话会自动加载相关内容。另行开启自动整理后，完成的对话会在后台通过你选择的 Agent 命令处理；如果它不可用，harness-mem 会直接说明，不会悄悄改用另一个。
 
 ## 不必每天面对的部分
 
 终端 CLI 用于安装、诊断、集成修复和显式维护，不是日常找回记忆的流程。
-`status`、Doctor 和 maintenance 只在出问题，或操作员需要检查、修复系统时使用。
-底层 MCP 工具、会话 Hook、后台治理、SQLite、证据检查和审计记录仍然可用，但不再是“记住或找回工作”前必须学习的步骤。
+`hm` 在执行用户请求前，只做一次简短的项目与 Hook 检查。出问题或操作员需要完整
+诊断时，使用 `harness-mem doctor`；统计、版本、队列和修复证据不进入日常回复。
+底层 MCP 工具、会话 Hook、后台整理、SQLite、来源检查和诊断仍然可用，但不再是“记住或找回工作”前必须学习的步骤。
 
 项目记忆默认保留在本机。长期知识变更前会检查证据；不确定或不安全的来源清理始终需要显式授权。
 在敏感项目开启自动处理前，请阅读[后台记忆策略](docs/background-memory.md)；执行任何破坏性维护前，请阅读 [Quickstart 的隐私与清理说明](docs/quickstart.md#advanced-and-repair)。
@@ -112,5 +116,5 @@ python code/tools/outcome-verifier/scripts/verify_outcomes.py \
   --output .tmp/outcome-verifier/harness-mem-report.json
 ```
 
-当前源码包版本：**0.9.27**。公开版本以 GitHub
+当前源码包版本：**0.9.28**。公开版本以 GitHub
 [最新 Release](https://github.com/manhua-man/harness-mem/releases/latest) 为准。

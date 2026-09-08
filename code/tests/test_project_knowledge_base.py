@@ -7,7 +7,6 @@ import harness_mem.knowledge_renderer as renderer_module
 from harness_mem.core.schemas import (
     KnowledgeEntry,
     KnowledgeSource,
-    KnowledgeVersion,
     ProjectKnowledgeSourceRef,
 )
 from harness_mem.knowledge_renderer import render_knowledge_markdown
@@ -30,7 +29,6 @@ def _entry(
         title=title,
         statement=statement,
         verified_at=VERIFIED_AT,
-        revision=2,
         created_at=VERIFIED_AT,
         updated_at=VERIFIED_AT,
     )
@@ -53,7 +51,6 @@ def test_current_knowledge_payload_is_minimal_and_round_trips() -> None:
         "title",
         "statement",
         "verified_at",
-        "revision",
         "created_at",
         "updated_at",
     }
@@ -84,7 +81,7 @@ def test_current_knowledge_rejects_audit_fields_but_reads_transitional_rows() ->
     assert restored.to_dict() == base
 
 
-def test_minimal_source_and_bounded_version_are_separate_records() -> None:
+def test_minimal_source_is_separate_from_current_knowledge() -> None:
     source = KnowledgeSource(
         id="source-1",
         knowledge_id="knowledge-1",
@@ -94,17 +91,6 @@ def test_minimal_source_and_bounded_version_are_separate_records() -> None:
         content_sha256="a" * 64,
         verified_at=VERIFIED_AT,
     )
-    version = KnowledgeVersion(
-        id="version-1",
-        knowledge_id="knowledge-1",
-        project_name="harness-mem",
-        revision=1,
-        module_path=["会话生命周期与 Hook"],
-        title="旧标题",
-        statement="这是可供一次有界撤销使用的旧正文。",
-        verified_at=VERIFIED_AT,
-        recorded_at=VERIFIED_AT,
-    )
     input_ref = ProjectKnowledgeSourceRef(
         label="相关实现",
         target="harness_mem/host_entry/__main__.py",
@@ -113,7 +99,6 @@ def test_minimal_source_and_bounded_version_are_separate_records() -> None:
     )
 
     assert source.to_dict()["knowledge_id"] == "knowledge-1"
-    assert version.to_dict()["revision"] == 1
     assert input_ref.kind == "repository_file"
     assert input_ref.digest == "sha256:" + "a" * 64
 
