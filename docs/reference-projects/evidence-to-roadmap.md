@@ -8,7 +8,7 @@ this page records the decision boundary for harness-mem.
 
 This section records the 0.9.7-0.9.9 planning baseline. It is not the current
 user path; current behavior is defined by the root README and `AGENTS.md`.
-In particular, `0.9.28` has 25 public MCP tools and no knowledge history or undo.
+In particular, `0.9.28` has 20 public MCP tools and no knowledge history or undo.
 
 The following are already shipped and therefore are not new roadmap items:
 

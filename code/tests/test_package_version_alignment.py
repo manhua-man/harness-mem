@@ -85,13 +85,32 @@ def test_source_and_public_install_versions_are_aligned() -> None:
         root / "docs/canvases/harness-mem-convergence.canvas.tsx"
     ).read_text(encoding="utf-8")
     assert f"Current snapshot (v{__version__})" in maturity
+    assert "exact 20-tool contract" in maturity
     for canvas in (readiness, convergence):
         assert f'RUNTIME_VERSION = "{__version__}"' in canvas
         assert "source {RUNTIME_VERSION}" in canvas
         assert "released" in canvas
         assert "PUBLIC_RELEASE_VERSION" not in canvas
+    assert 'const OUTCOME_RUN_STATUS = "passed"' in convergence
+    assert 'const OUTCOME_PASSED = 12' in convergence
+    assert "20-tool MCP" in convergence
+    assert "12/12" in readiness
     assert "published artifacts are\nlisted on the GitHub Releases page" in maturity
     assert "公开版本以 GitHub Releases 为准" in readiness
+
+    runtime_architecture = (
+        root / "docs/assets/harness-mem-runtime-layered-architecture.svg"
+    ).read_text(encoding="utf-8")
+    lossless_flow = (
+        root / "docs/assets/harness-mem-lossless-session-flow.svg"
+    ).read_text(encoding="utf-8")
+    maintenance_contract = (
+        root / "docs/roadmap/knowledge-truth-separation.md"
+    ).read_text(encoding="utf-8")
+    assert "MCP: 20 public tools" in runtime_architecture
+    assert "zero to twelve" not in lossless_flow
+    assert "fixed set of 85" not in maintenance_contract
+    assert "85-conversation maintenance boundary" not in maintenance_contract
 
     release_notes = (root / "release-notes.md").read_text(encoding="utf-8")
     changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")

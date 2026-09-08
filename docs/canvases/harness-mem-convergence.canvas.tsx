@@ -176,24 +176,24 @@ const OPEN_GAPS_FROM_REFS: string[][] = [
   ["RRF / adaptive IDF 可测改进", "Graphiti · vstash（paper）", "defer.md · 需 golden-suite 证明"],
 ];
 
-/** 当前简化修改后的实际结果检查尚未运行；旧结果不证明当前源码。 */
-const OUTCOME_RUN_AT = "not run after 0.9.28 memory simplification";
-const OUTCOME_RUN_STATUS = "pending";
-const OUTCOME_PASSED = 0;
+/** 0.9.28 发布资格检查；报告保存在本机 .tmp，不进入发布资产。 */
+const OUTCOME_RUN_AT = "2026-09-08 01:28 +08:00";
+const OUTCOME_RUN_STATUS = "passed";
+const OUTCOME_PASSED = 12;
 
 const OUTCOME_LIVE: string[][] = [
-  ["codex_cleanup_liveness", "not_run", "current source changed"],
-  ["archive_distill_batch_outcome", "not_run", "current source changed"],
-  ["codex_hook_lifecycle", "not_run", "current source changed"],
-  ["dream_execution", "not_run", "current source changed"],
-  ["distill_user_artifacts", "not_run", "current source changed"],
-  ["background_memory_hook_flow", "not_run", "current source changed"],
-  ["partial_distill_handoff", "not_run", "current source changed"],
-  ["distill_acceptance_matrix", "not_run", "current source changed"],
-  ["multi_point_memory_assimilation", "not_run", "current source changed"],
-  ["clean_retrieval_boundary", "not_run", "current source changed"],
-  ["distill_audit_summaries", "not_run", "current source changed"],
-  ["durable_memory_retrieval", "not_run", "current source changed"],
+  ["codex_cleanup_liveness", "passed", "—"],
+  ["archive_distill_batch_outcome", "passed", "—"],
+  ["codex_hook_lifecycle", "passed", "—"],
+  ["dream_execution", "passed", "—"],
+  ["distill_user_artifacts", "passed", "—"],
+  ["background_memory_hook_flow", "passed", "—"],
+  ["partial_distill_handoff", "passed", "—"],
+  ["distill_acceptance_matrix", "passed", "—"],
+  ["multi_point_memory_assimilation", "passed", "—"],
+  ["clean_retrieval_boundary", "passed", "—"],
+  ["distill_audit_summaries", "passed", "—"],
+  ["durable_memory_retrieval", "passed", "—"],
 ];
 
 type VerifyTier = "verified_local" | "partial_local" | "failed_local" | "contract_only" | "documented_gap";
@@ -219,55 +219,55 @@ const DIMENSION_VERIFICATION: {
     code: "L1",
     label: "记忆闭环",
     weight: 20,
-    tier: "contract_only",
-    mappedOutcomes: "待重跑：distill_user_artifacts · dream · acceptance_matrix · partial_handoff · hook · background_memory_hook_flow",
-    contracts: `25-tool MCP · 7 hosts · $hm / /hm · pytest ${PYTEST_STATUS}`,
-    note: "当前源码改变后尚未重跑本机检查",
+    tier: "verified_local",
+    mappedOutcomes: "PASS: distill_user_artifacts · dream · acceptance_matrix · partial_handoff · hook · background_memory_hook_flow",
+    contracts: `20-tool MCP · 7 hosts · $hm / /hm · pytest ${PYTEST_STATUS}`,
+    note: "本机结果检查与发布 CI 均通过",
   },
   {
     code: "L2",
     label: "真理与治理",
     weight: 25,
-    tier: "contract_only",
-    mappedOutcomes: "待重跑：multi_point_assimilation · clean_retrieval · archive_distill",
-    contracts: "test_assimilation_runtime · test_evidence_admission（未跑）",
-    note: "需证明替换/删除后只有当前记忆，且不存在知识历史或撤销入口",
+    tier: "verified_local",
+    mappedOutcomes: "PASS: multi_point_assimilation · clean_retrieval · archive_distill",
+    contracts: "test_assimilation_runtime · test_evidence_admission（passed）",
+    note: "替换/删除后仅保留当前记忆；无知识历史或撤销入口",
   },
   {
     code: "L3",
     label: "检索与召回",
     weight: 15,
-    tier: "contract_only",
-    mappedOutcomes: "待重跑：clean_retrieval_boundary · durable_memory_retrieval",
+    tier: "verified_local",
+    mappedOutcomes: "PASS: clean_retrieval_boundary · durable_memory_retrieval",
     contracts: "test_clean_retrieval_outcome · RRF deferred（defer.md）",
-    note: "当前源码改变后尚未重跑本机检查",
+    note: "普通检索与持久化回读检查通过",
   },
   {
     code: "L4",
     label: "证据与蒸馏",
     weight: 20,
-    tier: "contract_only",
-    mappedOutcomes: "待重跑：archive_distill · acceptance_matrix · distill_user_artifacts · partial_handoff · session summaries",
-    contracts: "test_lossless_distill_mcp · host replay（未跑）",
-    note: "当前源码改变后尚未重跑本机检查",
+    tier: "verified_local",
+    mappedOutcomes: "PASS: archive_distill · acceptance_matrix · distill_user_artifacts · partial_handoff · session summaries",
+    contracts: "test_lossless_distill_mcp · host replay（passed）",
+    note: "完整来源、逐点处理、Note 与回读检查通过",
   },
   {
     code: "L5",
     label: "宿主集成",
     weight: 15,
-    tier: "contract_only",
-    mappedOutcomes: "待重跑：codex_hook_lifecycle · autonomous_distill · autonomous_provider · autonomous_note",
-    contracts: "test_host_replay_qualification（未跑）",
-    note: "当前源码改变后尚未重跑本机检查",
+    tier: "verified_local",
+    mappedOutcomes: "PASS: codex_hook_lifecycle · background_memory_hook_flow",
+    contracts: "test_host_replay_qualification（passed）",
+    note: "七宿主 replay、Codex 生命周期和后台隔离检查通过",
   },
   {
     code: "L6",
     label: "运维与发布",
     weight: 5,
-    tier: "partial_local",
-    mappedOutcomes: "（无直接实际结果检查）",
-    contracts: "mcp/version pytest 已跑 · ensure_mcps OK",
-    note: "契约项已跑通；public-smoke 未在本会话跑",
+    tier: "verified_local",
+    mappedOutcomes: "release-wheels CI passed · GitHub Release published",
+    contracts: "mcp/version/full pytest · Rust · ensure_mcps · install/upgrade smoke passed",
+    note: "v0.9.28 的 6 个 wheel 与 sdist 已公开发布",
   },
   {
     code: "D7",
@@ -312,19 +312,19 @@ const OUTCOME_STATUS: Record<string, "passed" | "failed" | "not_run"> = Object.f
   OUTCOME_LIVE.map(([id, status]) => [id, status as "passed" | "failed" | "not_run"]),
 );
 
-/** 本 canvas 会话内已核对静态事实（pyproject / pytest --collect-only） */
+/** 本次 0.9.28 发布资格中已核对的静态事实。 */
 const FACT_VERIFIED: Record<string, boolean> = {
   runtime_version: true,
-  pytest_collected: false,
+  pytest_collected: true,
   mcp_tool_count: true,
 };
 
-/** 契约测试本会话未跑 → 0 分；跑过后改 passed/failed 并重算 */
+/** 本次 0.9.28 发布资格中已运行的契约测试。 */
 const CONTRACT_STATUS: Record<string, "passed" | "failed" | "not_run"> = {
-  mcp_public_surface: "not_run",
-  version_alignment: "not_run",
-  ensure_mcps_canonical: "not_run",
-  host_replay_qualification: "not_run",
+  mcp_public_surface: "passed",
+  version_alignment: "passed",
+  ensure_mcps_canonical: "passed",
+  host_replay_qualification: "passed",
 };
 
 const TRACK_SCORE_CHECKS: Record<string, ScoreCheck[]> = {
@@ -470,7 +470,7 @@ const LEGACY_TEN_TO_DIM: string[][] = [
 /** 发布叙事 vs 本机实测行 */
 function releaseVsLocalRows(): string[][] {
   return [
-    ["roadmap.md 发布记录", "frozen oracle + Desktop Hook + 14/14 实际结果检查通过", "仓库记录 · 非本机实时"],
+    ["roadmap.md 的 v0.9.20 历史记录", "frozen oracle + Desktop Hook + 当时 14/14 实际结果检查通过", "历史发布记录 · 非当前 0.9.28 检查"],
     ["本机实际结果检查", `${OUTCOME_PASSED}/${OUTCOME_CLAIM_COUNT} verified · overall ${OUTCOME_RUN_STATUS}`, OUTCOME_RUN_AT],
     ["本机机械分（rubric）", `L1–L6 加权 ${HM_WEIGHTED_L6}/100 · Σ(weight×track_score)`, "可复算 · 见检查项表"],
     ["参考项目", "形态/adopt 对照 · 不共享本项目检查", "不打竞品综合分"],
@@ -551,7 +551,7 @@ export default function HarnessMemConvergenceCanvas() {
 
       <Grid columns={4} gap={12}>
         <Stat label="源码版本" value={RUNTIME_VERSION} tone="info" />
-        <Stat label="本机检查" value={`${OUTCOME_PASSED}/${OUTCOME_CLAIM_COUNT}`} tone="warning" />
+        <Stat label="本机检查" value={`${OUTCOME_PASSED}/${OUTCOME_CLAIM_COUNT}`} tone="success" />
         <Stat label="L1–L6 加权分" value={String(HM_WEIGHTED_L6)} tone="success" />
         <Stat label="最低轨" value={`${HM_BOTTLENECK.code} ${HM_BOTTLENECK.score}`} tone="info" />
       </Grid>
@@ -579,7 +579,7 @@ export default function HarnessMemConvergenceCanvas() {
       <Stack gap={6}>
         <H2>机械评分（L1–L6 + D7/D8）</H2>
         <Text tone="tertiary" size="small">
-          公式：track_score = Σ earned_points · 当前结果 {OUTCOME_RUN_AT} · 本机检查尚未重跑
+          公式：track_score = Σ earned_points · 当前结果 {OUTCOME_RUN_AT} · 本机检查 12/12 passed
         </Text>
       </Stack>
 
@@ -827,12 +827,12 @@ export default function HarnessMemConvergenceCanvas() {
       </Grid>
 
       <Callout tone="info">
-        相关面板：readiness-v3.canvas.tsx（六轨 Readiness + 权重分，须带轨道 breakdown）·
+        相关视图：docs/assets/harness-mem-runtime-layered-architecture.svg（五模块运行时）·
         docs/canvases/harness-mem-readiness-v1.canvas.tsx（0.9.28 精简架构边界，与 test_package_version_alignment 对齐）。
       </Callout>
 
         <Text tone="tertiary" size="small">
-          验证：pytest {PYTEST_STATUS} · outcome-verifier 尚未重跑 · 参考项目页本地 HEAD 见 index.md
+          验证：pytest {PYTEST_STATUS} · outcome-verifier 12/12 passed · release-wheels CI passed · 参考项目页本地 HEAD 见 index.md
         </Text>
     </Stack>
   );

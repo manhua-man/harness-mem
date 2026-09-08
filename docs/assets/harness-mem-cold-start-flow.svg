@@ -50,14 +50,14 @@
     <rect class="lane" width="270" height="128" rx="16"/>
     <text x="24" y="40" class="heading ink">Stop Hook</text>
     <text x="24" y="75" class="body muted">Save immutable revision</text>
-    <text x="24" y="102" class="body muted">Create / advance session job</text>
+    <text x="24" y="102" class="body muted">Create or advance job</text>
   </g>
   <path class="hook" d="M334 488h62"/>
   <g transform="translate(410 424)">
     <rect class="lane" width="270" height="128" rx="16"/>
     <text x="24" y="40" class="heading ink">Dream signal</text>
     <text x="24" y="75" class="body muted">Project has new activity</text>
-    <text x="24" y="102" class="body muted">Source reference stays bound</text>
+    <text x="24" y="102" class="body muted">Source stays bound</text>
   </g>
   <path class="line" d="M680 488h62"/>
   <g transform="translate(756 424)">
@@ -71,7 +71,7 @@
     <rect class="soft" width="274" height="128" rx="16"/>
     <text x="24" y="40" class="heading ink">Verified result</text>
     <text x="24" y="75" class="body muted">Assimilate or close safely</text>
-    <text x="24" y="102" class="body muted">Saved memory becomes searchable</text>
+    <text x="24" y="102" class="body muted">Saved memory is searchable</text>
   </g>
   <g transform="translate(64 602)">
     <rect class="dark" width="1312" height="104" rx="20"/>

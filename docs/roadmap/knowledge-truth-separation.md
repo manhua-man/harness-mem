@@ -95,9 +95,11 @@ matching host-history file, and its generated Session Note; it creates no
 session backup. Dream keeps its source and Note as an archive. Failed,
 unfinished, unsupported, or ambiguous sources remain untouched.
 
-The current authorized maintenance run is limited to the `harness-mem` project
-and its fixed set of 85 archived conversations. Other projects and archives
-whose project cannot be established are out of scope.
+Every real maintenance run must be explicitly authorized for one project and
+the concrete current scope selected by its operator. Recompute that project's
+knowledge and archive inventory before the run; do not reuse an old archive
+count. Other projects and archives whose project cannot be established are out
+of scope.
 
 For every change:
 
@@ -121,4 +123,4 @@ The storage and user-path checks must prove:
 - the public MCP surface has 20 tools and does not expose `temporal_query` or
   `undo_dream_item`;
 - finalize reports success only after ordinary search reads the change back;
-- project isolation and the 85-conversation maintenance boundary hold.
+- project isolation and the operator-selected maintenance boundary hold.

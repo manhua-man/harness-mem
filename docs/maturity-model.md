@@ -157,12 +157,17 @@ It deliberately does not merge repository release maturity with one device's liv
 operations into one headline. When a numeric headline is shown, it must follow
 **Mechanical score rubric (v2)** on the current machine — not release-narrative guesses.
 
-Historical operator snapshot (2026-08-12; not a current throughput claim):
+Current release evidence (2026-09-08):
 
 | View | Evidence | Current result |
 |------|----------|----------------|
-| Release maturity | source package/plugin 0.9.28, exact 25-tool contract, archive cohort acceptance, and seven-host qualification | full Python and Rust release lanes must pass before the next tag CI qualifies built artifacts |
-| Runtime alignment | repository/plugin 0.9.28; installed MCPs may remain on an earlier package until upgraded | refresh and restart any older live installation after publication |
+| Release maturity | source package/plugin 0.9.28, exact 20-tool contract, 12/12 current outcome checks, archive cohort acceptance, and seven-host qualification | full Python, Rust, native-wheel, install/upgrade, and public release lanes passed |
+| Runtime alignment | repository/plugin and latest GitHub Release are 0.9.28 | refresh and restart any older installed MCP after upgrading |
+
+Historical operator snapshot (2026-08-12; not a current throughput claim):
+
+| View | Evidence | Historical result |
+|------|----------|-------------------|
 | Distill operations | active 2, parked 198, 0.43 completed/day over seven days | `needs-distill`; throughput is the primary operational gap |
 | Retrieval feedback | 2 surfaced, no used/ignored/misleading outcomes | insufficient live feedback |
 

@@ -60,10 +60,10 @@
   <g transform="translate(738 176)">
     <rect class="violet" width="300" height="348" rx="18"/>
     <text x="24" y="42" class="eyebrow" fill="#6d5aa8">JOB-SCOPED MATERIAL</text>
-    <text x="24" y="82" class="heading ink">all promotion points found</text>
+    <text x="24" y="82" class="heading ink">Promotion points</text>
     <text x="24" y="118" class="body muted">Candidate claim + location</text>
     <text x="24" y="148" class="body muted">Verification evidence</text>
-    <text x="24" y="178" class="body muted">Proposed assimilation decision</text>
+    <text x="24" y="178" class="body muted">Proposed decision</text>
     <line x1="24" y1="206" x2="276" y2="206" stroke="#c4b5e6" stroke-width="2"/>
     <text x="24" y="242" class="heading ink">Answer Gate</text>
     <text x="24" y="278" class="body muted">Integrity + current support</text>
@@ -78,7 +78,7 @@
     <text x="24" y="82" class="heading ink">SQLite knowledge</text>
     <text x="24" y="116" class="code teal">knowledge_entries</text>
     <text x="24" y="150" class="body muted">One reusable current fact</text>
-    <text x="24" y="180" class="body muted">Minimum source link · no knowledge history</text>
+    <text x="24" y="180" class="body muted">Source link · no history</text>
     <text x="24" y="204" class="small muted">Markdown is on-demand only</text>
   </g>
   <g transform="translate(1092 420)">

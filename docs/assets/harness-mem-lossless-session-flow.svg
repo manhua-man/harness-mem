@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1440" height="820" viewBox="0 0 1440 820" role="img" aria-labelledby="title desc">
   <title id="title">harness-mem lossless session distillation</title>
-  <desc id="desc">A native transcript becomes an immutable revision, lossless chunks, a complete manifest, and semantic and raw drilldown. Explicit distill stays in the active host; a Hook only queues the session and wakes Dream. Both paths extract zero to twelve points, verify each point, and assimilate only proven reusable knowledge into SQLite knowledge_entries.</desc>
+  <desc id="desc">A native transcript becomes an immutable revision, lossless chunks, a complete manifest, and semantic and raw drilldown. Explicit distill stays in the active host; a Hook only queues the session and wakes Dream. Both paths extract every independent point, verify each point, and assimilate only proven reusable knowledge into SQLite knowledge_entries.</desc>
   <defs>
     <style>
       text{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
@@ -76,8 +76,8 @@
   <g transform="translate(452 456)">
     <rect class="card" width="246" height="152" rx="16"/>
     <text x="22" y="38" class="eyebrow teal">1 · EXTRACT</text>
-    <text x="22" y="75" class="heading ink">all independent points</text>
-    <text x="22" y="108" class="body muted">Narrow claims</text>
+    <text x="22" y="75" class="heading ink">Promotion points</text>
+    <text x="22" y="108" class="body muted">Extract all narrow claims</text>
     <text x="22" y="134" class="body muted">Reopenable locations</text>
   </g>
   <path class="line" d="M698 532h40"/>
@@ -86,7 +86,7 @@
     <text x="22" y="38" class="eyebrow teal">2 · VERIFY</text>
     <text x="22" y="75" class="heading ink">Each point</text>
     <text x="22" y="108" class="body muted">Integrity + support</text>
-    <text x="22" y="134" class="body muted">Stop when evidence is insufficient</text>
+    <text x="22" y="134" class="body muted">Stop if evidence is weak</text>
   </g>
   <path class="line" d="M998 532h40"/>
   <g transform="translate(1052 456)">

@@ -120,12 +120,12 @@ export default function HarnessMemReadinessV1() {
       </Stack>
 
       <Callout tone="info">
-        版本事实：源码、runtime 与 plugin manifest 均为 0.9.28；公开版本以 GitHub Releases 为准。
-        本次记忆简化修改后，旧的实际结果检查已失效；必须重新运行 12 项检查后才能声明发布就绪。
+        版本事实：源码、runtime 与 plugin manifest 均为 0.9.28；公开版本以 GitHub Releases 为准，当前 latest 为 0.9.28。
+        2026-09-08 本机 12 项实际结果检查及公开 release-wheels CI 均已通过。
       </Callout>
 
       <Text tone="tertiary" size="small">
-        Source: pyproject.toml · harness_mem/__init__.py · AGENTS.md · CHANGELOG Unreleased · docs/maturity-model.md · .codex/outcomes.json
+        Source: pyproject.toml · harness_mem/__init__.py · AGENTS.md · CHANGELOG 0.9.28 · release-notes.md · docs/maturity-model.md · .codex/outcomes.json
       </Text>
     </Stack>
   );

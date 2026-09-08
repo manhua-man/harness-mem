@@ -93,7 +93,7 @@ running Router and never depended on those files.
 
 ## 0.9.6 result (historical)
 
-The 27-tool and rollback statements below describe `0.9.6`; `0.9.28` now has 25
+The 27-tool and rollback statements below describe `0.9.6`; `0.9.28` now has 20
 public tools and no knowledge history or undo.
 
 - Public schema, handler, cluster, descriptor, hint, and serializer contracts
