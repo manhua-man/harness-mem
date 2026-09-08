@@ -15,7 +15,7 @@ import {
 } from "cursor/canvas";
 
 const MODEL_VERSION = "v1";
-const AS_OF = "2026-09-06";
+const AS_OF = "2026-09-08";
 const RUNTIME_VERSION = "0.9.28";
 
 const MODULES = [
@@ -46,7 +46,7 @@ export default function HarnessMemReadinessV1() {
         <Row gap={10} align="center" wrap>
           <H1>harness-mem 当前源码架构与发布边界</H1>
           <Pill tone="info">source {RUNTIME_VERSION}</Pill>
-          <Pill tone="warning">preparing release</Pill>
+          <Pill tone="success">released</Pill>
           <Pill tone="info">{MODEL_VERSION}</Pill>
         </Row>
         <Text tone="secondary">
@@ -58,7 +58,7 @@ export default function HarnessMemReadinessV1() {
         <Stat label="功能模块" value="5" tone="info" />
         <Stat label="原生宿主" value="7" tone="info" />
         <Stat label="公开 MCP 工具" value="20" tone="success" />
-        <Stat label="待重新运行的实际检查" value="12" tone="warning" />
+        <Stat label="实际结果检查" value="12/12" tone="success" />
       </Grid>
 
       <Callout tone="info">

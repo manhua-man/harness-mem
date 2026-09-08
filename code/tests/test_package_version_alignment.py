@@ -88,7 +88,7 @@ def test_source_and_public_install_versions_are_aligned() -> None:
     for canvas in (readiness, convergence):
         assert f'RUNTIME_VERSION = "{__version__}"' in canvas
         assert "source {RUNTIME_VERSION}" in canvas
-        assert "preparing release" in canvas
+        assert "released" in canvas
         assert "PUBLIC_RELEASE_VERSION" not in canvas
     assert "published artifacts are\nlisted on the GitHub Releases page" in maturity
     assert "公开版本以 GitHub Releases 为准" in readiness

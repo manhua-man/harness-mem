@@ -789,7 +789,11 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
             client="cursor",
             session_id="session-1",
             source_kind="jsonl",
-            source_uri="file:///session-1.jsonl",
+            # Keep this locator intentionally relative on every supported OS.
+            # ``file:///session-1.jsonl`` is rooted on POSIX but drive-relative
+            # on Windows, which made the expected retention reason platform-
+            # dependent in the Linux release gate.
+            source_uri="file:session-1.jsonl",
             source_text=source_text,
             raw_bytes=source_text.encode("utf-8"),
         )

@@ -20,9 +20,9 @@ import {
   useHostTheme,
 } from "cursor/canvas";
 
-const AS_OF = "2026-09-06";
+const AS_OF = "2026-09-08";
 const RUNTIME_VERSION = "0.9.28";
-const PYTEST_STATUS = "rerun required";
+const PYTEST_STATUS = "passed";
 const OUTCOME_CLAIM_COUNT = 12;
 
 const MODULES: string[][] = [
@@ -56,7 +56,7 @@ const RELEASE_TRAIN: string[][] = [
   ["0.9.25", "Hook→Dream 唯一路径 · 当时包含 undo；该知识历史设计已由 0.9.28 删除", "Released history"],
   ["0.9.26", "enabled + 默认当前宿主、也可指定 CLI · 诚实 {host}_cli 回执", "Released"],
   ["0.9.27", "唯一 hm 入口 · Quickstart 不管 MCP · Hook 不内联 · 不猜宿主", "Released"],
-  ["0.9.28", "当前记忆只有 knowledge_entries · 直接替换/删除 · 无知识历史或撤销 · 20 个 MCP 工具", "Preparing release"],
+  ["0.9.28", "当前记忆只有 knowledge_entries · 直接替换/删除 · 无知识历史或撤销 · 20 个 MCP 工具", "Released"],
 ];
 
 const OUT_OF_PRODUCT: string[][] = [
@@ -82,7 +82,7 @@ const OUTCOME_CLAIMS: string[][] = [
 ];
 
 const CONTRACT_GATES: string[][] = [
-  ["MCP 25-tool surface", "test_mcp_public_surface_contract.py · ensure_mcps_canonical.py"],
+  ["MCP 20-tool surface", "test_mcp_public_surface_contract.py · ensure_mcps_canonical.py"],
   ["Host replay / Hook", "test_host_replay_qualification.py · 各宿主 fixture"],
   ["Evidence admission", "test_evidence_admission.py"],
   ["Assimilation / truth", "test_assimilation_runtime.py · test_assimilation_shadow.py"],
@@ -536,7 +536,7 @@ export default function HarnessMemConvergenceCanvas() {
         <Row gap={10} align="center" wrap>
           <H1>产品边界与收敛证据</H1>
           <Pill tone="info">source {RUNTIME_VERSION}</Pill>
-          <Pill tone="warning">preparing release</Pill>
+          <Pill tone="success">released</Pill>
           <Pill tone="info">仅可核对事实</Pill>
         </Row>
         <Text tone="secondary">

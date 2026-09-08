@@ -124,7 +124,7 @@ Markdown/JSON/text
 | `0.9.25` | Hook-started Dream execution and fail-closed source/provider/undo receipts | 0, 2--4 | Keep Hook non-semantic; reject truncated retirement; preserve real undo and retryable provider failure | Released |
 | `0.9.26` | Host CLI background authorization and honest `{host}_cli` receipts | 0, 2--4 | No HTTP impersonating Agent; profile not required for CLI path; Hook re-entry guard | Released |
 | `0.9.27` | One daily `hm` entry and honest Hook/host failure boundaries | 0--4 | Quickstart leaves MCP alone; no action-specific entries, inline Hook work, or guessed host | Released |
-| `0.9.28` | One current-memory store and short automatic project check | 2--4 | Normal-search readback; direct replacement/deletion; no knowledge history or undo; legacy `MemoryEntry` is compatibility data only | Preparing release; not published |
+| `0.9.28` | One current-memory store and short automatic project check | 2--4 | Normal-search readback; direct replacement/deletion; no knowledge history or undo; legacy `MemoryEntry` is compatibility data only | Released |
 
 ## Current `0.9.28` source
 

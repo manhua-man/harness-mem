@@ -1,4 +1,4 @@
-# Release 0.9.28 (2026-09-06)
+# Release 0.9.28 (2026-09-08)
 
 ## What changed
 
