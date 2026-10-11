@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 import hashlib
 import json
 import os
@@ -37,6 +37,7 @@ from harness_mem.autonomous.hook_guard import (
     release_provider_process_lease,
 )
 from harness_mem.autonomous.executors.constants import host_cli_provider_name
+from harness_mem.autonomous.executors.host_cli import _codex_background_overrides
 
 _HOOK_GUARD_CHECKS: dict[str, tuple[str, ...]] = {
     "codex": (".codex", "hooks.json"),
@@ -73,7 +74,6 @@ def _temporary_runtime_directory(*, prefix: str, parent: Path) -> Iterator[Path]
                 time.sleep(0.25)
 
 
-
 def _assert_runtime_isolated(runtime_dir: Path, host_client: str) -> None:
     guard = _HOOK_GUARD_CHECKS.get(host_client)
     if guard is None:
@@ -103,7 +103,8 @@ def _terminate_process_tree(process: subprocess.Popen[str]) -> tuple[str, str]:
     if process.poll() is None:
         process.kill()
     try:
-        return process.communicate(timeout=10)
+        stdout, stderr = process.communicate(timeout=10)
+        return stdout or "", stderr or ""
     except subprocess.TimeoutExpired:
         for stream in (process.stdin, process.stdout, process.stderr):
             if stream is not None:
@@ -116,6 +117,96 @@ def _terminate_process_tree(process: subprocess.Popen[str]) -> tuple[str, str]:
         except subprocess.TimeoutExpired:
             pass
         return "", ""
+
+
+@contextmanager
+def _invocation_process_scope(
+    process: subprocess.Popen[str], *, enabled: bool
+) -> Iterator[None]:
+    """Contain this Windows CLI's children, even after its parent has exited."""
+    if not enabled or os.name != "nt":
+        yield
+        return
+    # A named/global process scan could target an unrelated Codex session.
+    # This anonymous Job Object contains only the process we just launched.
+    import ctypes
+    from ctypes import wintypes
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+    kernel.CreateJobObjectW.restype = wintypes.HANDLE
+    kernel.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    kernel.AssignProcessToJobObject.restype = wintypes.BOOL
+    kernel.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel.TerminateJobObject.restype = wintypes.BOOL
+    kernel.SetInformationJobObject.argtypes = [
+        wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD,
+    ]
+    kernel.SetInformationJobObject.restype = wintypes.BOOL
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel.CloseHandle.restype = wintypes.BOOL
+
+    class BasicLimits(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", ctypes.c_longlong),
+            ("PerJobUserTimeLimit", ctypes.c_longlong),
+            ("LimitFlags", wintypes.DWORD),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", wintypes.DWORD),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", wintypes.DWORD),
+            ("SchedulingClass", wintypes.DWORD),
+        ]
+
+    class ExtendedLimits(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", BasicLimits),
+            ("IoInfo", ctypes.c_ulonglong * 6),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    native = ctypes.WinDLL("ntdll")
+    native.NtResumeProcess.argtypes = [wintypes.HANDLE]
+    native.NtResumeProcess.restype = wintypes.LONG
+    job = kernel.CreateJobObjectW(None, None)
+    if not job:
+        _terminate_process_tree(process)
+        raise ProviderError("Cannot create Codex process scope", kind="setup_required")
+    try:
+        limits = ExtendedLimits()
+        limits.BasicLimitInformation.LimitFlags = 0x00002000  # KILL_ON_JOB_CLOSE.
+        if not kernel.SetInformationJobObject(
+            job, 9, ctypes.byref(limits), ctypes.sizeof(limits),
+        ):
+            _terminate_process_tree(process)
+            raise ProviderError(
+                "Cannot configure Codex process cleanup", kind="setup_required"
+            )
+        # Popen owns this Windows process handle until its object is released.
+        if not kernel.AssignProcessToJobObject(job, int(getattr(process, "_handle"))):
+            _terminate_process_tree(process)
+            raise ProviderError(
+                "Cannot contain Codex child processes", kind="setup_required"
+            )
+        try:
+            # Popen closed the primary thread handle. Resume the suspended
+            # process only after assignment, so startup children cannot escape.
+            if native.NtResumeProcess(int(getattr(process, "_handle"))) < 0:
+                raise ProviderError(
+                    "Cannot start contained Codex process", kind="setup_required"
+                )
+            yield
+        finally:
+            if not kernel.TerminateJobObject(job, 1):
+                raise ProviderError(
+                    "Cannot stop Codex child processes", kind="transient"
+                )
+    finally:
+        kernel.CloseHandle(job)
 
 
 def _build_codex_like_command(
@@ -379,9 +470,9 @@ def _hermes_output_contract(decision_model: Any) -> str:
             '"no_candidate_reason":null,"not_durable_signals":[]},"points":'
             '[{"kind":"memory","statement":"...","condition":null,'
             '"evidence_basis":"user_statement","exchange_indexes":[1]}]}. Allowed '
-            'kinds are memory, rule, relation. Use kind=memory unless you can provide '
-            'a non-empty condition. Never output kind=rule without condition. '
-            'A rule MUST include a non-empty condition field, for example '
+            "kinds are memory, rule, relation. Use kind=memory unless you can provide "
+            "a non-empty condition. Never output kind=rule without condition. "
+            "A rule MUST include a non-empty condition field, for example "
             '{"kind":"rule","statement":"Do X","condition":"When Y",'
             '"evidence_basis":"user_statement","exchange_indexes":[1]}. A relation adds '
             "source_entity, target_entity, relation_type. Repository evidence uses "
@@ -541,6 +632,15 @@ class HostStructuredCliProvider:
                 prompt=cli_prompt,
                 usage_path=usage_path,
             )
+            if self.host_client == "codex":
+                invocation = replace(
+                    invocation,
+                    command=[
+                        *invocation.command[:-1],
+                        *_codex_background_overrides(execution_cwd),
+                        "-",
+                    ],
+                )
             env = os.environ.copy()
             env.update(invocation.env)
             env["HARNESS_MEM_AUTONOMOUS_PROVIDER"] = "1"
@@ -553,58 +653,47 @@ class HostStructuredCliProvider:
                 if runtime_dir.parent.name == "autonomous"
                 else runtime_dir
             )
-            provider_lease = register_provider_process_lease(
-                data_dir,
-                pid=os.getpid(),
-            )
-            try:
-                try:
-                    process = subprocess.Popen(
-                        invocation.command,
-                        cwd=execution_cwd,
-                        env=env,
-                        stdin=subprocess.PIPE,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                        encoding="utf-8",
-                        errors="replace",
-                        creationflags=creationflags,
+            with ExitStack() as streams:
+                # A completed Windows CLI can leave children holding pipe handles.
+                # Wait for the CLI's exit, not EOF from those unrelated children.
+                captured_stdout = captured_stderr = None
+                if self.host_client == "codex":
+                    captured_stdout = streams.enter_context(
+                        tempfile.TemporaryFile(
+                            mode="w+", encoding="utf-8", errors="replace"
+                        )
                     )
-                except OSError as exc:
-                    raise ProviderError(str(exc), kind="setup_required") from exc
-
-                stdout = ""
-                stderr = ""
-                deadline = started + self.timeout_seconds
-                first_communicate = True
-                while True:
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        stdout, stderr = _terminate_process_tree(process)
-                        raise ProviderError(
-                            f"{self.host_client} provider exceeded {self.timeout_seconds}s",
-                            kind="transient",
+                    captured_stderr = streams.enter_context(
+                        tempfile.TemporaryFile(
+                            mode="w+", encoding="utf-8", errors="replace"
                         )
-                    try:
-                        stdout, stderr = process.communicate(
-                            input=(
-                                cli_prompt
-                                if first_communicate and self.host_client != "hermes"
-                                else None
-                            ),
-                            timeout=min(self.poll_seconds, remaining),
-                        )
-                        break
-                    except subprocess.TimeoutExpired:
-                        first_communicate = False
-                        if heartbeat is not None:
-                            heartbeat()
-            finally:
-                release_provider_process_lease(provider_lease)
+                    )
+                provider_lease = register_provider_process_lease(
+                    data_dir,
+                    pid=os.getpid(),
+                )
+                try:
+                    stdout, stderr, process_returncode = self._communicate(
+                        invocation,
+                        execution_cwd,
+                        env,
+                        creationflags,
+                        cli_prompt,
+                        started,
+                        heartbeat,
+                        captured_stdout,
+                        captured_stderr,
+                    )
+                finally:
+                    release_provider_process_lease(provider_lease)
 
-            if process.returncode != 0:
-                raise _classify_failure(stderr or stdout, process.returncode)
+                if captured_stdout is not None and captured_stderr is not None:
+                    captured_stdout.seek(0)
+                    captured_stderr.seek(0)
+                    stdout, stderr = captured_stdout.read(), captured_stderr.read()
+
+            if process_returncode != 0:
+                raise _classify_failure(stderr or stdout, process_returncode)
 
             try:
                 raw = _extract_decision_text(
@@ -616,7 +705,9 @@ class HostStructuredCliProvider:
                 detail = (stderr or stdout or "").strip()
                 if detail:
                     if _reported_cli_failure(detail):
-                        raise _classify_failure(detail, process.returncode or 1) from exc
+                        raise _classify_failure(
+                            detail, process_returncode or 1
+                        ) from exc
                     raise ProviderError(
                         f"{exc}; stderr/stdout sample: {detail[:500]}",
                         kind=exc.kind,
@@ -628,7 +719,7 @@ class HostStructuredCliProvider:
                 raise ProviderError(
                     f"{self.host_client} provider returned invalid {error_label} JSON: {exc}",
                     kind="unrecoverable",
-                    exit_code=process.returncode,
+                    exit_code=process_returncode,
                 ) from exc
 
             usage_text = ""
@@ -652,3 +743,82 @@ class HostStructuredCliProvider:
             event_count=int(metrics["event_count"] or 0),
             host_client=self.host_client,
         )
+
+    def _communicate(
+        self,
+        invocation: _CliInvocation,
+        execution_cwd: Path,
+        env: dict[str, str],
+        creationflags: int,
+        cli_prompt: str,
+        started: float,
+        heartbeat: Callable[[], None] | None,
+        captured_stdout: Any,
+        captured_stderr: Any,
+    ) -> tuple[str, str, int]:
+        try:
+            process = subprocess.Popen(
+                invocation.command,
+                cwd=execution_cwd,
+                env=env,
+                stdin=subprocess.PIPE,
+                stdout=captured_stdout
+                if captured_stdout is not None
+                else subprocess.PIPE,
+                stderr=captured_stderr
+                if captured_stderr is not None
+                else subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                creationflags=creationflags | (
+                    0x00000004  # CREATE_SUSPENDED; join the scope before startup.
+                    if self.host_client == "codex" and os.name == "nt"
+                    else 0
+                ),
+            )
+        except OSError as exc:
+            raise ProviderError(str(exc), kind="setup_required") from exc
+
+        try:
+            with _invocation_process_scope(process, enabled=self.host_client == "codex"):
+                return self._wait_for_cli(
+                    process, cli_prompt, started, heartbeat
+                )
+        except (OSError, AttributeError) as exc:
+            _terminate_process_tree(process)
+            raise ProviderError(
+                "Cannot initialize Codex process containment", kind="setup_required"
+            ) from exc
+
+    def _wait_for_cli(
+        self,
+        process: subprocess.Popen[str],
+        cli_prompt: str,
+        started: float,
+        heartbeat: Callable[[], None] | None,
+    ) -> tuple[str, str, int]:
+        deadline = started + self.timeout_seconds
+        first_communicate = True
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                _terminate_process_tree(process)
+                raise ProviderError(
+                    f"{self.host_client} provider exceeded {self.timeout_seconds}s",
+                    kind="transient",
+                )
+            try:
+                stdout, stderr = process.communicate(
+                    input=(
+                        cli_prompt
+                        if first_communicate and self.host_client != "hermes"
+                        else None
+                    ),
+                    timeout=min(self.poll_seconds, remaining),
+                )
+                return stdout or "", stderr or "", process.returncode
+            except subprocess.TimeoutExpired:
+                first_communicate = False
+                if heartbeat is not None:
+                    heartbeat()

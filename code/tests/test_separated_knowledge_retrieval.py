@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import ValidationError
@@ -22,6 +24,23 @@ from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+@pytest.mark.parametrize("query", [".env", "【.env】", "`.env`", "【 锁 】", "锁"])
+def test_exact_keywords_preserve_technical_punctuation_and_single_characters(query) -> None:
+    entries = [
+        KnowledgeEntry(project_name="fixture", title="Process environment", module_path=["Environment"],
+                       statement="Use env to inspect environment variables."),
+        KnowledgeEntry(project_name="fixture", title="Environment file", module_path=["Environment"],
+                       statement="Load settings from the .env file."),
+        KnowledgeEntry(project_name="fixture", title="锁", module_path=["Concurrency"],
+                       statement="临界区使用互斥锁保护。"),
+    ]
+    backend = SimpleNamespace(structured_store=SimpleNamespace(
+        knowledge_store=SimpleNamespace(list_entries=AsyncMock(return_value=entries)),
+    ))
+    found = _run(search_current_knowledge(backend, project_name="fixture", query=query))
+    assert found == [entries[2] if "锁" in query else entries[1]]
 
 
 def test_separated_knowledge_search_is_current_only_and_clean(
@@ -225,8 +244,88 @@ def test_separated_knowledge_search_is_current_only_and_clean(
             changed_files=["README.md"],
         )
         assert autopilot["search_executed"] is True
-        assert autopilot["search"]["memory_count"] == 1
+        assert len(autopilot["context_injection"]["memories"]) == 1
         assert autopilot["context_injection"]["source_ids"] == [entries[0].id]
-        assert autopilot["context_injection"]["answer_ready_context"]["truth"]
+        assert autopilot["context_injection"]["memories"]
+    finally:
+        _run(backend.close())
+
+
+@pytest.mark.parametrize(
+    "query, expected",
+    [
+        ("后台整理", True),
+        ("开", True),
+        ("【后台整理】", True),
+        ("`后台整理`", True),
+        ("后台整理怎么开启？", True),
+        ("请问之前如何开启后台整理", True),
+        ("整理后台如何开启", True),
+        ("以前怎么开启后台整理？", True),
+        ("怎么开启飞船引擎？", False),
+        ("后台音乐怎么播放？", False),
+        ("自动删除怎么开启？", False),
+        ("请问这个问题怎么处理？", False),
+    ],
+)
+def test_chinese_questions_retrieve_only_matching_current_knowledge(
+    tmp_path, monkeypatch, query, expected
+) -> None:
+    root = tmp_path / "fictional-project"
+    root.mkdir()
+    source = root / "README.md"
+    source.write_text("Fictional retrieval fixture.\n", encoding="utf-8")
+    backend = LocalMemoryBackend(tmp_path / "data")
+    _run(backend.init())
+    try:
+        store = backend.structured_store.knowledge_store
+        entry = KnowledgeEntry(
+            project_name="fictional-project",
+            title="开启后台整理",
+            statement="后台整理默认关闭，只有明确开启后才会自动整理会话。",
+            module_path=["后台使用"],
+        )
+        candidate = KnowledgeCandidate(
+            project_name=entry.project_name,
+            candidate_type="memory",
+            statement=entry.statement,
+        )
+        decision = AssimilationDecision(
+            project_name=entry.project_name,
+            candidate_id=candidate.id,
+            disposition="add",
+            canonical_truth_ids=[entry.id],
+            reason="Isolated Chinese retrieval fixture.",
+        )
+        _run(store.save_candidate(candidate))
+        _run(store.apply_current_change(
+            candidate_before=candidate,
+            candidate_after=candidate.model_copy(update={"status": "assimilated"}),
+            decision=decision,
+            added_entries=[entry],
+            predecessor_entries=[],
+            source_refs_by_entry={entry.id: [ProjectKnowledgeSourceRef(
+                label="README.md", target=source.as_uri(),
+                kind="repository", digest="d" * 64,
+            )]},
+        ))
+        # Reopen the persisted store and use the ordinary public read path.
+        _run(backend.close())
+        backend = LocalMemoryBackend(tmp_path / "data")
+        _run(backend.init())
+        monkeypatch.setattr(read_search_handlers, "_get_backend", lambda: backend)
+        payload = read_search_handlers.tool_search_memory(
+            query=query, project_name=entry.project_name,
+        )
+        assert payload["status"] == ("answered" if expected else "empty")
+        assert payload["memories"] == (
+            [{"title": entry.title, "statement": entry.statement}] if expected else []
+        )
+        assert _run(search_current_knowledge(
+            backend, project_name="another-project", query=query,
+        )) == []
+        assert len(_run(list_current_knowledge(
+            backend, project_name=entry.project_name,
+        ))) == 1
     finally:
         _run(backend.close())

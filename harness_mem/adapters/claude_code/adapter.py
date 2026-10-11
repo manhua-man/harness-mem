@@ -38,7 +38,7 @@ class ClaudeCodeAdapter:
     def list_project_sessions(
         self,
         project_name: str,
-        min_size_kb: int = 100,
+        min_size_kb: int = 0,
         limit: int | None = None,
     ) -> list[SessionRecord]:
         """List session files for a project."""
@@ -54,7 +54,7 @@ class ClaudeCodeAdapter:
         self,
         project_name: str | None = None,
         *,
-        min_size_kb: int = 100,
+        min_size_kb: int = 0,
         limit: int | None = None,
         issues: list[Issue] | None = None,
     ) -> list[SessionRecord]:
@@ -155,7 +155,7 @@ class ClaudeCodeAdapter:
         self,
         project_name: str,
         limit: int | None = None,
-        min_size_kb: int = 100,
+        min_size_kb: int = 0,
     ) -> dict:
         """Ingest recent sessions for a project.
 
@@ -207,7 +207,7 @@ class ClaudeCodeAdapter:
         self,
         project_name: str | None = None,
         limit: int | None = None,
-        min_size_kb: int = 100,
+        min_size_kb: int = 0,
     ) -> dict[str, Any]:
         """Shared adapter contract wrapper for project-scoped Claude ingestion."""
         if not project_name:

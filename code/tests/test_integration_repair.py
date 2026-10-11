@@ -59,6 +59,22 @@ def test_project_hook_repair_reports_unsupported_host_api(
     assert report.status == "unsupported"
     assert report.success is False
     assert report.results[0].status == "unsupported"
+    assert report.results[0].error_kind == "unsupported"
+
+
+def test_hook_sync_does_not_claim_success_for_unsupported_integration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    report = repair.HookRepairReport(
+        status="unsupported", success=False,
+        results=(repair.HookRepairResult(
+            host="hermes", status="unsupported", error="Hook API unavailable",
+            error_kind="unsupported",
+        ),),
+    )
+    monkeypatch.setattr(integration_cmds, "repair_project_hooks", lambda **_kwargs: report)
+    assert integration_cmds.cmd_install_hook_suite("hermes", str(tmp_path), False) == 1
+    assert json.loads(capsys.readouterr().out)["success"] is False
 
 
 def test_hook_sync_cli_emits_only_hook_results(
@@ -93,6 +109,7 @@ def test_hook_sync_cli_emits_only_hook_results(
         {
             "artifacts": [],
             "error": "permission denied",
+            "error_kind": None,
             "host": "cursor",
             "status": "failed",
         }

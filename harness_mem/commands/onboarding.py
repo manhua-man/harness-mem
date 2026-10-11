@@ -31,5 +31,14 @@ def cmd_quickstart(client: str = "auto") -> int:
         return 1
 
     hint = command_hint(host_client)
-    print(f"Installed {hint} for {host_client}. Start a new Agent task to use it.")
+    print(f"Installed {hint} for {host_client}.")
+    print(
+        f"Start a new Agent task. If harness-mem tools are already available, use {hint}."
+    )
+    print(
+        "Otherwise, ask the Agent, MCP Router, plugin, or existing setup tool "
+        "that manages your MCP connection to connect harness-mem. "
+        "See docs/mcp-setup.md."
+    )
+    print("Quickstart does not inspect or change MCP connections.")
     return 0

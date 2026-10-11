@@ -32,11 +32,43 @@ class SessionDistillStore:
         *,
         get_source: Callable[[str], TranscriptSource | None],
         reconstruct: Callable[..., str],
+        manual_job_check: Callable[[SessionDistillJob], bool] | None = None,
     ) -> None:
         self._conn = connection
         self._lock = lock
         self._get_source = get_source
         self._reconstruct = reconstruct
+        self._manual_job_check = manual_job_check or (lambda job: job.manual_only)
+
+    def freeze_manual_selection(self, publish: Callable[[], dict], *,
+                                matches: Callable[[SessionDistillJob], bool]) -> dict:
+        """Serialize frozen manifest publication with cross-connection lease claims."""
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                jobs = [SessionDistillJob.from_dict(json.loads(row["data"]))
+                        for row in self._conn.execute("SELECT data FROM distill_jobs").fetchall()]
+                selected = [job for job in jobs if matches(job)]
+                now = datetime.now(timezone.utc)
+                for job in selected:
+                    if (job.review_lease_owner and job.review_lease_until is not None
+                            and job.review_lease_until > now
+                            and job.review_execution_source != "interactive_agent"):
+                        raise ValueError("background review already owns this session")
+                    if any(checkpoint.status == "processing" and checkpoint.lease_until is not None
+                           and checkpoint.lease_until > now for checkpoint in self.list_checkpoints(job.id)):
+                        raise ValueError("chunk processing already owns this session")
+                manifest = publish()
+                for job in selected:
+                    if not job.manual_only:
+                        job.manual_only = True
+                        job.updated_at = now
+                        self._upsert_job_locked(job)
+                self._conn.commit()
+                return manifest
+            except Exception:
+                self._conn.rollback()
+                raise
 
     def enqueue(
         self,
@@ -164,6 +196,50 @@ class SessionDistillStore:
                 self._conn.rollback()
                 raise
 
+    def retain_source(self, job_id: str) -> SessionDistillJob:
+        """Tighten retention for a manual batch; never authorize deletion here."""
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                job = self._get_job_locked(job_id)
+                if job is None:
+                    raise KeyError(job_id)
+                if not job.retain_source:
+                    job.retain_source = True
+                    job.updated_at = datetime.now(timezone.utc)
+                    self._upsert_job_locked(job)
+                self._conn.commit()
+                return job
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def reserve_manual(self, job_id: str) -> SessionDistillJob:
+        """Reserve an explicit Agent job without taking an active background lease."""
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                job = self._get_job_locked(job_id)
+                if job is None:
+                    raise KeyError(job_id)
+                now = datetime.now(timezone.utc)
+                if (
+                    job.review_lease_owner
+                    and job.review_lease_until is not None
+                    and job.review_lease_until > now
+                    and job.review_execution_source != "interactive_agent"
+                ):
+                    raise ValueError("background review already owns this session")
+                if not job.manual_only:
+                    job.manual_only = True
+                    job.updated_at = now
+                    self._upsert_job_locked(job)
+                self._conn.commit()
+                return job
+            except Exception:
+                self._conn.rollback()
+                raise
+
     def list(
         self,
         *,
@@ -235,6 +311,9 @@ class SessionDistillStore:
                 job = self._get_job_locked(job_id)
                 if job is None:
                     raise KeyError(job_id)
+                if execution_source != "interactive_agent" and self._manual_job_check(job):
+                    self._conn.rollback()
+                    return None
                 if job.status != "reviewing":
                     self._conn.rollback()
                     return None
@@ -356,6 +435,7 @@ class SessionDistillStore:
         project_name: str | None = None,
         now: datetime | None = None,
         recovery_budget: int | None = None,
+        manual_job_ids: set[str] | None = None,
     ) -> dict[str, int]:
         """Reconcile job state from durable checkpoints after a restart.
 
@@ -388,6 +468,8 @@ class SessionDistillStore:
                 terminal = {"completed", "failed", "stale"}
                 for row in rows:
                     job = SessionDistillJob.from_dict(json.loads(row["data"]))
+                    if manual_job_ids is not None and (job.manual_only or job.id in manual_job_ids):
+                        continue
                     summary["inspected"] += 1
                     if job.status in terminal:
                         continue
@@ -618,6 +700,7 @@ class SessionDistillStore:
         lease_owner: str,
         limit: int | None = 1,
         lease_seconds: int = 300,
+        execution_source: str = "interactive_agent",
     ) -> List[tuple[TranscriptChunk, DistillChunkCheckpoint]]:
         """Atomically claim pending chunks and reclaim expired leases."""
 
@@ -632,6 +715,9 @@ class SessionDistillStore:
                 job = self._get_job_locked(job_id)
                 if job is None:
                     raise KeyError(job_id)
+                if execution_source != "interactive_agent" and self._manual_job_check(job):
+                    self._conn.rollback()
+                    return []
                 if job.status in {"completed", "failed", "stale", "parked"}:
                     self._conn.rollback()
                     return []

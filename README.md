@@ -19,14 +19,21 @@ mattered in earlier conversations or what still needs attention. `harness-mem`
 keeps reusable project knowledge locally, so it can be found later without
 turning your workflow into a second knowledge application.
 
+Unreleased working-tree intake improvements retain short sessions by default.
+Cursor supports exported JSONL and read-only native SQLite inspection covered
+by isolated fixtures; this does not establish support for every live database
+format. Blank sources, unreadable files and completed organization are distinct.
+
+In the unreleased working tree, an organization result includes the saved
+knowledge itself, not only its count. Ask `hm` to show what the project remembers
+to read all current knowledge by module; ordinary searches stay compact.
+
 ## Start here
 
-Install the release:
+Install the release with this single-line command in PowerShell, Command Prompt, or Bash:
 
-```bash
-python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.28 \
-  harness-mem==0.9.28
+```text
+python -m pip install --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.28 harness-mem==0.9.28
 ```
 
 Run this once for each Agent app you actually use. You do not rerun it for every
@@ -42,11 +49,12 @@ If it cannot identify the current app, it stops and asks you to run it once with
 by guessing. It installs one global `$hm` or `/hm` entry for that app. It does
 not inspect a project, write project Hooks, or scan or import old sessions. It
 does not inspect or change MCP settings.
-Your Agent, MCP Router, plugin, or other setup tool owns that connection. If the
-Agent does not already expose harness-mem, connect it separately using
-[MCP setup](docs/mcp-setup.md). Do not add a second connection when a Router or
-plugin already provides it. Start a new task after setup and use `hm` in any
-project. The first use in each project prepares that project and its Hooks.
+After Quickstart confirms the entry is installed, start a new Agent task. If
+harness-mem tools are already available, use `hm`. Otherwise, ask the Agent,
+MCP Router, plugin, or existing setup tool that manages your MCP connection to
+connect harness-mem using [MCP setup](docs/mcp-setup.md). Do not add a second
+connection when a Router or plugin already provides it. Use `hm` in any project;
+the first use in each project prepares that project and its Hooks.
 The package is distributed through GitHub Releases, not PyPI.
 
 For optional local vector or hybrid search, install `"harness-mem[hybrid]==0.9.28"`
@@ -74,6 +82,19 @@ The unified entry replies in your language with what it remembered, what it
 found, or what needs correction. You do not have to choose a storage system,
 model connection, or internal workflow.
 
+Use ordinary language: you do not need to understand internal components or
+supply, copy, or manage memory IDs. Describe a correction or deletion
+by title or content. The Agent finds and verifies the target in the current
+project using references returned by tools; it must not guess IDs. If your words
+do not identify one target uniquely, it keeps the existing memory and explains
+what it cannot determine using readable titles or content.
+
+One failed or ambiguous item must not prevent other independent, verified
+content from being saved through the existing checks. The reply must separate
+what was actually saved from what remains unfinished; partial saving does not
+mean all work is complete. Shared safety failures, such as a project mismatch or
+failure to read saved content back, still require affected work to stop.
+
 harness-mem keeps only current memory. A correction replaces the old item, and
 an item that is no longer valid is deleted. It does not keep old knowledge
 versions, archived knowledge copies, change history, or undo.
@@ -85,6 +106,15 @@ harness-mem reports that instead of silently using a different one.
 
 ## What stays out of the way
 
+The unreleased working tree adds read-only session inventory, complete source
+paging and an Agent-proposed theme overview checked against source coverage.
+Explicit manual organization freezes the selected project and source revisions
+in a resumable batch. The current Agent performs the work independently of the
+background CLI; batch completion does not automatically delete sources.
+See [MCP setup](docs/mcp-setup.md#session-inspection-and-manual-batches-unreleased)
+for the inspection, preparation and retry contract. These additions are not
+included in the published `0.9.28` artifacts.
+
 The terminal CLI is for setup, diagnosis, integration repair, and explicit
 maintenance—not everyday recall. `hm` performs only a short project and Hook
 check before the requested action. When something is wrong or an operator needs
@@ -93,6 +123,11 @@ queues, and repair evidence do not belong in the daily reply. The underlying
 MCP tools, session hooks, background organization, SQLite store, source checks,
 and diagnostics remain available, but are not steps you need to learn to
 remember or retrieve work.
+
+The current development tree exposes 20 MCP tools: the previous 19 plus
+`inspect_sessions`. Automatic Dream scheduling remains internal to Hooks
+and maintenance, not a public MCP tool. Automatic retrieval returns each memory
+once; source checks, recovery tools, and retrieval feedback remain available.
 
 Project memory is local by default. Evidence is checked before durable knowledge
 is changed, and uncertain or unsafe source cleanup remains opt-in. Read the

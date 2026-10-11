@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "corpus_version": "fictional-quality-v1",
+  "description": "Offline fictional corpus. Export with --corpus before running either product; freeze the returned corpus_sha256. No real product execution is performed by this scorer.",
+  "sources": [
+    {"id": "F1", "catalog_id": "F1", "sha256": "b110a8aa3234952b7ac776e69c75a0d52216a3765df76adb627c967f43bed005"},
+    {"id": "F2", "catalog_id": "F2", "sha256": "5bf1fa880845ed09fee478bff1c036ed3eb626381fd84e8107d42bfd06c3bcf9"},
+    {"id": "F3", "catalog_id": "F3", "sha256": "9dae176a9689626425e35b3978ab14432ab8f75c2f79ce0e54d9024a3f49149b"},
+    {"id": "F5", "catalog_id": "F5", "sha256": "74ae09f37b0b73085ebed523c0121a85f4d78431294568d5e631253494401212"},
+    {"id": "F8", "sha256": "9ddd56869dc7386485a07c969b25ed63528f470cae6e3bcb394fead1913bc8be", "text": "Fictional project Lantern. Initial current knowledge: The worker performs a sync. The API returns request_id.\nUser: Adopt this project rule: A completed distill receipt must bind the provider result to its job.\nUser: Replace the vague sync rule: The worker must sync the provider receipt before a terminal job transition.\nUser: Confirm the existing API rule: The API returns request_id.\nUser: Show the archive audit list for this task only.\nUser: Run the production rollout after the final result contract is green.\nAssistant: The rollout remains unfinished.\n"},
+    {"id": "F9", "sha256": "2f33213335705f14a51c3d287b5b5f02c42c6b9adafe854bd3e01241c1097212", "text": "Fictional project Lantern.\nUser: List every stored long-term memory now; this is a one-time request.\nUser: For future memory audits, always provide a complete itemized list rather than only aggregate counts.\n"},
+    {"id": "F10", "sha256": "bd234794c2d030b25abbd9c314413a9e5128b00f4ea69c9079077ee842e78fe7", "text": "Fictional project Lantern. Initial current knowledge: The configured provider produces the terminal receipt.\nAssistant: I guess a different provider owns the terminal receipt, but I have no supporting evidence.\nUser: That conflicts with our current rule. Do not adopt the guess without verification.\n"}
+  ],
+  "initial_knowledge": [
+    {"title": "Worker sync", "statement": "The worker performs a sync."},
+    {"title": "API response identity", "statement": "The API returns request_id."},
+    {"title": "Provider ownership", "statement": "The configured provider produces the terminal receipt."}
+  ],
+  "points": [
+    {"id": "performance", "outcome": "memory", "title": "Distillation performance preference", "statement": "Reduce distillation time and token use without reducing result quality.", "evidence": [{"source_id": "F2", "quote": "I prefer distillation to use much less time and fewer tokens while keeping the same result quality."}], "alternative_evidence": [[{"source_id": "F3", "quote": "I prefer much lower distill latency and token use without reducing result quality."}]], "rules": ["F2", "F3"]},
+    {"id": "compact", "outcome": "memory", "title": "Compact response preference", "statement": "Prefer compact responses without hiding required evidence.", "evidence": [{"source_id": "F5", "quote": "Prefer compact responses, but never hide required evidence."}], "rules": ["F5"]},
+    {"id": "receipt", "outcome": "memory", "title": "Provider receipt binding", "statement": "A completed distill receipt must bind the provider result to its job.", "evidence": [{"source_id": "F8", "quote": "Adopt this project rule: A completed distill receipt must bind the provider result to its job."}], "rules": ["F8"]},
+    {"id": "sync", "outcome": "memory", "title": "Worker sync cadence", "statement": "The worker must sync the provider receipt before a terminal job transition.", "evidence": [{"source_id": "F8", "quote": "Replace the vague sync rule: The worker must sync the provider receipt before a terminal job transition."}], "rules": ["F8", "F10"]},
+    {"id": "api", "outcome": "memory", "title": "API response identity", "statement": "The API returns request_id.", "evidence": [{"source_id": "F8", "quote": "Confirm the existing API rule: The API returns request_id."}], "rules": ["F8", "F10", "F11"]},
+    {"id": "audit", "outcome": "memory", "title": "Memory audit presentation", "statement": "For future memory audits, provide a complete itemized list rather than only aggregate counts.", "evidence": [{"source_id": "F9", "quote": "For future memory audits, always provide a complete itemized list rather than only aggregate counts."}], "rules": ["F9"]},
+    {"id": "provider", "outcome": "memory", "title": "Provider ownership", "statement": "The configured provider produces the terminal receipt.", "evidence": [{"source_id": "F10", "quote": "Initial current knowledge: The configured provider produces the terminal receipt."}], "rules": ["F10"]},
+    {"id": "measurement", "outcome": "handoff", "title": "Fixed model measurement", "statement": "Measure one fixed model sample; this work remains unfinished.", "evidence": [{"source_id": "F3", "quote": "Measure one fixed model sample next."}, {"source_id": "F3", "quote": "the fixed model measurement remains unfinished as a handoff."}], "rules": ["F3"]},
+    {"id": "security", "outcome": "handoff", "title": "Security review", "statement": "Complete the unfinished security review.", "evidence": [{"source_id": "F5", "quote": "Security review remains unfinished."}], "rules": ["F5"]},
+    {"id": "rollout", "outcome": "handoff", "title": "Remaining rollout", "statement": "Run the production rollout after the final result contract is green; this work remains unfinished.", "evidence": [{"source_id": "F8", "quote": "Run the production rollout after the final result contract is green."}, {"source_id": "F8", "quote": "The rollout remains unfinished."}], "rules": ["F8"]},
+    {"id": "greeting", "outcome": "no_write", "title": "Greeting", "statement": "Say hello once.", "evidence": [{"source_id": "F1", "quote": "Say hello once."}], "rules": ["F1"]},
+    {"id": "obsolete", "outcome": "no_write", "title": "Truncate first", "statement": "Use the truncate-first approach.", "evidence": [{"source_id": "F3", "quote": "The older truncate-first approach is superseded."}], "rules": ["F3"]},
+    {"id": "old-sync", "outcome": "no_write", "title": "Worker sync", "statement": "The worker performs a sync.", "evidence": [{"source_id": "F8", "quote": "Initial current knowledge: The worker performs a sync."}], "rules": ["F8", "F10"]},
+    {"id": "migration", "outcome": "no_write", "title": "Temporary migration error", "statement": "Migration v9.1.0 failed with error F5-MIDDLE-ERROR.", "evidence": [{"source_id": "F5", "quote": "Migration v9.1.0 failed with error F5-MIDDLE-ERROR; preserve rollback proof."}], "rules": ["F5", "F6"]},
+    {"id": "archive-list", "outcome": "no_write", "title": "Current audit request", "statement": "Show the archive audit list for this task only.", "evidence": [{"source_id": "F8", "quote": "Show the archive audit list for this task only."}], "rules": ["F8"]},
+    {"id": "list-now", "outcome": "no_write", "title": "Current list request", "statement": "List every stored long-term memory now.", "evidence": [{"source_id": "F9", "quote": "List every stored long-term memory now; this is a one-time request."}], "rules": ["F9"]},
+    {"id": "conflict", "outcome": "conflict", "title": "Unsupported provider guess", "statement": "A different provider owns the terminal receipt.", "evidence": [{"source_id": "F10", "quote": "I guess a different provider owns the terminal receipt, but I have no supporting evidence."}], "rules": ["F10"]}
+  ],
+  "limitations": [
+    "F1/F2/F3/F5 reuse pinned catalog transcripts; F8/F9/F10 supplement the existing shadow rules with fictional source text.",
+    "Score the complete final current-knowledge snapshot, including seeded knowledge, plus separate handoffs; do not supply only new writes.",
+    "F4 revision recovery, F6 chunk integrity, F7 legacy admission and F11 runtime retrieval isolation remain separate runtime gates.",
+    "Exact wording or human-reviewed point mapping plus checked source spans is required. This program cannot independently judge semantic equivalence, readability, actual execution, or recovery.",
+    "No score certifies a real upstream comparison, runtime persistence, or billed cost. Missing measurements remain null."
+  ]
+}

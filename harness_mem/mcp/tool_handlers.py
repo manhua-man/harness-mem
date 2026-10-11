@@ -350,9 +350,9 @@ from harness_mem.mcp.read_handlers import (  # noqa: E402
 )
 # Distill resolves this callback through the facade proxy.
 from harness_mem.mcp.status_handlers import tool_get_project_status  # noqa: E402
+from harness_mem.mcp.session_handlers import tool_inspect_sessions  # noqa: E402
 from harness_mem.mcp.dream_handlers import (  # noqa: E402
     _run_command_to_payload,
-    tool_dream_auto_tick,
     tool_dream_ledger,
     tool_dream_run,
 )
@@ -375,13 +375,13 @@ def build_tool_handlers() -> dict[str, Callable[..., dict[str, Any]]]:
         "get_project_profile": tool_get_project_profile,
         "file_context": tool_file_context,
         "get_project_status": tool_get_project_status,
+        "inspect_sessions": tool_inspect_sessions,
         "wake": tool_wake,
         "prepare_session_distill": tool_prepare_session_distill,
         "submit_distill_chunk": tool_submit_distill_chunk,
         "finalize_session_distill": tool_finalize_session_distill,
         "dream_ledger": tool_dream_ledger,
         "dream_run": tool_dream_run,
-        "dream_auto_tick": tool_dream_auto_tick,
         "list_candidates": tool_list_candidates,
         "get_candidate_detail": tool_get_candidate_detail,
         "govern_memory": tool_govern_memory,

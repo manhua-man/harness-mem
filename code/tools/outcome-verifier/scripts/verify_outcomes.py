@@ -129,14 +129,57 @@ def _load_contract(path: Path) -> dict[str, Any]:
             raise ContractError(f"claim {claim['id']} needs checks")
         if not any(check.get("evidence_tier") == "direct" for check in checks if isinstance(check, dict)):
             raise ContractError(f"claim {claim['id']} needs at least one direct check")
+        check_ids: set[str] = set()
         for check in checks:
             if not isinstance(check, dict) or not isinstance(check.get("id"), str):
                 raise ContractError(f"claim {claim['id']} has a check without a string id")
+            check_id = check["id"]
+            if check_id in check_ids:
+                raise ContractError(
+                    f"claim {claim['id']} has duplicate check id {check_id}"
+                )
+            check_ids.add(check_id)
             if check.get("evidence_tier") not in {"direct", "supporting"}:
                 raise ContractError(f"check {check.get('id')} has invalid evidence_tier")
             command = check.get("command")
             if not isinstance(command, list) or not command or not all(isinstance(item, str) for item in command):
                 raise ContractError(f"check {check['id']} command must be a non-empty string array")
+            depends_on = check.get("depends_on", [])
+            if not isinstance(depends_on, list) or not all(
+                isinstance(item, str) and item for item in depends_on
+            ):
+                raise ContractError(
+                    f"check {check['id']} depends_on must be a list of check ids"
+                )
+        for check in checks:
+            for dependency in check.get("depends_on", []):
+                if dependency == check["id"]:
+                    raise ContractError(
+                        f"check {check['id']} cannot depend on itself"
+                    )
+                if dependency not in check_ids:
+                    raise ContractError(
+                        f"check {check['id']} depends on unknown check {dependency}"
+                    )
+        visiting: set[str] = set()
+        visited: set[str] = set()
+
+        def visit(check_id: str) -> None:
+            if check_id in visiting:
+                raise ContractError(
+                    f"claim {claim['id']} has a check dependency cycle at {check_id}"
+                )
+            if check_id in visited:
+                return
+            visiting.add(check_id)
+            current = next(item for item in checks if item["id"] == check_id)
+            for dependency in current.get("depends_on", []):
+                visit(dependency)
+            visiting.remove(check_id)
+            visited.add(check_id)
+
+        for check_id in check_ids:
+            visit(check_id)
     return payload
 
 
@@ -223,6 +266,7 @@ def _run_check(
         "evidence_tier": check["evidence_tier"],
         "required": check.get("required", True),
         "command": command,
+        "execution": "ran",
     }
     cache_key = (tuple(command), str(cwd.resolve()), timeout)
     if cache_key not in cache:
@@ -276,9 +320,34 @@ def _run_check(
     return result
 
 
+def _not_run_check(
+    check: dict[str, Any],
+    root: Path,
+    run_id: str,
+    blocked_by: list[str],
+) -> dict[str, Any]:
+    """Describe a dependency-blocked check without launching its command."""
+
+    command = [_expand(item, root) for item in check["command"]]
+    return {
+        "id": check["id"],
+        "run_id": run_id,
+        "description": check.get("description", ""),
+        "evidence_tier": check["evidence_tier"],
+        "required": check.get("required", True),
+        "command": command,
+        "execution": "not_run",
+        "status": "not_run",
+        "blocked_by": blocked_by,
+        "failures": [
+            "dependency did not pass: " + ", ".join(blocked_by)
+        ],
+    }
+
+
 def _claim_status(checks: list[dict[str, Any]]) -> str:
     required = [item for item in checks if item["required"]]
-    if any(item["status"] == "blocked" for item in required):
+    if any(item["status"] in {"blocked", "not_run"} for item in required):
         return "blocked"
     if any(item["status"] == "failed" for item in required):
         return "failed"
@@ -306,9 +375,31 @@ def verify(
     for claim in contract["claims"]:
         if selected and claim["id"] not in selected:
             continue
-        checks = [
-            _run_check(check, root, cache, run_id) for check in claim["checks"]
-        ]
+        checks_by_id = {check["id"]: check for check in claim["checks"]}
+        results_by_id: dict[str, dict[str, Any]] = {}
+
+        def evaluate_check(check_id: str) -> dict[str, Any]:
+            existing = results_by_id.get(check_id)
+            if existing is not None:
+                return existing
+            check = checks_by_id[check_id]
+            dependencies = [
+                evaluate_check(dependency)
+                for dependency in check.get("depends_on", [])
+            ]
+            blocked_by = [
+                dependency["id"]
+                for dependency in dependencies
+                if dependency["status"] != "passed"
+            ]
+            if blocked_by:
+                result = _not_run_check(check, root, run_id, blocked_by)
+            else:
+                result = _run_check(check, root, cache, run_id)
+            results_by_id[check_id] = result
+            return result
+
+        checks = [evaluate_check(check["id"]) for check in claim["checks"]]
         claims.append({
             "id": claim["id"],
             "description": claim.get("description", ""),

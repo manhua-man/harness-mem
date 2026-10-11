@@ -8,7 +8,7 @@ decisions exist only while a job is unfinished.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_validator
@@ -165,6 +165,7 @@ class KnowledgeCandidate(BaseModel):
     assimilation_disposition: AssimilationDisposition | None = None
     assimilation_reason: str | None = None
     assimilation_target_ids: list[str] = Field(default_factory=list)
+    assimilation_targets: list[dict[str, Any]] = Field(default_factory=list)
     canonical_title: str | None = None
     topic_path: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=_utc_now)
@@ -182,6 +183,7 @@ class KnowledgeCandidate(BaseModel):
             "assimilation_disposition": self.assimilation_disposition,
             "assimilation_reason": self.assimilation_reason,
             "assimilation_target_ids": list(self.assimilation_target_ids),
+            "assimilation_targets": [dict(item) for item in self.assimilation_targets],
             "canonical_title": self.canonical_title,
             "topic_path": list(self.topic_path),
             "created_at": self.created_at.isoformat(),

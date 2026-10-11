@@ -3,6 +3,32 @@
   "project": "harness-mem",
   "claims": [
     {
+      "id": "manual_session_batch",
+      "description": "An isolated current-Agent manual batch resumes, persists verified knowledge, reports changes, and retains selected sources without a background model.",
+      "required": true,
+      "checks": [{
+        "id": "isolated_manual_runtime",
+        "description": "Real manual runtime and ordinary retrieval after store reopen; only Agent semantic decisions and discovery paths are deterministic fixtures.",
+        "evidence_tier": "direct",
+        "timeout_seconds": 120,
+        "command": ["{python}", "-m", "harness_mem.qualification.manual_session_outcome_probe"],
+        "expect": {"exit_code": 0, "json": {
+          "verified": {"equals": true},
+          "background_isolation": {"equals": true},
+          "low_level_manual_isolation": {"equals": true},
+          "visible_completion": {"equals": true},
+          "no_write_completion": {"equals": true},
+          "current_knowledge_view": {"equals": true},
+          "author_derived_preference_saved": {"equals": true},
+          "deferred_work_visible": {"equals": true},
+          "runtime_summary_consistent": {"equals": true},
+          "no_write_result_consistent": {"equals": true},
+          "new_batch_preserves_handoff": {"equals": true},
+          "note_hashes_match": {"equals": true}
+        }}
+      }]
+    },
+    {
       "id": "codex_cleanup_liveness",
       "description": "Native cleanup retains active, reactivated, and unknown Codex tasks and deletes only a definitively inactive task.",
       "required": true,
@@ -155,8 +181,22 @@
       "required": true,
       "checks": [
         {
+          "id": "isolated_background_model_preflight",
+          "description": "Run the isolated Hook acceptance preflight and prove the selected host CLI model check passed before interpreting downstream lifecycle fields.",
+          "evidence_tier": "direct",
+          "timeout_seconds": 1200,
+          "command": ["{python}", "code/scripts/run_release_hook_acceptance.py", "--hook-client", "cursor", "--output", "{project_root}/.tmp/release-hook-acceptance-isolated.json"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "model_check.status": {"equals": "passed"}
+            }
+          }
+        },
+        {
           "id": "isolated_background_memory_runtime",
           "description": "Trigger the installed Hook and worker against isolated data, then verify the same job, Note, knowledge, normal search result, and three blocked Hook calls.",
+          "depends_on": ["isolated_background_model_preflight"],
           "evidence_tier": "direct",
           "timeout_seconds": 1200,
           "command": ["{python}", "code/scripts/run_release_hook_acceptance.py", "--hook-client", "cursor", "--output", "{project_root}/.tmp/release-hook-acceptance-isolated.json"],
@@ -281,6 +321,8 @@
             "exit_code": 0,
             "json": {
               "current_memory_retrievable": {"equals": true},
+              "chinese_question_retrievable": {"equals": true},
+              "unrelated_chinese_question_empty": {"equals": true},
               "legacy_rows_never_searchable": {"equals": true},
               "memory_search_has_no_raw_observation": {"equals": true},
               "memory_search_has_no_internal_metadata": {"equals": true},

@@ -213,15 +213,23 @@ class CanonicalTransactionIdempotencyError(CanonicalTransactionError):
 class CanonicalStoreRuntime:
     """Thin runtime CRUD helper over canonical SQLite payload rows."""
 
-    def __init__(self, data_dir: Path):
+    def __init__(self, data_dir: Path, *, read_only: bool = False):
         self.data_dir = Path(data_dir)
         self.db_path = canonical_store_path(self.data_dir)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        if not read_only:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._conn = sqlite3.connect(
+            f"{self.db_path.resolve().as_uri()}?mode=ro" if read_only else self.db_path,
+            uri=read_only, check_same_thread=False,
+        )
         self._lock = threading.RLock()
-        self._conn.execute("PRAGMA secure_delete=ON")
-        initialize_canonical_schema(self._conn)
-        self._conn.commit()
+        if read_only:
+            self._conn.execute("PRAGMA query_only=ON")
+            self._conn.execute("BEGIN")
+        else:
+            self._conn.execute("PRAGMA secure_delete=ON")
+            initialize_canonical_schema(self._conn)
+            self._conn.commit()
 
     def close(self) -> None:
         with self._lock:

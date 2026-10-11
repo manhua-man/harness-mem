@@ -142,7 +142,7 @@ def test_compatibility_entries_never_populate_current_memory_answer_packet(
 
     assert packet["promotion_status"] == "not_promoted"
     assert packet["promoted_items"] == []
-    assert packet["core_conclusion"] == "候选未通过晋升策略。"
+    assert packet["core_conclusion"] == "本次未新增或替换长期记忆。"
     assert "promoted_items" not in packet["core_conclusion"]
 
 
@@ -937,7 +937,8 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
         assert finalized["success"] is True
         assert finalized["structural_audit"]["coverage"] == "complete"
         assert "dream" not in finalized
-        assert finalized["completion"]["disposition"] == "no_candidate"
+        assert finalized["completion"]["disposition"] == "deferred"
+        assert finalized["unfinished_work"]
         expected_promotion = {
             "suggested": 3,
             "promoted": 0,
@@ -968,18 +969,19 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
         assert {
             key: value
             for key, value in finalized["promotion"].items()
-            if key not in {"answer_packet", "points"}
+            if key not in {"answer_packet", "points", "unfinished_work"}
         } == expected_promotion
-        assert finalized["answer_packet"] == finalized["promotion"]["answer_packet"]
+        assert "answer_packet" not in finalized["promotion"]
         assert finalized["answer_packet"]["answer_status"] == "UNANSWERED"
         assert finalized["answer_packet"]["promotion_status"] == "not_promoted"
         assert finalized["answer_packet"]["promoted_items"] == []
         assert finalized["queue_effect"]["removed_from_pending"] is True
-        assert finalized["source_cleanup"]["configured"] is True
+        # Deferred points keep their source even for active user processing.
+        assert finalized["source_cleanup"]["configured"] is False
         assert finalized["source_cleanup"]["status"] == "retained"
         assert finalized["source_cleanup"]["receipt_id"] is None
         assert finalized["source_cleanup"]["reason_codes"] == [
-            "native_source_uri_not_absolute"
+            "unresolved_work_keeps_source"
         ]
         unrelated_entry = asyncio.run(
             backend.structured_store.knowledge_store.get_candidate(
@@ -2063,6 +2065,7 @@ def test_completed_job_retries_current_knowledge_write_without_duplicate_results
             client="codex",
             run_ingest=False,
             evidence_mode="raw",
+            _distill_source="autonomous_worker",
         )
         chunk = packet["chunks"][0]
         tool_handlers.tool_submit_distill_chunk(
@@ -2226,6 +2229,7 @@ def test_trusted_assimilation_preflight_blocks_truth_write_on_stale_input(
             client="codex",
             run_ingest=False,
             evidence_mode="raw",
+            _distill_source="autonomous_worker",
         )
         chunk = packet["chunks"][0]
         tool_handlers.tool_submit_distill_chunk(
@@ -2496,15 +2500,20 @@ def test_semantic_review_blocks_promotion_and_dream(
             for key, value in finalized["promotion"].items()
             if key not in {"answer_packet", "points"}
         } == expected_promotion
-        assert finalized["answer_packet"] == finalized["promotion"]["answer_packet"]
+        assert "answer_packet" not in finalized["promotion"]
         assert finalized["answer_packet"]["answer_status"] == "UNANSWERED"
         assert finalized["answer_packet"]["promotion_status"] == "not_promoted"
         assert finalized["answer_packet"]["promoted_items"] == []
         assert {
             key: value
             for key, value in completed.promotion_summary.items()
-            if key not in {"answer_packet", "points"}
+            if key not in {"answer_packet", "points", "readback"}
         } == expected_promotion
+        assert completed.promotion_summary["readback"] == {
+            "verified": True, "source_revision": completed.source_revision,
+            "mode": "no_write",
+            "handoff_ids": [],
+        }
         answer_packet = completed.promotion_summary["answer_packet"]
         assert answer_packet["answer_status"] == "UNANSWERED"
         assert answer_packet["promotion_status"] == "not_promoted"

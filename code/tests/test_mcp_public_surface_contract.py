@@ -11,9 +11,7 @@ import harness_mem.commands.integration_cmds as integration_cmds
 from harness_mem.commands import token_estimator
 from harness_mem.config.merge import MergedConfig
 import harness_mem.commands.support as support_module
-import harness_mem.mcp.read_wake_handlers as read_wake_handlers
 import harness_mem.mcp.status_handlers as status_handlers
-from harness_mem.core.schemas import KnowledgeCandidate
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.guided_flow import build_guided_flow
@@ -45,7 +43,6 @@ SKILL_GOVERNANCE_TOOLS = {
 
 EXPECTED_PUBLIC_MCP_TOOLS = {
     "autopilot_search_tick",
-    "dream_auto_tick",
     "dream_ledger",
     "dream_run",
     "file_context",
@@ -55,6 +52,7 @@ EXPECTED_PUBLIC_MCP_TOOLS = {
     "get_project_profile",
     "get_project_status",
     "get_task_handoffs",
+    "inspect_sessions",
     "govern_memory",
     "list_candidates",
     "prepare_session_distill",
@@ -213,8 +211,8 @@ def test_get_project_status_bootstraps_router_workspace_and_codex_hooks(
         "success": True,
         "project_name": "codex-workspace",
         "message": (
-            "Memory is ready. Review the new project Hooks in Codex Settings, "
-            "then start a new task."
+            "Memory storage is ready; Hook files are prepared. "
+            "If not yet trusted, review project Hooks in Codex Settings, then start a new task."
         ),
     }
     assert token_estimator.count_tokens(json.dumps(payload)) < 50
@@ -244,7 +242,10 @@ def test_get_project_status_bootstraps_router_workspace_and_codex_hooks(
     assert _tool_result(second_response) == {
         "success": True,
         "project_name": "codex-workspace",
-        "message": "Memory is ready.",
+        "message": (
+            "Memory storage is ready; Hook files are prepared. "
+            "If not yet trusted, review project Hooks in Codex Settings, then start a new task."
+        ),
     }
 
     profile = asyncio.run(LocalProjectProfileStore(backend.data_dir).get("codex-workspace"))
@@ -291,7 +292,11 @@ def test_get_project_status_dispatches_bootstrap_for_every_supported_host(
     assert payload == {
         "success": True,
         "project_name": f"{host_client}-workspace",
-        "message": "Memory is ready.",
+        "message": (
+            "Memory storage is ready; Hook files are prepared."
+            + (" If not yet trusted, review project Hooks in Codex Settings, then start a new task."
+               if host_client == "codex" else "")
+        ),
     }
     assert installs == [(host_client, str(workspace.resolve()), False)]
 
@@ -367,7 +372,7 @@ def test_get_project_status_reports_hook_setup_failure_without_diagnostics(
     assert _tool_result(response) == {
         "success": False,
         "project_name": "failed-hook-workspace",
-        "message": "The project Hook could not be prepared.",
+        "message": "The project Hook could not be prepared; the cause is not yet known.",
         "action": "Run harness-mem doctor.",
     }
 
@@ -409,8 +414,75 @@ def test_get_project_status_does_not_report_queue_progress(
     assert _tool_result(response) == {
         "success": True,
         "project_name": "pending-workspace",
-        "message": "Memory is ready.",
+        "message": (
+            "Memory storage is ready; Hook files are prepared. "
+            "If not yet trusted, review project Hooks in Codex Settings, then start a new task."
+        ),
     }
+
+
+def test_project_status_reports_real_file_conflict_and_safe_recovery(
+    backend, tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "conflicting-workspace"
+    workspace.mkdir()
+    hook = workspace / ".codex" / "hooks.json"
+    hook.parent.mkdir()
+    original = '{"hooks": {}}\n'
+    hook.write_text(original, encoding="utf-8")
+    runner = tmp_path / "harness-mem-hook.exe"
+    runner.write_text("fixture runner", encoding="utf-8")
+    monkeypatch.setattr(support_module, "DEFAULT_DATA_DIR", backend.data_dir)
+    monkeypatch.setattr(integration_cmds, "verified_hook_runner", lambda: runner)
+    payload = status_handlers.tool_get_project_status(
+        project_root=str(workspace), host_client="codex",
+    )
+    assert payload["success"] is False
+    assert "conflict" in payload["message"]
+    assert "preserved" in payload["message"]
+    assert "doctor" in payload["action"]
+    assert str(hook) not in json.dumps(payload)
+    assert hook.read_text(encoding="utf-8") == original
+    # Only this fixture's owner removes the conflicting file, never the product.
+    hook.unlink()
+    recovered = status_handlers.tool_get_project_status(
+        project_root=str(workspace), host_client="codex",
+    )
+    assert recovered["success"] is True
+    assert "Hook files are prepared" in recovered["message"]
+    assert "If not yet trusted" in recovered["message"]
+    repeated = status_handlers.tool_get_project_status(
+        project_root=str(workspace), host_client="codex",
+    )
+    assert repeated == recovered
+
+
+@pytest.mark.parametrize("error, message, action", [
+    (PermissionError("private path"), "access was denied", "write access"),
+    (RuntimeError("harness-mem-hook is unavailable: private path"),
+     "program is unavailable", "environment"),
+    (ValueError("invalid configuration: private path"), "could not be read", "before editing"),
+    (NotImplementedError("Hook API unavailable: private path"),
+     "not available", "supported Agent"),
+])
+def test_project_status_preserves_known_setup_failure_without_private_detail(
+    backend, tmp_path, monkeypatch: pytest.MonkeyPatch, error, message, action,
+) -> None:
+    workspace = tmp_path / "failure-workspace"
+    workspace.mkdir()
+    monkeypatch.setattr(support_module, "DEFAULT_DATA_DIR", backend.data_dir)
+
+    def unavailable_runner():
+        raise error
+
+    monkeypatch.setattr(integration_cmds, "verified_hook_runner", unavailable_runner)
+    payload = status_handlers.tool_get_project_status(
+        project_root=str(workspace), host_client="codex",
+    )
+    assert payload["success"] is False
+    assert message in payload["message"]
+    assert action in payload["action"]
+    assert "private path" not in json.dumps(payload)
 
 
 def test_public_mcp_surface_is_single_memory_entrypoint(backend) -> None:
@@ -430,7 +502,6 @@ def test_public_mcp_surface_is_single_memory_entrypoint(backend) -> None:
         "govern_memory",
         "dream_ledger",
         "dream_run",
-        "dream_auto_tick",
     } <= tool_names
     assert "metabolism_run" not in tool_names
     assert "metabolism_preview" not in tool_names
@@ -444,8 +515,11 @@ def test_public_mcp_surface_is_single_memory_entrypoint(backend) -> None:
     tool_by_name = {tool["name"]: tool for tool in result["tools"]}
     delete_description = tool_by_name["govern_memory"]["description"]
     assert "decision=delete" in delete_description
-    assert "exactly one target_knowledge_ids value" in delete_description
-    for name in ("dream_ledger", "dream_run", "dream_auto_tick"):
+    assert "exactly one target_knowledge selection" in delete_description
+    assert "Internal IDs remain compatible for existing callers" in delete_description
+    assert "must not be requested from users" in delete_description
+    assert "dream_auto_tick" not in tool_names
+    for name in ("dream_ledger", "dream_run"):
         assert tool_by_name[name]["annotations"]["harness_mem"]["cluster"] == "dream"
     assert "temporal_query" not in tool_names
     assert "undo_dream_item" not in tool_names

@@ -58,6 +58,7 @@ async def persist_session_snapshot(
     sequence_count: int = 0,
     parser_version: str = "transcript-v1",
     reuse_logical_session: bool = False,
+    authored_user_texts: list[str] | None = None,
 ) -> TranscriptSyncResult:
     """Persist a complete source revision and upsert its search observation."""
 
@@ -221,6 +222,14 @@ async def persist_session_snapshot(
             ),
             "capture_private_spans_removed": private_span_count,
             "capture_policy": "project_merged_v1",
+            **({
+                "authored_user_text_sha256": [
+                    sha256_text((redact_private_text(text)[0]
+                                 if config.capture_private_tags else text).strip())
+                    for text in authored_user_texts if text.strip()
+                ],
+                "authored_rendering_sha256": normalized_digest,
+            } if authored_user_texts is not None else {}),
         },
         created_at=(
             existing_source.created_at

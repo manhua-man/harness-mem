@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Iterable
+from typing import Any, Iterable
 
 
 def _text(value: object) -> str:
@@ -30,22 +30,25 @@ def project_memory_entries(
     entries: Iterable[object],
     *,
     include_project: bool = False,
-) -> list[dict[str, str]]:
+    include_modules: bool = False,
+) -> list[dict[str, Any]]:
     """Return canonical memory prose without storage or audit metadata."""
 
-    projected: list[dict[str, str]] = []
+    projected: list[dict[str, Any]] = []
     for entry in entries:
         statement = _text(
             getattr(entry, "statement", None) or getattr(entry, "content", None)
         )
         if not statement:
             continue
-        item = {
+        item: dict[str, Any] = {
             "title": _title(entry, fallback="Project memory"),
             "statement": statement,
         }
         if include_project:
             item["project_name"] = _text(getattr(entry, "project_name", None))
+        if include_modules:
+            item["module"] = list(getattr(entry, "module_path", ()) or ())
         projected.append(item)
     return projected
 

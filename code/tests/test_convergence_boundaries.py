@@ -15,6 +15,7 @@ from harness_mem.version import legacy_storage_support_policy
 def test_public_mcp_contract_is_exactly_20_tools() -> None:
     expected = set(PUBLIC_MCP_TOOL_NAMES)
     assert len(expected) == 20
+    assert "dream_auto_tick" not in expected
     assert set(_SCHEMAS) == expected
     assert set(TOOL_CLUSTERS) == expected
     assert set(build_tool_handlers()) == expected

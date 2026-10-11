@@ -47,7 +47,8 @@ def run_clean_retrieval_outcome_probe() -> dict[str, bool]:
                 project_name=project_name,
                 title="Current canonical memory",
                 statement=(
-                    "cleanretrievaltoken README.md current canonical memory."
+                    "cleanretrievaltoken README.md current canonical memory. "
+                    "后台整理默认关闭；开启后台整理须明确授权。"
                 ),
                 module_path=["Retrieval"],
                 verified_at=datetime.now(timezone.utc),
@@ -133,6 +134,12 @@ def run_clean_retrieval_outcome_probe() -> dict[str, bool]:
                     project_name=project_name,
                     _include_diagnostics=True,
                 )
+                chinese = tool_search_memory(
+                    query="之前后台整理怎么开启？", project_name=project_name,
+                )
+                unrelated_chinese = tool_search_memory(
+                    query="后台音乐怎么播放？", project_name=project_name,
+                )
                 raw = tool_search_raw(
                     pattern="cleanretrievaltoken",
                     project_name=project_name,
@@ -174,6 +181,13 @@ def run_clean_retrieval_outcome_probe() -> dict[str, bool]:
             }
             fields = {
                 "current_memory_retrievable": current.statement in default_statements,
+                "chinese_question_retrievable": chinese.get("memories") == [
+                    {"title": current.title, "statement": current.statement}
+                ],
+                "unrelated_chinese_question_empty": (
+                    unrelated_chinese.get("status") == "empty"
+                    and unrelated_chinese.get("memories") == []
+                ),
                 "legacy_rows_never_searchable": (
                     provisional.content not in default_statements
                     and historical.content not in default_statements
@@ -208,7 +222,10 @@ def run_clean_retrieval_outcome_probe() -> dict[str, bool]:
                 ),
                 "autopilot_uses_only_current_memory": (
                     autopilot.get("search_executed") is True
-                    and current.statement in json.dumps(autopilot)
+                    and any(
+                        item.get("statement") == current.statement
+                        for item in (autopilot.get("context_injection") or {}).get("memories", [])
+                    )
                     and provisional.content not in json.dumps(autopilot)
                     and historical.content not in json.dumps(autopilot)
                 ),

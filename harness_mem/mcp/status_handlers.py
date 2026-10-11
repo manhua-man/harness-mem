@@ -33,7 +33,7 @@ def _bootstrap_status_workspace(
     project_name: str | None,
     project_root: str | None,
     host_client: str | None,
-) -> tuple[str | None, Path | None, str | None, bool, bool]:
+) -> tuple[str | None, Path | None, str | None, bool, str | None]:
     """Resolve and idempotently bootstrap context supplied by a live Agent."""
 
     root_context = (
@@ -53,7 +53,7 @@ def _bootstrap_status_workspace(
     host = normalize_client_name(host_client) if host_client else None
 
     if resolved_project is None or resolved_root is None:
-        return resolved_project, resolved_root, host, False, False
+        return resolved_project, resolved_root, host, False, None
 
     asyncio.run(
         _support.ensure_project_profile(resolved_project, project_root=resolved_root)
@@ -61,7 +61,7 @@ def _bootstrap_status_workspace(
     set_active_project(resolved_project)
 
     if host not in _STATUS_BOOTSTRAP_HOSTS:
-        return resolved_project, resolved_root, host, False, False
+        return resolved_project, resolved_root, host, False, None
 
     install_output = io.StringIO()
     with (
@@ -69,13 +69,17 @@ def _bootstrap_status_workspace(
         contextlib.redirect_stderr(io.StringIO()),
     ):
         install_status = cmd_install_hook_suite(host, str(resolved_root), False)
-    hook_changed = False
-    if install_status == 0:
-        try:
-            hook_changed = bool(json.loads(install_output.getvalue()).get("messages"))
-        except (AttributeError, json.JSONDecodeError):
-            pass
-    return resolved_project, resolved_root, host, install_status == 0, hook_changed
+    failure_kind = None
+    try:
+        report = json.loads(install_output.getvalue())
+        failure_kind = next(
+            (item.get("error_kind") for item in report.get("results", [])
+             if item.get("status") in {"failed", "unsupported"}),
+            None,
+        )
+    except (AttributeError, TypeError, json.JSONDecodeError):
+        pass
+    return resolved_project, resolved_root, host, install_status == 0, failure_kind
 
 
 def tool_get_project_status(
@@ -85,7 +89,7 @@ def tool_get_project_status(
 ) -> dict:
     """Prepare the current project when needed and report whether it is ready."""
 
-    resolved_project, resolved_root, resolved_host, hook_ready, hook_changed = (
+    resolved_project, resolved_root, resolved_host, hook_ready, failure_kind = (
         _bootstrap_status_workspace(
             project_name=project_name,
             project_root=project_root,
@@ -107,11 +111,38 @@ def tool_get_project_status(
         }
 
     if not hook_ready:
+        recoveries = {
+            "conflict": (
+                "Existing project Hook files were preserved because they conflict with setup.",
+                "Run harness-mem doctor to review the conflict before changing those files.",
+            ),
+            "permission": (
+                "Project Hook files could not be written because access was denied.",
+                "Check workspace write access, then retry hm.",
+            ),
+            "unavailable": (
+                "The installed Hook program is unavailable.",
+                "Run harness-mem doctor in the environment where harness-mem is installed.",
+            ),
+            "invalid": (
+                "The project Hook configuration could not be read.",
+                "Run harness-mem doctor to check the existing configuration before editing it.",
+            ),
+            "unsupported": (
+                "This Agent's Hook integration is not available.",
+                "Use a supported Agent; run harness-mem doctor to check host support.",
+            ),
+        }
+        message, action = recoveries.get(
+            failure_kind or "unknown",
+            ("The project Hook could not be prepared; the cause is not yet known.",
+             "Run harness-mem doctor."),
+        )
         return {
             "success": False,
             "project_name": resolved_project,
-            "message": "The project Hook could not be prepared.",
-            "action": "Run harness-mem doctor.",
+            "message": message,
+            "action": action,
         }
 
     backend = _get_backend()
@@ -123,10 +154,10 @@ def tool_get_project_status(
             "action": "Run harness-mem doctor.",
         }
 
-    message = "Memory is ready."
-    if resolved_host == "codex" and hook_changed:
+    message = "Memory storage is ready; Hook files are prepared."
+    if resolved_host == "codex":
         message += (
-            " Review the new project Hooks in Codex Settings, then start a new task."
+            " If not yet trusted, review project Hooks in Codex Settings, then start a new task."
         )
     return {
         "success": True,

@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
 
+from harness_mem.diagnostic_events import DEBUG_PARENT_RUN_ID_ENV, diagnostic_parent_id
+
 __all__ = [
     "BACKGROUND_WORKER_ENV",
     "BackgroundDispatch",
@@ -26,6 +28,7 @@ __all__ = [
 
 BACKGROUND_WORKER_ENV = "HARNESS_MEM_HOOK_BACKGROUND_WORKER"
 _BACKGROUND_GENERATION_ENV = "HARNESS_MEM_HOOK_BACKGROUND_GENERATION"
+_DEBUG_PARENT_ENV = DEBUG_PARENT_RUN_ID_ENV
 _LOCK_STALE_SECONDS = 300.0
 _Popen = Callable[..., subprocess.Popen[Any]]
 
@@ -260,6 +263,9 @@ def _spawn_worker(request: BackgroundRequest, *, popen: _Popen) -> None:
     env = os.environ.copy()
     env[BACKGROUND_WORKER_ENV] = "1"
     env[_BACKGROUND_GENERATION_ENV] = request.generation
+    parent_run_id = diagnostic_parent_id()
+    if parent_run_id:
+        env[_DEBUG_PARENT_ENV] = parent_run_id
     kwargs: dict[str, Any] = {
         "cwd": request.project_root,
         "env": env,

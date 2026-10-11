@@ -20,7 +20,7 @@ DistillJobStatus = Literal[
 ]
 DistillJobPhase = Literal["chunks", "review", "promotion", "done"]
 DistillChunkStatus = Literal["pending", "processing", "completed", "retryable", "failed"]
-CompletionDisposition = Literal["promoted", "no_candidate"]
+CompletionDisposition = Literal["promoted", "no_candidate", "deferred", "handoff", "conflict"]
 SourceCleanupStatus = Literal[
     "retained",
     "deleted",
@@ -195,6 +195,9 @@ class SessionDistillJob(BaseModel):
     promotion_summary: dict = Field(default_factory=dict)
     source_cleanup_status: SourceCleanupStatus | None = None
     source_cleanup_receipt_id: str | None = None
+    retain_source: bool = False
+    # Durable ownership of explicit Agent work, independent of source retention.
+    manual_only: bool = False
     error: str | None = None
     attempt_count: int = 0
     retry_after: datetime | None = None

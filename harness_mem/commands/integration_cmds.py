@@ -61,7 +61,7 @@ def cmd_install_hook_suite(client: str, project_root: str | None, force: bool) -
         for artifact in result.artifacts
     ]
     print(json.dumps(payload, indent=2, sort_keys=True))
-    return 1 if any(result.status == "failed" for result in report.results) else 0
+    return 0 if report.success else 1
 
 
 def cmd_transcript_evidence(client: str, project_root: str | None) -> int:

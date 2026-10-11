@@ -29,25 +29,68 @@ Hooks for the current project. The entry accepts ordinary language for three int
 - How did we solve this before?
 - This memory is wrong.
 
+Users describe corrections or deletions by title or content in ordinary language.
+They do not need to understand internal components, or supply, copy, or manage memory
+IDs. The Agent resolves and verifies tool-returned references within the current
+project; it must never guess an ID. If the description does not identify one
+target uniquely, preserve the existing memory and explain what cannot be
+determined using readable titles or content.
+
 Wake happens with session entry and authorized background organization happens
 without becoming a daily checklist. Before each requested action, `hm` performs
 only a short project and Hook check. Doctor, raw evidence, candidate detail,
 storage repair, and cleanup are diagnostic or operator drill-downs, not primary
 navigation. Do not create a parallel “simple mode”; the default path is the
 product and uses the same runtime contracts.
-When first use creates Codex project Hooks, the same short reply includes the
-one required trust action; later checks do not repeat it.
+Readiness reports memory storage and prepared Hook files, not proof that Hooks
+have run. Codex replies include a conditional trust action because file existence
+cannot establish whether the user accepted the host's trust prompt; already-trusted
+users need not repeat it. Setup failures name the known cause and one safe next step.
 
 ## CLI and MCP Output
 
 - Put the verdict or next action in the first readable block.
 - Prefer stable labels and short lists over wide tables.
 - Keep default summaries free of transcript, session, job, candidate, memory, evidence, and source IDs.
+- Describe failures in ordinary language, without internal component names or
+  requests for IDs.
+- If required instructions cannot be read before work starts, state that no
+  memory changed and stop without automatic retries. Do not expose paths/tool
+  names or turn unexecuted processing steps into task handoffs. After partial
+  saving, show verified saved content separately; do not claim nothing changed.
 - Show exact commands in code formatting and keep them copyable.
 - For long-running or asynchronous work, distinguish queued, running, persisted, verified, deferred, and failed states.
 - Pair failures with a bounded recovery action; never imply that retrying will be harmless when it may mutate or delete data.
 - Use machine-readable JSON for automation and concise prose for human-facing summaries.
 - For multi-session distillation, report knowledge changes and ordinary no-write reasons by default. Only an explicit full audit expands session/topic-to-knowledge and evidence mapping. A semantic report does not claim physical cleanup, host restart, or full code-path verification.
+- In the unreleased session inspection flow, inventory, complete source paging
+  and theme coverage are read-only. Label themes as Agent-proposed and incomplete
+  source coverage as partial; unknown, malformed and empty sources stay distinct.
+- Manual batches freeze the selected project and revisions. Show progress and
+  unresolved failures within that scope, and exclude previously completed work
+  from this run's knowledge changes. Explicit retry applies only to active
+  batches; stopped batches do not silently resume. Completion retains sources.
+- The current Agent owns manual work independently of the background CLI.
+  Keep fixture evidence, the `manual_session_batch` outcome probe and
+  live background acceptance separate; none implies that the others passed.
+- An explicit organization request shows the actual saved knowledge in the
+  completion reply, in the user's language. Include titles and statements,
+  natural module grouping where useful, ordinary no-write reasons and unfinished
+  work; a count, test verdict or report link alone does not satisfy this result.
+- A failed or ambiguous point must not block other independent, verified points
+  from being saved through the existing commit and readback checks. Report what
+  was actually saved separately from what remains unfinished; partial saving
+  must never be described as all work completed. Shared safety failures such as
+  project binding conflicts or failed write readback still stop affected work.
+- Users may ask `hm` to show all current project knowledge. Reuse SQLite-backed
+  rendering; any Markdown view is an on-demand projection, not a second store
+  or a new daily entry. Long views may be paged with their scope made clear.
+- Keep the original conversation outcome separate from the result of organizing
+  it. A conversation that did not demonstrate persistence can later be saved;
+  the completion reply must accurately describe the current write/readback.
+- Automatic background success does not generate a new notification stream.
+  When the user asks what happened, show the same readable knowledge rather
+  than requiring them to locate receipts or understand internal stages.
 
 ## Host-Native Commands
 
@@ -96,7 +139,7 @@ Use teal for identity and positive forward motion. Use gold sparingly for lineag
 | Result summary | Daily reply, distill, review, verification | Verdict first; name remaining gaps |
 | Next-action block | Setup and diagnosis | One safe primary action with a reason |
 | Evidence badge | Verification details | Text label for verified, provisional, stale, or contradicted |
-| Progress state | Hooks and workers | Separate queued, running, persisted, and verified |
+| Progress state | Background organization | Use ordinary language to distinguish waiting, processing, saved, and checked |
 | Confirmation summary | Destructive or file-writing work | Exact targets and effects before confirmation |
 | Diagnostic detail | Doctor and requested details | Keep it out of the daily reply and explain why it is useful |
 
@@ -150,3 +193,4 @@ Use teal for identity and positive forward motion. Use gold sparingly for lineag
 | 2026-09-03 | Made the one-time Quickstart and the single `$hm`/`/hm` daily entry the default documentation and DX path | `README.md`, `README.zh-CN.md`, and `docs/quickstart.md` |
 | 2026-09-03 | Made Quickstart global, moved project Hook preparation to first use, and removed the old action-specific entries | onboarding, command sync, host mirrors, and current docs |
 | 2026-09-05 | Reduced the automatic project check to a short usable/failure reply and kept full diagnosis in Doctor | `hm` host mirrors, MCP status response, and current docs |
+| 2026-10-07 | Made visible saved knowledge and on-demand current-project reading explicit next-iteration acceptance criteria | User could not see the isolated test result until asking again; `docs/roadmap.md` and `docs/distill-test-plan.md` define verification, not an implementation-complete claim |

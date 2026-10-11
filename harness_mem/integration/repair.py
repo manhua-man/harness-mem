@@ -27,6 +27,7 @@ class HookRepairResult:
     status: RepairStatus
     artifacts: tuple[str, ...] = ()
     error: str | None = None
+    error_kind: str | None = None
 
 
 @dataclass(frozen=True)
@@ -255,6 +256,7 @@ def repair_project_hooks(
                     host=client,
                     status="unsupported",
                     error=str(exc),
+                    error_kind="unsupported",
                 )
             )
         except Exception as exc:  # noqa: BLE001 - preserve every stage result
@@ -263,6 +265,13 @@ def repair_project_hooks(
                     host=client,
                     status="failed",
                     error=str(exc),
+                    error_kind=(
+                        "conflict" if isinstance(exc, FileExistsError)
+                        else "permission" if isinstance(exc, PermissionError)
+                        else "unavailable" if str(exc).startswith("harness-mem-hook is unavailable:")
+                        else "invalid" if isinstance(exc, ValueError)
+                        else "unknown"
+                    ),
                 )
             )
 

@@ -27,6 +27,9 @@ Treat the full product lifecycle as five responsibilities:
   `replace`, `no_write`, `handoff`, `defer`, `conflict`, or `reject`.
 - Derive the session-level `promotion_decision` from point outcomes. Never let
   one unfinished or rejected point suppress unrelated ANSWERED durable points.
+- A failed point or an ambiguous correction target must remain unresolved while
+  independent verified durable points proceed through the existing commit and
+  readback gates. Shared safety failures still stop affected work.
 - Normal retrieval uses only current canonical prose. Audit identifiers and
   evidence metadata remain outside readable memory.
 
@@ -93,7 +96,7 @@ never a truth store.
 - Use `promotion_decision=promote` only when evidence and the last turn are answered
   and contradictions/unfinished work are empty.
 - Use `promotion_decision=partial` when Answered durable candidates coexist with
-  unrelated unfinished work. Candidate verification and assimilation may proceed, but Dream must not run;
+  unrelated unfinished work, failed points, or unresolved targets. Candidate verification and assimilation may proceed, but Dream must not run;
   record the unfinished state as a scoped handoff.
 - Missing current repository proof is an answer-evidence route, not a zero-candidate
   justification. A detected signal may be downgraded only with a signal-specific reason.
@@ -127,6 +130,23 @@ Before any insert, compare the normalized point with current project truth.
 The absence of an exact text match is not sufficient proof that the knowledge
 is new.
 
+For correction, refinement, replacement, or deletion, resolve the user's
+ordinary-language title or content through ordinary current-project search.
+In `govern_memory`, pass `arguments.target_knowledge=[{title, statement, module}]`
+using the old title, old statement, and module from that search result. At least
+title or statement is required; module is an optional array of strings. The
+runtime resolves an exact unique match within the project. Supply the new
+statement separately; never use it to infer the old target. IDs remain compatible
+but are not needed by default: do not search for hidden IDs, guess or invent IDs,
+or ask users to supply, copy, or manage them.
+
+For `confirm`, the candidate may use the unchanged statement copied from ordinary
+search; the runtime can match it automatically without explicit `target_knowledge`
+or IDs. The match must still be unique. If any target is missing or ambiguous,
+preserve the existing text and explain what cannot be determined using readable
+titles or content. List that point as unfinished while submitting other
+independent verified durable points through the existing commit and readback gates.
+
 Use this comparison order: explicit temporal replacement (`replace`),
 incompatible current claims without proven order (`conflict`), semantic
 equivalence (`confirm`), compatible precision/completeness improvement
@@ -155,6 +175,10 @@ platform.
   promoted memory as `title + one verifiable fact + verification date/status`.
 - Keep session, job, candidate, memory, evidence, and source IDs out of readable
   memory prose.
+- Default replies use ordinary language for failures, without internal names
+  such as worker or requests for IDs. Show actual saved content separately from
+  unfinished points; partial saving is never all work completed. Do not describe
+  failed or unfinished work as having no long-term value.
 
 ## Review Outcomes
 

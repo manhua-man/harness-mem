@@ -179,6 +179,23 @@ local-machine state; adapter availability is installed-code state.
 
 Verification level:
 
+The unreleased working tree adds Cursor read-only SQLite history inspection
+alongside exported JSONL. `code/tests/test_cursor_sqlite_history.py` covers
+synthetic `cursorDiskKV` composer/bubble records, `workspace.json` ownership,
+project mismatch, corrupt/unknown layouts and consistent snapshots. This is
+fixture coverage, not support for every live Cursor database format or proof
+of a live Hook run. Unknown ownership remains outside manual selection.
+
+The working-tree `inspect_sessions` inventory, source paging and theme coverage
+are read-only. Manual fixed batches run in the current Agent independently of
+the background CLI and retain sources. These additions are not part of the
+published 0.9.28 artifacts.
+
+The following local-runtime observations are historical, not acceptance of
+current changes. On 2026-09-24 the selected Hermes CLI preflight failed with
+HTTP 400 for missing `x-opencode-session`; the complete background Hook did not
+start. That blocker remains separate from deterministic manual-flow fixtures.
+
 - Repository fixtures + project-isolation negative tests: Cursor, Claude Code,
   Grok, Codex, Hermes, OpenCode, Antigravity.
 - Local runtime evidence on this machine: Cursor, Claude Code, Grok, Codex CLI,

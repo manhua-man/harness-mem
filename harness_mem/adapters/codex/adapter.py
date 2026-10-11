@@ -296,6 +296,7 @@ class CodexAdapter:
             mtime_ns=stat_result.st_mtime_ns,
             sequence_count=len(turns),
             parser_version="codex-conversation-v2",
+            authored_user_texts=[str(turn["user"]) for turn in turns if turn["user"]],
         )
 
     async def ingest(

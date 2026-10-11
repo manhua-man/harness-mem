@@ -143,6 +143,7 @@ class TranscriptStore(Protocol):
         lease_owner: str,
         limit: int | None = 1,
         lease_seconds: int = 300,
+        execution_source: str = "interactive_agent",
     ) -> list[tuple[TranscriptChunk, DistillChunkCheckpoint]]: ...
 
     def checkpoint_distill_chunk(

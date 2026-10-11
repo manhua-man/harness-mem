@@ -59,6 +59,7 @@ PUBLIC_MCP_TOOL_NAMES = frozenset(
         "get_project_status",
         "get_project_profile",
         "search_raw",
+        "inspect_sessions",
         "prepare_session_distill",
         "submit_distill_chunk",
         "finalize_session_distill",
@@ -67,7 +68,6 @@ PUBLIC_MCP_TOOL_NAMES = frozenset(
         "govern_memory",
         "dream_ledger",
         "dream_run",
-        "dream_auto_tick",
         "record_context_outcome",
     }
 )
@@ -75,11 +75,46 @@ PUBLIC_MCP_TOOL_NAMES = frozenset(
 # Ordered map of tool name → schema. Order is the discovery order MCP
 # clients see; keep new tools at the bottom of their cluster (read /
 # ingest / review / suggest) to keep the registry scannable.
+_SESSION_REFERENCE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {name: {"type": "string"} for name in ("client", "session_id", "source_id", "source_revision", "reference_id")},
+    "required": ["client", "session_id", "source_id", "source_revision", "reference_id"],
+}
+
 _SCHEMAS: dict[str, _SchemaOnly] = {
+    "inspect_sessions": {
+        "description": "Read-only project session inventory, frozen batch progress, or complete revision source pages. Never imports, creates jobs, writes memory or triggers background work.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_root": {"type": "string", "description": "Absolute current project directory"},
+                "project_name": {"type": "string"},
+                "action": {"type": "string", "enum": ["inventory", "source", "overview"], "default": "inventory"},
+                "clients": {"type": "array", "items": {"type": "string", "enum": ["claude-code", "codex", "cursor", "grok", "hermes", "opencode", "antigravity"]}},
+                "session": _SESSION_REFERENCE_SCHEMA,
+                "offset": {"type": "integer", "minimum": 0, "default": 0},
+                "page_chars": {"type": "integer", "minimum": 1, "maximum": 200000, "default": 16000},
+                "batch_id": {"type": "string", "description": "Read progress of an existing frozen manual batch"},
+                "sessions": {"type": "array", "items": _SESSION_REFERENCE_SCHEMA, "description": "Fixed source scope for a read-only theme overview"},
+                "coverage": {"type": "array", "items": {"type": "object", "properties": {
+                    "reference_id": {"type": "string"}, "content_sha256": {"type": "string"},
+                    "offset": {"type": "integer", "minimum": 0}, "end": {"type": "integer", "minimum": 0},
+                }, "required": ["reference_id", "content_sha256", "offset", "end"]}, "description": "Ranges returned by source pages that the Agent completely read"},
+                "topics": {"type": "array", "items": {"type": "object", "properties": {
+                    "name": {"type": "string"}, "evidence": {"type": "array", "items": {"type": "object", "properties": {
+                        "reference_id": {"type": "string"}, "start": {"type": "integer", "minimum": 0}, "end": {"type": "integer", "minimum": 1},
+                    }, "required": ["reference_id", "start", "end"]}},
+                }, "required": ["name", "evidence"]}, "description": "Agent-proposed themes with source locations; multiple themes per session are allowed"},
+            },
+            "required": ["project_root"],
+        },
+    },
     "search_memory": {
         "description": (
             "Search current long-term memory for a project. The output contains "
-            "only readable titles and statements. Use search_raw when exact "
+            "only readable titles and statements. An empty project query lists "
+            "all current knowledge with natural modules for on-demand viewing. "
+            "Use search_raw when exact "
             "conversation evidence is needed."
         ),
         "input_schema": {
@@ -405,6 +440,10 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "description": "Run low-level transcript sync before building the packet (default: true)",
                     "default": True,
                 },
+                "batch_sessions": {"type": "array", "items": _SESSION_REFERENCE_SCHEMA, "minItems": 1,
+                                   "description": "Freeze explicit project session references from inspection for continuous manual processing; sources are retained"},
+                "batch_id": {"type": "string", "description": "Resume the next unresolved item in an existing manual batch"},
+                "retry_failures": {"type": "boolean", "default": False, "description": "Explicitly retry failed sources in an active batch; never resets a stopped batch"},
                 "distill_job_id": {
                     "type": "string",
                     "description": (
@@ -725,7 +764,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "with kind=knowledge, decision=confirm|reject, project_name, "
             "candidate_id, and an explicit disposition. To delete incorrect current "
             "knowledge, use action=decide with kind=knowledge, decision=delete, "
-            "project_name, and exactly one target_knowledge_ids value; omit candidate_id "
+            "project_name, and exactly one target_knowledge selection; omit candidate_id "
             "and knowledge_items. Use "
             "action=handoff. Replacement is a normal knowledge decision that "
             "deletes the old current row; it is not a separate history action. "
@@ -737,8 +776,18 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "may enter the truth layer. Distill suggestions must include an "
             "assimilation_disposition and assimilation_reason; add/refine/"
             "replace also require canonical_title and topic_path, while "
-            "confirm requires exactly one id in assimilation_target_ids; refine/replace may name "
-            "one or more current targets from the current knowledge view."
+            "confirm/refine/replace require an unambiguous current-memory selection. "
+            "Use target_knowledge=[{title, statement, module}] copied from ordinary "
+            "search; title or statement is required, module is optional. The runtime "
+            "resolves exact project-scoped matches, never fuzzy guesses. Confirm may "
+            "use its unchanged statement without an explicit selection. Internal IDs "
+            "remain compatible for existing callers but must not be requested from users. "
+            "An unresolved selection retains old memory and appears as unfinished work; "
+            "unrelated verified points can still be saved. For kind=memory, category, "
+            "content and source are required. EvidenceRef accepts kind, locator, "
+            "content_sha256, exchange_index, chunk_index and role, not source/job IDs. "
+            "Use evidence_basis=repository|user_statement|transcript. Handoff requires "
+            "project_name, task_id, summary, status and, for distill work, distill_job_id."
         ),
         "input_schema": {
             "type": "object",
@@ -755,6 +804,19 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "type": "object",
                     "description": "Action-specific arguments; project_name is required for project writes.",
                     "additionalProperties": True,
+                    "properties": {
+                        "target_knowledge": {
+                            "type": "array",
+                            "description": "Exact old memory text from ordinary search; no user-managed identifiers.",
+                            "items": {
+                                "type": "object",
+                                "properties": {"title": {"type": "string"}, "statement": {"type": "string"},
+                                               "module": {"type": "array", "items": {"type": "string"}}},
+                                "anyOf": [{"required": ["title"]}, {"required": ["statement"]}],
+                                "additionalProperties": False,
+                            },
+                        },
+                    },
                 },
             },
             "required": ["action", "arguments"],
@@ -843,26 +905,6 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             },
         },
     },
-    "dream_auto_tick": {
-        "description": (
-            "Run one host/client auto tick for dream. The tick only "
-            "enqueues a dream job when dream.auto.enabled and dream auto gates "
-            "allow it."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {
-                    "type": "string",
-                    "description": "Project name (defaults to the active project when omitted).",
-                },
-                "project_root": {
-                    "type": "string",
-                    "description": "Project directory used to load .harness-mem.toml (defaults to cwd).",
-                },
-            },
-        },
-    },
 }
 
 # Retired internal handler names. Keep this denylist so tests and serializers
@@ -870,6 +912,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
 # exported descriptors.
 INTERNAL_MCP_TOOL_NAMES = frozenset(
     {
+        "dream_auto_tick",
         "set_active_project",
         "ingest_sessions",
         # Former orchestration handlers are intentionally absent from the MCP
@@ -913,6 +956,7 @@ TOOL_CLUSTERS = {
     "wake": "core_read",
     # Advanced or lower-frequency read surfaces.
     "search_raw": "review_read",
+    "inspect_sessions": "review_read",
     "record_context_outcome": "advanced",
     # Candidate/truth loop.
     "prepare_session_distill": "truth_loop",
@@ -925,7 +969,6 @@ TOOL_CLUSTERS = {
     # whether a tool appears in the public MCP surface.
     "dream_ledger": "dream",
     "dream_run": "dream",
-    "dream_auto_tick": "dream",
 }
 
 

@@ -56,6 +56,47 @@
         "description": "Run low-level transcript sync before building the packet (default: true)",
         "default": true
       },
+      "batch_sessions": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "client": {
+              "type": "string"
+            },
+            "session_id": {
+              "type": "string"
+            },
+            "source_id": {
+              "type": "string"
+            },
+            "source_revision": {
+              "type": "string"
+            },
+            "reference_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "client",
+            "session_id",
+            "source_id",
+            "source_revision",
+            "reference_id"
+          ]
+        },
+        "minItems": 1,
+        "description": "Freeze explicit project session references from inspection for continuous manual processing; sources are retained"
+      },
+      "batch_id": {
+        "type": "string",
+        "description": "Resume the next unresolved item in an existing manual batch"
+      },
+      "retry_failures": {
+        "type": "boolean",
+        "default": false,
+        "description": "Explicitly retry failed sources in an active batch; never resets a stopped batch"
+      },
       "distill_job_id": {
         "type": "string",
         "description": "Optional active job id to claim exactly. Used by automatic maintenance so the selected job is processed deterministically."

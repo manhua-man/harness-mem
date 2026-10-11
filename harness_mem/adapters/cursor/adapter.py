@@ -19,6 +19,10 @@ from harness_mem.adapters.claude_code.project_profile_detector import (
 from harness_mem.adapters.protocol import Issue, SessionRecord
 from harness_mem.adapters.scan_scheduler import sync_sessions_fairly
 from harness_mem.adapters.snapshot import TranscriptSyncResult, persist_session_snapshot
+from harness_mem.adapters.cursor.sqlite_history import (
+    CursorSQLiteSource, enumerate_source_records, read_pinned_source,
+    discover_sqlite_databases, workspace_memberships,
+)
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.transcript_chunking import source_uri_from_path
@@ -35,8 +39,14 @@ class CursorAdapter:
         projects_dir: Path | None = None,
         *,
         project_root: Path | None = None,
+        sqlite_databases: tuple[Path, ...] | None = None,
     ) -> None:
         self.backend = backend
+        self.sqlite_databases = sqlite_databases
+        self._discover_native = projects_dir is None and sqlite_databases is None
+        self._sqlite_sources: dict[tuple[Path, str], CursorSQLiteSource] = {}
+        # A DB-only fixture override must not read the real JSONL home either.
+        self._read_jsonl = projects_dir is not None or sqlite_databases is None
         self.projects_dir = projects_dir or DEFAULT_PROJECTS_DIR
         self.project_root_text = str(project_root) if project_root is not None else None
         self.project_root = (
@@ -49,12 +59,12 @@ class CursorAdapter:
         self,
         project_name: str | None = None,
         *,
-        min_size_kb: int = 1,
+        min_size_kb: int = 0,
         limit: int | None = None,
         issues: list[Issue] | None = None,
     ) -> list[SessionRecord]:
         del project_name
-        if not self.projects_dir.exists():
+        if self._read_jsonl and not self.projects_dir.exists():
             self._append_issue(
                 issues,
                 level="warning",
@@ -62,9 +72,10 @@ class CursorAdapter:
                 message=f"Cursor projects directory does not exist: {self.projects_dir}",
                 path=self.projects_dir,
             )
-            return []
-
-        project_dirs = self._matching_project_dirs(issues=issues)
+        project_dirs = (
+            self._matching_project_dirs(issues=issues)
+            if self._read_jsonl and self.projects_dir.exists() else []
+        )
         sessions: list[SessionRecord] = []
         for project_dir in project_dirs:
             transcript_dir = project_dir / "agent-transcripts"
@@ -74,10 +85,39 @@ class CursorAdapter:
                 transcript_dir,
                 min_size_kb=min_size_kb,
                 pattern="*/*.jsonl",
+                issues=issues,
             ):
                 session["cursor_project_dir"] = str(project_dir)
                 sessions.append(session)
 
+        self._sqlite_sources = {}
+        seen: set[tuple[Path, str, bytes]] = set()
+        databases = discover_sqlite_databases() if self._discover_native else (self.sqlite_databases or ())
+        databases = tuple(path.absolute() for path in databases)
+        memberships = workspace_memberships(databases)
+        for database in databases:
+            for source in enumerate_source_records(
+                database, project_root=self.project_root, issues=issues,
+                memberships=(memberships.get(database.parent.parent, {})
+                             if database.parent.name == "globalStorage" else None),
+            ):
+                identity = (source.owner or source.database, source.session_id, source.raw_bytes)
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                self._sqlite_sources[(source.database, source.session_id)] = source
+                if len(source.raw_bytes) < min_size_kb * 1024:
+                    continue
+                sessions.append({
+                    "path": source.database, "name": source.session_id,
+                    "session_id": source.session_id, "source_kind": "cursor_sqlite",
+                    "source_status": "readable",
+                    **({"cwd": str(source.owner)} if source.owner is not None else {}),
+                    "size_bytes": len(source.raw_bytes),
+                    "size_kb": len(source.raw_bytes) / 1024,
+                    "mtime_ns": source.mtime_ns,
+                    "mtime": datetime.fromtimestamp(source.mtime_ns / 1e9, tz=timezone.utc),
+                })
         ordered = sorted(sessions, key=self._session_sort_key, reverse=True)
         if limit is not None:
             return ordered[:limit]
@@ -91,6 +131,11 @@ class CursorAdapter:
         *,
         issues: list[Issue] | None = None,
     ) -> Observation:
+        source = self._sqlite_sources.get((session_path.absolute(), session_id))
+        if source is not None:
+            return self._sqlite_observation(source, project_name)
+        if session_path.suffix.lower() != ".jsonl":
+            raise ValueError("Cursor SQLite source not pinned; enumerate before reading")
         turns = parse_cursor_jsonl_session(
             session_path,
             issues=issues,
@@ -144,6 +189,11 @@ class CursorAdapter:
             raise RuntimeError(
                 "CursorAdapter.sync_session requires an initialized backend"
             )
+        source = self._sqlite_sources.get((session_path.absolute(), session_id))
+        if source is not None:
+            return await self.sync_sqlite_source(source, project_name)
+        if session_path.suffix.lower() != ".jsonl":
+            raise ValueError("Cursor SQLite source not pinned; enumerate before syncing")
         native_bytes = session_path.read_bytes()
         source_text = native_bytes.decode("utf-8-sig", errors="replace")
         observation = self.session_to_observation(
@@ -169,11 +219,70 @@ class CursorAdapter:
             parser_version="cursor-jsonl-v1",
         )
 
+    @staticmethod
+    def _sqlite_observation(
+        source: CursorSQLiteSource, project_name: str | None,
+    ) -> Observation:
+        return Observation(
+            id=str(uuid4()), session_id=source.session_id, client="cursor",
+            raw_content=read_pinned_source(source).decode("utf-8"),
+            content_type="transcript",
+            timestamp=datetime.fromtimestamp(source.mtime_ns / 1e9, tz=timezone.utc),
+            metadata={"project_name": project_name, "project_root": str(source.owner)},
+            tags=["session", "cursor"],
+        )
+
+    def read_session_source(self, path: Path, session_id: str) -> dict[str, Any]:
+        """Read listed SQLite bytes pinned at enumeration, or exact JSONL bytes.
+
+        Native DB reads require list_sessions on this instance first. Unknown
+        ownership is [] and never inferred from a basename, slug, or message.
+        JSONL ownership is left to the main thread's structured metadata reader.
+        """
+        source = self._sqlite_sources.get((path.absolute(), session_id))
+        if source is not None:
+            raw = read_pinned_source(source)
+            return {
+                "raw_bytes": raw, "source_text": raw.decode("utf-8"),
+                "source_uri": source.source_uri,
+                "project_roots": [str(source.owner)] if source.owner is not None else [],
+                "source_kind": "cursor_sqlite", "parser_version": "cursor-sqlite-v1",
+                "readability": source.readability,
+            }
+        if path.suffix.lower() != ".jsonl":
+            raise ValueError("Cursor SQLite source not pinned; enumerate before reading")
+        raw = path.read_bytes()
+        return {
+            "raw_bytes": raw, "source_text": raw.decode("utf-8-sig", errors="strict"),
+            "source_uri": source_uri_from_path(path), "project_roots": [],
+            "source_kind": "jsonl", "parser_version": "cursor-jsonl-v1",
+        }
+
+    async def sync_sqlite_source(
+        self, source: CursorSQLiteSource, project_name: str,
+    ) -> TranscriptSyncResult:
+        """Persist an explicitly selected pinned record through the shared gate."""
+        if self.backend is None:
+            raise RuntimeError("Cursor SQLite sync requires an initialized backend")
+        if source.owner is None:
+            raise ValueError("Cursor SQLite project ownership unknown")
+        if self.project_root is not None and source.owner != self.project_root.resolve():
+            raise ValueError("Cursor SQLite project ownership mismatch")
+        raw = read_pinned_source(source)
+        return await persist_session_snapshot(
+            self.backend, self._sqlite_observation(source, project_name),
+            project_name=project_name, project_root=str(source.owner), client="cursor",
+            session_id=source.session_id, source_kind="cursor_sqlite",
+            source_uri=source.source_uri, source_text=raw.decode("utf-8"), raw_bytes=raw,
+            mtime_ns=source.mtime_ns, sequence_count=source.record_count,
+            parser_version="cursor-sqlite-v1",
+        )
+
     async def ingest(
         self,
         project_name: str | None = None,
         limit: int | None = None,
-        min_size_kb: int = 1,
+        min_size_kb: int = 0,
     ) -> dict[str, Any]:
         warnings: list[Issue] = []
         sessions = self.list_sessions(

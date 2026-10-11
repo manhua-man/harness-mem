@@ -676,7 +676,8 @@ def test_govern_memory_delete_rejects_cross_project_and_missing_targets(
                 },
             )
             assert result["success"] is False
-            assert "not current project knowledge" in result["error"]
+            assert "不存在或不属于当前项目" in result["error"]
+            assert "原内容未改动" in result["error"]
 
         assert [entry.id for entry in _run(store.list_entries("demo"))] == [current.id]
     finally:
@@ -712,7 +713,7 @@ def test_govern_memory_delete_rejects_invalid_argument_shapes(
     )
 
     assert result["success"] is False
-    assert "exactly one target_knowledge_ids value" in result["error"]
+    assert "exactly one target_knowledge selection" in result["error"]
 
 
 def test_refine_assimilation_replays_after_predecessor_was_deleted(
@@ -1395,7 +1396,7 @@ def test_review_preflights_target_and_rejects_a_second_terminal_decision(
             )
         )
 
-        with pytest.raises(ValueError, match="target is not current"):
+        with pytest.raises(ValueError, match="不存在或不属于当前项目"):
             _run(
                 resolve_separated_review(
                     backend,

@@ -1,0 +1,185 @@
+{
+  "name": "inspect_sessions",
+  "description": "Read-only project session inventory, frozen batch progress, or complete revision source pages. Never imports, creates jobs, writes memory or triggers background work.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_root": {
+        "type": "string",
+        "description": "Absolute current project directory"
+      },
+      "project_name": {
+        "type": "string"
+      },
+      "action": {
+        "type": "string",
+        "enum": [
+          "inventory",
+          "source",
+          "overview"
+        ],
+        "default": "inventory"
+      },
+      "clients": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "claude-code",
+            "codex",
+            "cursor",
+            "grok",
+            "hermes",
+            "opencode",
+            "antigravity"
+          ]
+        }
+      },
+      "session": {
+        "type": "object",
+        "properties": {
+          "client": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "source_revision": {
+            "type": "string"
+          },
+          "reference_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "client",
+          "session_id",
+          "source_id",
+          "source_revision",
+          "reference_id"
+        ]
+      },
+      "offset": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 0
+      },
+      "page_chars": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 200000,
+        "default": 16000
+      },
+      "batch_id": {
+        "type": "string",
+        "description": "Read progress of an existing frozen manual batch"
+      },
+      "sessions": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "client": {
+              "type": "string"
+            },
+            "session_id": {
+              "type": "string"
+            },
+            "source_id": {
+              "type": "string"
+            },
+            "source_revision": {
+              "type": "string"
+            },
+            "reference_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "client",
+            "session_id",
+            "source_id",
+            "source_revision",
+            "reference_id"
+          ]
+        },
+        "description": "Fixed source scope for a read-only theme overview"
+      },
+      "coverage": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "reference_id": {
+              "type": "string"
+            },
+            "content_sha256": {
+              "type": "string"
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "end": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "reference_id",
+            "content_sha256",
+            "offset",
+            "end"
+          ]
+        },
+        "description": "Ranges returned by source pages that the Agent completely read"
+      },
+      "topics": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "reference_id": {
+                    "type": "string"
+                  },
+                  "start": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "end": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "required": [
+                  "reference_id",
+                  "start",
+                  "end"
+                ]
+              }
+            }
+          },
+          "required": [
+            "name",
+            "evidence"
+          ]
+        },
+        "description": "Agent-proposed themes with source locations; multiple themes per session are allowed"
+      }
+    },
+    "required": [
+      "project_root"
+    ]
+  }
+}

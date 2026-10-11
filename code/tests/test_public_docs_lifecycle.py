@@ -402,7 +402,16 @@ def test_active_docs_do_not_restore_legacy_distill_product_name() -> None:
     ]
 
     for path in paths:
-        assert legacy_name not in path.read_text(encoding="utf-8"), path
+        content = path.read_text(encoding="utf-8")
+        if path == Path("docs/roadmap.md"):
+            # The named upstream is provenance, not a restored product entry.
+            upstream = (
+                "[session-distill-skills]"
+                "(https://github.com/manhua-man/session-distill-skills)"
+            )
+            assert content.count(upstream) == 1
+            content = content.replace(upstream, "")
+        assert legacy_name not in content, path
 
 
 def test_active_governance_docs_use_single_public_write_surface() -> None:

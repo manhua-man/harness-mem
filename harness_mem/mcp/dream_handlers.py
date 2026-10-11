@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any
 
 from harness_mem.commands.dream import (
-    dream_auto_tick,
     dream_once,
     latest_dream_ledger,
 )
@@ -188,71 +187,4 @@ def tool_dream_run(
         "project_name": resolved,
         "run": run_payload,
         **_dream_run_summary(run_payload),
-    }
-
-
-def tool_dream_auto_tick(
-    project_name: str | None = None,
-    project_root: str | None = None,
-) -> dict:
-    """Host/client auto tick for v3.1 dream."""
-    resolved = _resolve_project_for_dream(project_name)
-    if not resolved:
-        return {
-            "success": False,
-            "error": "project_name is required when no active project is set",
-            **_dream_run_summary(None),
-        }
-    try:
-        root = _resolve_project_root_for_dream(resolved, project_root)
-        if root is None:
-            raise ConfigError(
-                f"project root is required for automatic Dream: {resolved}"
-            )
-        config = load_merged_config(root)
-    except ConfigError as exc:
-        return {"success": False, "error": str(exc), **_dream_run_summary(None)}
-    backend = _get_backend()
-    payload = asyncio.run(
-        dream_auto_tick(
-            backend,
-            project_name=resolved,
-            project_root=root,
-            config=config,
-            source="agent",
-        )
-    )
-    if payload.get("status") == "completed" and payload.get("summary"):
-        run_summary = {
-            "processed": int(payload["summary"].get("processed", 0) or 0),
-            "applied": int(payload["summary"].get("applied", 0) or 0),
-            "rejected": int(payload["summary"].get("rejected", 0) or 0),
-            "skipped": int(payload["summary"].get("skipped", 0) or 0),
-            "failed": int(payload["summary"].get("failed", 0) or 0),
-        }
-        return {
-            **payload,
-            **_maintenance_summary(
-                candidate_counts=run_summary,
-                risk_level="medium" if run_summary.get("processed", 0) else "none",
-                auto_applied=run_summary.get("applied", 0) > 0,
-                needs_human_review=run_summary.get("failed", 0) > 0,
-                message="Dream auto tick completed one dream run and wrote a ledger.",
-            ),
-        }
-    return {
-        **payload,
-        **_maintenance_summary(
-            candidate_counts={
-                "processed": 0,
-                "applied": 0,
-                "rejected": 0,
-                "skipped": 0,
-                "failed": 0,
-            },
-            risk_level="none",
-            auto_applied=False,
-            needs_human_review=False,
-            message=str(payload.get("reason") or "No dream maintenance ran."),
-        ),
     }

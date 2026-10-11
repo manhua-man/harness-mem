@@ -80,3 +80,45 @@ def test_session_note_translates_internal_memory_and_audit_terms() -> None:
     assert "安全性不明时停止操作" in note
     assert "待审记忆" in note
     assert "<!-- harness-mem audit:" in note
+
+
+def test_partial_note_uses_runtime_evidence_and_preserved_work() -> None:
+    job = SessionDistillJob(
+        id="partial-job", idempotency_key="partial-key", project_name="demo",
+        project_root="F:/demo", client="codex", session_id="partial-session",
+        source_id="partial-source", source_revision="sha256:" + "a" * 64,
+        status="completed", completion_disposition="deferred",
+        semantic_review={"session_summary": "Organized future audit preferences.",
+                         "final_outcome": "已验证全部内容。", "unfinished_work": []},
+        promotion_summary={"promoted": 0, "deferred": 1,
+                           "points": [{"disposition": "defer"}],
+                           "unfinished_work": ["继续验证未来审查必须逐项列出的偏好。"],
+                           "answer_packet": {"answer_status": "PARTIAL",
+                                             "core_conclusion": "证据不完整，本次未写入。"}},
+    )
+    note = render_session_note(job)
+    assert "已验证全部内容" not in note
+    assert "证据不完整，本次未写入。" in note
+    assert "继续验证未来审查必须逐项列出的偏好。" in note
+    assert "无需长期记忆" not in note
+    assert "## 未完成工作\n\n- 无。" not in note
+
+
+def test_rejected_point_does_not_invent_pending_work_beside_a_saved_point() -> None:
+    job = SessionDistillJob(
+        id="mixed-job", idempotency_key="mixed-key", project_name="demo",
+        project_root="F:/demo", client="codex", session_id="mixed-session",
+        source_id="mixed-source", source_revision="sha256:" + "a" * 64,
+        status="completed", completion_disposition="promoted",
+        semantic_review={"session_summary": "Organized saved and rejected facts.",
+                         "final_outcome": "Everything is verified.", "unfinished_work": []},
+        promotion_summary={"promoted": 1, "rejected": 1,
+                           "points": [{"disposition": "add"}, {"disposition": "reject"}],
+                           "answer_packet": {"answer_status": "PARTIAL",
+                                             "core_conclusion": "One fact was saved; the other was rejected."}},
+    )
+    note = render_session_note(job)
+    assert "Everything is verified." not in note
+    assert "- 结果：部分内容写入长期记忆" in note
+    assert "仍需处理" not in note
+    assert "## 未完成工作\n\n- 无。" in note

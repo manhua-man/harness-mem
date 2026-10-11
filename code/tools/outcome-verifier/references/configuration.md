@@ -47,10 +47,16 @@ Store the contract at `.codex/outcomes.json`. Paths and command working director
 - `check.cwd`: Optional path relative to project root.
 - `check.timeout_seconds`: Defaults to 60.
 - `check.required`: Defaults to `true`.
+- `check.depends_on`: Optional list of check IDs in the same claim. Dependencies
+  are evaluated first; if any dependency is not `passed`, this check is not
+  launched and is reported as `not_run` with `blocked_by`.
 - `check.expect.exit_code`: Defaults to `0`.
 - `check.expect.stdout_contains`: Required substring.
 - `check.expect.stdout_regex`: Required regular expression.
 - `check.expect.json`: Assertions against a JSON object printed on stdout.
+
+Dependencies must refer to checks in the same claim. Unknown IDs, duplicate
+IDs, self-dependencies, and dependency cycles make the contract invalid.
 
 JSON assertion paths use dots, for example `hooks.wake_verified`. Supported assertions are `equals`, `not_equals`, `gte`, `lte`, `contains`, `in`, `exists`, and `regex`. Multiple assertions on the same value are ANDed.
 
@@ -60,5 +66,8 @@ JSON assertion paths use dots, for example `hooks.wake_verified`. Supported asse
 - `partial`: Required claims passed, but an optional claim or optional check failed.
 - `failed`: A required probe ran and disproved its claim.
 - `blocked`: Required evidence could not be collected, timed out, or the contract is invalid.
+
+Check reports also distinguish `not_run` (a dependency prevented execution)
+from `blocked` (the check could not collect evidence after being launched).
 
 Exit codes are `0` for passed, `1` for partial or failed, and `2` for blocked or invalid configuration.

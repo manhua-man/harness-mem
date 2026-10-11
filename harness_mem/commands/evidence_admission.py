@@ -11,8 +11,18 @@ from typing import Any, Literal, Sequence
 from urllib.parse import parse_qs, unquote, urlparse
 from uuid import NAMESPACE_URL, uuid5
 
+from harness_mem.adapters.parser import (
+    _render_cursor_content_items,
+    extract_archived_text,
+    parse_codex_archive_jsonl_session,
+    sanitize_archived_user_text,
+)
 from harness_mem.core.schemas import EvidenceRef, KnowledgeSource
-from harness_mem.mcp.distill_projection import render_distill_exchange_windows
+from harness_mem.mcp.distill_projection import (
+    _parse_exchanges,
+    render_distill_exchange_windows,
+)
+from harness_mem.rust_core import scan_jsonl
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 _SAFE_REASON = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
@@ -662,6 +672,159 @@ def _query_int(query: dict[str, list[str]], name: str) -> int | None:
         return None
 
 
+def _frozen_user_exchange_indexes(
+    backend: LocalMemoryBackend,
+    *,
+    source_id: str,
+    source_revision: str,
+    rendering: str,
+    allow_legacy_explicit: bool = False,
+) -> set[int] | None:
+    """Bind rendered user slots to authors in the immutable source, in memory.
+
+    A structured source with injected role boundaries is ambiguous as a whole:
+    reject it rather than align fabricated exchanges by their text or count.
+    Legacy text cannot prove authors from role labels in its body.
+    An explicit caller-owned role
+    preserves the legacy contract for text/unsupported hosts, not an automatic
+    author proof. It never bypasses supported structured-source validation.
+    """
+    revision = backend.transcript_store.get_revision(source_id, source_revision)
+    if revision is None:
+        return None
+    try:
+        raw = backend.transcript_store.reconstruct_raw(
+            source_id, source_revision=source_revision,
+        )
+        text = raw.decode("utf-8-sig")
+    except (KeyError, ValueError, UnicodeError):
+        return None
+    if hashlib.sha256(raw).hexdigest() != revision.raw_sha256:
+        return None
+    _header, exchanges, _summary = _parse_exchanges(rendering)
+    rendered_user_indexes = {
+        index for index, exchange in enumerate(exchanges, 1) if exchange["user"]
+    }
+    structured = text.lstrip().startswith(("{", "[")) or (
+        revision.client in {"codex", "codex-archive", "cursor"}
+        and "jsonl" in revision.parser_version
+    )
+    if not structured:
+        # Codex deliberately captures permitted conversation, not host prompts
+        # or tool logs. Its adapter binds native user texts to this immutable
+        # rendering at capture time. Never infer authors from role labels alone.
+        if revision.client in {"codex", "codex-archive"} and revision.parser_version in {
+            "codex-conversation-v2", "codex-archive-conversation-v2",
+        }:
+            captured = revision.metadata.get("authored_user_text_sha256")
+            if captured is not None:
+                rendered_users = [user for exchange in exchanges for user in exchange["user"]]
+                if (
+                    not isinstance(captured, list)
+                    or any(not isinstance(digest, str) or not _SHA256.fullmatch(digest)
+                           for digest in captured)
+                    or revision.metadata.get("authored_rendering_sha256")
+                    != hashlib.sha256(rendering.encode("utf-8")).hexdigest()
+                    or captured != [hashlib.sha256(user.encode("utf-8")).hexdigest()
+                                    for user in rendered_users]
+                ):
+                    return None
+                return rendered_user_indexes
+        if allow_legacy_explicit:
+            return rendered_user_indexes
+        return None
+
+    if revision.client not in {"codex", "codex-archive", "cursor"}:
+        return rendered_user_indexes if allow_legacy_explicit else None
+    scanned = scan_jsonl(text)
+    if scanned.errors or not scanned.records:
+        return None
+    users: list[str] = []
+    for record in scanned.records:
+        payload = record.get("payload", record)
+        if not isinstance(payload, dict):
+            return None
+        message = payload.get("message", payload)
+        role_values = [record.get("role"), payload.get("role")]
+        if isinstance(message, dict):
+            role_values.append(message.get("role"))
+        if any(value is not None and not isinstance(value, str) for value in role_values):
+            return None
+        roles = {value for value in role_values if isinstance(value, str)}
+        record_type = record.get("type")
+        payload_type = payload.get("type")
+        if record_type is not None and not isinstance(record_type, str):
+            return None
+        if payload_type is not None and not isinstance(payload_type, str):
+            return None
+        if revision.client != "cursor":
+            event_role = None
+            if record_type == "event_msg" and isinstance(payload_type, str):
+                event_role = {
+                    "user_message": "user", "agent_message": "assistant",
+                }.get(payload_type)
+            if event_role:
+                roles.add(event_role)
+            elif record_type in {"user", "assistant", "tool"}:
+                roles.add(record_type)
+        if len(roles) > 1:
+            return None
+        if roles == {"user"}:
+            if revision.client == "cursor" and record.get("role") != "user":
+                return None
+            if revision.client != "cursor" and "payload" not in record and (
+                record_type != "user" and "content" not in record
+            ):
+                return None
+            if "payload" in record and not (
+                revision.client != "cursor" and (
+                    record_type == "response_item" and payload_type == "message"
+                    or record_type == "event_msg" and payload_type == "user_message"
+                )
+            ):
+                return None
+            content = message.get("content") if isinstance(message, dict) else message
+            if revision.client != "cursor" and isinstance(content, list) and any(
+                not isinstance(item, dict) or item.get("type") not in ("text", "input_text")
+                for item in content
+            ):
+                return None
+            user = (
+                _render_cursor_content_items(content)
+                if revision.client == "cursor"
+                else sanitize_archived_user_text(extract_archived_text(content))
+            )
+            if user:
+                users.append(user)
+            continue
+        # Inspect all non-user string leaves, including tool outputs/arguments.
+        # Use the exchange owner's parser so heading removal and passive tools
+        # cannot conceal a User boundary from this author check.
+        pending: list[Any] = [record]
+        while pending:
+            value = pending.pop()
+            if isinstance(value, dict):
+                pending.extend(value.values())
+            elif isinstance(value, list):
+                pending.extend(value)
+            elif isinstance(value, str):
+                _header, quoted, _summary = _parse_exchanges(f"Assistant: {value}")
+                if any(exchange["user"] for exchange in quoted):
+                    return set()
+    if revision.client != "cursor" and any(
+        record.get("type") in {"event_msg", "response_item"}
+        for record in scanned.records
+    ):
+        _metadata, turns = parse_codex_archive_jsonl_session(
+            Path("frozen.jsonl"), content=text,
+        )
+        users = [turn["user"] for turn in turns if turn["user"]]
+    rendered_users = [user for exchange in exchanges for user in exchange["user"]]
+    if users != rendered_users:
+        return None
+    return rendered_user_indexes
+
+
 async def _validate_user_statement_refs(
     backend: LocalMemoryBackend,
     candidate: Any,
@@ -677,11 +840,12 @@ async def _validate_user_statement_refs(
         or observation.metadata.get("source_revision") != job.source_revision
     ):
         return "unverified", ["user_statement_source_unavailable"]
+    author_indexes: dict[bool, set[int] | None] = {}
     for ref in refs:
         if (
             ref.exchange_index is None
             or not _SHA256.fullmatch(str(ref.content_sha256 or "").lower())
-            or ref.role != "user"
+            or ref.role not in {None, "user"}
         ):
             return "unverified", ["user_statement_ref_incomplete"]
         windows = render_distill_exchange_windows(
@@ -691,7 +855,17 @@ async def _validate_user_statement_refs(
         if not windows:
             return "unverified", ["user_statement_exchange_missing"]
         window = windows[0]
-        if "User:" not in str(window.get("content") or ""):
+        legacy_explicit = ref.role == "user"
+        if legacy_explicit not in author_indexes:
+            author_indexes[legacy_explicit] = _frozen_user_exchange_indexes(
+                backend, source_id=job.source_id, source_revision=job.source_revision,
+                rendering=observation.raw_content,
+                allow_legacy_explicit=legacy_explicit,
+            )
+        user_indexes = author_indexes[legacy_explicit]
+        if user_indexes is None:
+            return "unverified", ["user_statement_author_unavailable"]
+        if ref.exchange_index not in user_indexes:
             return "unverified", ["user_statement_role_mismatch"]
         if str(window.get("content_sha256") or "") != str(
             ref.content_sha256

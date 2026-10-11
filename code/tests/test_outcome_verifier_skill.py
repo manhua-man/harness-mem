@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 
 def _load_verifier() -> ModuleType:
     path = (
@@ -201,6 +203,214 @@ def test_verifier_keeps_selected_claim_behavior(tmp_path: Path) -> None:
 
     assert report["status"] == "passed"
     assert [claim["id"] for claim in report["claims"]] == ["selected"]
+
+
+def _json_probe(value: bool) -> list[str]:
+    return [
+        "{python}",
+        "-c",
+        f"import json; print(json.dumps({{'ok': {value!r}}}))",
+    ]
+
+
+def _dependency_contract(checks: list[dict]) -> dict:
+    return {
+        "schema_version": 1,
+        "project": "fixture",
+        "claims": [
+            {
+                "id": "runtime",
+                "description": "dependency-aware runtime",
+                "required": True,
+                "checks": checks,
+            }
+        ],
+    }
+
+
+def test_verifier_runs_passing_dependencies_before_dependents(tmp_path: Path) -> None:
+    verifier = _load_verifier()
+    report = verifier.verify(
+        _dependency_contract(
+            [
+                {
+                    "id": "model_preflight",
+                    "evidence_tier": "direct",
+                    "command": _json_probe(True),
+                    "expect": {"json": {"ok": {"equals": True}}},
+                },
+                {
+                    "id": "full_runtime",
+                    "evidence_tier": "direct",
+                    "depends_on": ["model_preflight"],
+                    "command": _json_probe(True),
+                    "expect": {"json": {"ok": {"equals": True}}},
+                },
+            ]
+        ),
+        tmp_path,
+        set(),
+    )
+
+    checks = report["claims"][0]["checks"]
+    assert report["status"] == "passed"
+    assert [check["status"] for check in checks] == ["passed", "passed"]
+    assert all(check["execution"] == "ran" for check in checks)
+
+
+def test_verifier_marks_dependents_not_run_after_failed_dependency(
+    tmp_path: Path,
+) -> None:
+    verifier = _load_verifier()
+    marker = tmp_path / "must-not-run"
+    report = verifier.verify(
+        _dependency_contract(
+            [
+                {
+                    "id": "model_preflight",
+                    "evidence_tier": "direct",
+                    "command": _json_probe(False),
+                    "expect": {"json": {"ok": {"equals": True}}},
+                },
+                {
+                    "id": "full_runtime",
+                    "evidence_tier": "direct",
+                    "depends_on": ["model_preflight"],
+                    "command": [
+                        "{python}",
+                        "-c",
+                        f"from pathlib import Path; Path({str(marker)!r}).write_text('ran')",
+                    ],
+                    "expect": {"exit_code": 0},
+                },
+            ]
+        ),
+        tmp_path,
+        set(),
+    )
+
+    checks = report["claims"][0]["checks"]
+    assert report["status"] == "blocked"
+    assert checks[0]["status"] == "failed"
+    assert checks[1]["status"] == "not_run"
+    assert checks[1]["execution"] == "not_run"
+    assert checks[1]["blocked_by"] == ["model_preflight"]
+    assert not marker.exists()
+
+
+def test_verifier_reports_blocked_dependency_without_launching_downstream(
+    tmp_path: Path,
+) -> None:
+    verifier = _load_verifier()
+    report = verifier.verify(
+        _dependency_contract(
+            [
+                {
+                    "id": "model_preflight",
+                    "evidence_tier": "direct",
+                    "command": ["executable-that-does-not-exist-for-verifier"],
+                    "expect": {"exit_code": 0},
+                },
+                {
+                    "id": "full_runtime",
+                    "evidence_tier": "direct",
+                    "depends_on": ["model_preflight"],
+                    "command": _json_probe(True),
+                    "expect": {"json": {"ok": {"equals": True}}},
+                },
+            ]
+        ),
+        tmp_path,
+        set(),
+    )
+
+    checks = report["claims"][0]["checks"]
+    assert report["status"] == "blocked"
+    assert checks[0]["status"] == "blocked"
+    assert checks[1]["status"] == "not_run"
+
+
+def test_verifier_dependency_contract_rejects_unknown_duplicate_and_cycle(
+    tmp_path: Path,
+) -> None:
+    verifier = _load_verifier()
+    cases = [
+        [
+            {
+                "id": "a",
+                "evidence_tier": "direct",
+                "depends_on": ["missing"],
+                "command": _json_probe(True),
+            }
+        ],
+        [
+            {
+                "id": "a",
+                "evidence_tier": "direct",
+                "depends_on": ["b"],
+                "command": _json_probe(True),
+            },
+            {
+                "id": "b",
+                "evidence_tier": "direct",
+                "depends_on": ["a"],
+                "command": _json_probe(True),
+            },
+        ],
+        [
+            {
+                "id": "a",
+                "evidence_tier": "direct",
+                "command": _json_probe(True),
+            },
+            {
+                "id": "a",
+                "evidence_tier": "direct",
+                "command": _json_probe(True),
+            },
+        ],
+    ]
+    for checks in cases:
+        path = tmp_path / f"contract-{len(list(tmp_path.iterdir()))}.json"
+        path.write_text(
+            json.dumps(_dependency_contract(checks)),
+            encoding="utf-8",
+        )
+        with pytest.raises(verifier.ContractError):
+            verifier._load_contract(path)
+
+
+def test_verifier_cache_reuses_execution_but_evaluates_each_check(
+    tmp_path: Path,
+) -> None:
+    verifier = _load_verifier()
+    command = _json_probe(True)
+    report = verifier.verify(
+        _dependency_contract(
+            [
+                {
+                    "id": "expect_true",
+                    "evidence_tier": "direct",
+                    "command": command,
+                    "expect": {"json": {"ok": {"equals": True}}},
+                },
+                {
+                    "id": "expect_false",
+                    "evidence_tier": "direct",
+                    "command": command,
+                    "expect": {"json": {"ok": {"equals": False}}},
+                },
+            ]
+        ),
+        tmp_path,
+        set(),
+    )
+
+    checks = report["claims"][0]["checks"]
+    assert report["status"] == "failed"
+    assert checks[0]["status"] == "passed"
+    assert checks[1]["status"] == "failed"
+    assert checks[0]["started_at"] == checks[1]["started_at"]
 
 
 def test_second_process_fails_closed_without_overwriting_active_report(

@@ -25,7 +25,10 @@ def test_hm_default_summary_is_concise() -> None:
     assert "autopilot_search_tick" in text
     assert "普通聊天不查" in text
     assert "不自行增加批次、每日数量或单条长度限制" in text
-    assert "处理多场会话时，不默认报会话总数" in text
+    assert "多场处理中可简短说明已完成和剩余数量" in text
+    assert "最终默认只报实际知识变化与未写入原因" in text
+    assert "批次保留原文与摘要，不附带清理" in text
+    assert "batch_id" in text and "inspect_sessions" in text
     assert "会话 → 结论 → 证据" in text
     assert (
         "get_project_status(project_root=<当前工作区的绝对路径>, "

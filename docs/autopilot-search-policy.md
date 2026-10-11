@@ -4,6 +4,13 @@ The user has one daily entry: `$hm` in Codex and `/hm` in the other supported
 hosts. They can say “remember this session”, “find how we did this before”, or
 “this memory is wrong”. The Agent maps that request to the existing runtime;
 users do not need to choose `wake`, `search`, `distill`, `review`, or `dream`.
+Current-knowledge search uses deterministic text matching. Unsegmented Chinese
+questions also match overlapping two-character terms after removing common
+question wording; full keywords rank first. This is not synonym or semantic
+search. The Agent should extract topic words and reformulate an empty query
+before claiming no relevant memory exists. A question containing only generic
+wording must not return the entire knowledge library; an explicit empty query
+remains the way to read all current project knowledge.
 Those internal capabilities do not replace the functional architecture:
 
 ```text
@@ -85,10 +92,17 @@ in ordinary language.
 
 - `decision`: whether search should run, the trigger, bounded query, and skip
   reason when search is not warranted.
-- `search`: the normal `search_memory` payload when search runs.
-- `context_injection`: source ids, `answer_ready_context`, `context_plan`,
-  supporting evidence, drilldown hints, and a suggested
-  `record_context_outcome` call for later feedback.
+- `context_injection`: one copy of readable `memories`, search `status`, target,
+  query, source ids, retrieval id, and a suggested `record_context_outcome` call.
+  Feedback references remain available to the Agent; they are not user-facing memory text.
+- Skipped events retain the decision reason and a null injection. Missing project
+  or unavailable memory returns `success=false`, an actionable error and no injection;
+  an empty successful search remains `status=empty`.
+
+Consumers should read `context_injection.memories`. The duplicate `search`,
+`answer_ready_context`, `context_plan`, empty evidence/hint lists and repeated
+instruction blocks are no longer returned by this scheduler. Exact-source tools
+and ordinary `search_memory` are unchanged.
 
 The tool maps agent scheduling events rather than IDE names:
 

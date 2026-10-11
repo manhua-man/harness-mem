@@ -167,10 +167,18 @@ def test_mcp_autopilot_tick_executes_search_on_tool_failure(backend) -> None:
     assert payload["success"] is True
     assert payload["search_executed"] is True
     assert payload["decision"]["trigger"] == "tool_failure"
-    assert payload["search"]["memory_count"] == 1
+    assert len(payload["context_injection"]["memories"]) == 1
+    assert "search" not in payload
+    assert str(payload).count(entry.statement) == 1
     assert "obsolete pytest timeout instruction" not in str(payload)
     assert payload["context_injection"]["target"] == "next_context"
     assert payload["context_injection"]["record_outcome_call"]["tool"] == "record_context_outcome"
+    feedback = payload["context_injection"]["record_outcome_call"]["arguments"]
+    assert feedback["source_ids"] == [entry.id]
+    assert feedback["retrieval_id"] == payload["context_injection"]["retrieval_id"]
+    assert feedback["surface"] == "search_memory"
+    recorded = server.tool_record_context_outcome(**feedback, outcome="used")
+    assert recorded["success"] is True
 
 
 def test_mcp_autopilot_tick_skips_session_start_even_with_recall_words(backend) -> None:
@@ -184,3 +192,58 @@ def test_mcp_autopilot_tick_skips_session_start_even_with_recall_words(backend) 
     assert payload["search_executed"] is False
     assert payload["decision"]["trigger"] is None
     assert "wake" in payload["decision"]["reason"]
+    assert payload["context_injection"] is None
+    assert "why_this_result" not in payload
+
+
+def test_autopilot_empty_search_is_not_an_error(backend) -> None:
+    payload = server.tool_autopilot_search_tick(
+        event_name="tool_result", project_name="demo", is_error=True,
+        tool_name="pytest", tool_result="TimeoutError",
+    )
+    assert payload["success"] is True
+    assert payload["context_injection"]["status"] == "empty"
+    assert payload["context_injection"]["memories"] == []
+    assert payload["context_injection"]["record_outcome_call"] is None
+
+
+def test_autopilot_search_unavailable_is_not_success(monkeypatch) -> None:
+    from harness_mem.mcp import read_search_handlers
+
+    monkeypatch.setattr(read_search_handlers, "tool_search_memory", lambda **_: {
+        "status": "unavailable", "reason": "Current memory is unavailable", "memories": [],
+    })
+    payload = read_search_handlers.tool_autopilot_search_tick(
+        event_name="tool_result", project_name="demo", is_error=True,
+        tool_name="pytest", tool_result="TimeoutError",
+    )
+    assert payload["success"] is False
+    assert payload["search_executed"] is True
+    assert payload["context_injection"] is None
+    assert payload["error"] == "Current memory is unavailable"
+
+    monkeypatch.setattr(read_search_handlers, "tool_search_memory", lambda **_: {
+        "status": "empty", "memories": [],
+    })
+    recovered = read_search_handlers.tool_autopilot_search_tick(
+        event_name="tool_result", project_name="demo", is_error=True,
+        tool_name="pytest", tool_result="TimeoutError",
+    )
+    assert recovered["success"] is True
+    assert recovered["context_injection"]["status"] == "empty"
+
+
+def test_autopilot_missing_project_does_not_search(monkeypatch) -> None:
+    from harness_mem.mcp import read_search_handlers
+
+    monkeypatch.setattr(read_search_handlers, "get_active_project", lambda: None)
+    def unexpected_search(**kwargs):
+        pytest.fail("Missing project must not execute search")
+    monkeypatch.setattr(read_search_handlers, "tool_search_memory", unexpected_search)
+    payload = read_search_handlers.tool_autopilot_search_tick(
+        event_name="tool_result", is_error=True,
+        tool_name="pytest", tool_result="TimeoutError",
+    )
+    assert payload["success"] is False
+    assert payload["search_executed"] is False
+    assert "pass project_name" in payload["error"]

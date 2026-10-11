@@ -25,6 +25,63 @@ from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 
 
+class KnowledgeTargetError(ValueError):
+    """A readable current-memory selection cannot be resolved safely."""
+
+
+def normalize_knowledge_targets(values: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Use the same title, statement and module fields as normal search."""
+    targets: list[dict[str, Any]] = []
+    for value in values:
+        if not isinstance(value, Mapping) or set(value) - {"title", "statement", "module"}:
+            raise KnowledgeTargetError("请用旧记忆的标题、内容和可选分类说明要改哪条。")
+        target: dict[str, Any] = {}
+        for key in ("title", "statement"):
+            if key in value:
+                if not isinstance(value[key], str) or not value[key].strip():
+                    raise KnowledgeTargetError("要修改的旧记忆描述不能为空。")
+                target[key] = " ".join(value[key].split())
+        if not target:
+            raise KnowledgeTargetError("请说明要修改的旧记忆标题或内容。")
+        if "module" in value:
+            module = value["module"]
+            if not isinstance(module, list) or any(not isinstance(part, str) or not part.strip() for part in module):
+                raise KnowledgeTargetError("旧记忆的分类应使用搜索结果中的分类文字。")
+            target["module"] = [part.strip() for part in module]
+        targets.append(target)
+    return targets
+
+
+async def resolve_knowledge_targets(
+    store: Any, *, project_name: str,
+    target_knowledge: Sequence[Mapping[str, Any]] = (),
+    target_ids: Sequence[str] = (),
+) -> list[str]:
+    """Resolve exact readable selections inside one project, never guess IDs."""
+    references = normalize_knowledge_targets(target_knowledge)
+    ids = [str(value).strip() for value in target_ids]
+    if references and ids:
+        raise KnowledgeTargetError("请只用一种方式指定要修改的旧记忆。")
+    entries = await store.list_entries(project_name)
+    current_ids = {entry.id for entry in entries}
+    if ids:
+        if len(ids) != len(set(ids)) or any(not value or value not in current_ids for value in ids):
+            raise KnowledgeTargetError("要修改的旧记忆已不存在或不属于当前项目，原内容未改动。")
+        return ids
+    resolved: list[str] = []
+    for reference in references:
+        matches = [entry for entry in entries if all(
+            " ".join(getattr(entry, key).split()).casefold() == reference[key].casefold()
+            for key in ("title", "statement") if key in reference
+        ) and ("module" not in reference or entry.module_path == reference["module"])]
+        if not matches:
+            raise KnowledgeTargetError("没有找到这条旧记忆，原内容未改动；请核对标题或内容。")
+        if len(matches) != 1 or matches[0].id in resolved:
+            raise KnowledgeTargetError("有多条记忆符合这个描述，原内容未改动；请补充旧内容或分类。")
+        resolved.append(matches[0].id)
+    return resolved
+
+
 async def record_assimilation_result(
     backend: LocalMemoryBackend,
     *,
@@ -399,6 +456,7 @@ async def resolve_separated_review(
     reason: str,
     knowledge_items: Sequence[Mapping[str, Any]] = (),
     target_knowledge_ids: Sequence[str] = (),
+    target_knowledge: Sequence[Mapping[str, Any]] = (),
     project_root: str | Path | None = None,
     expected_project_name: str | None = None,
 ) -> dict[str, Any]:
@@ -466,6 +524,10 @@ async def resolve_separated_review(
         raise ValueError(
             "knowledge review truth write requires canonical knowledge items"
         )
+    target_knowledge_ids = await resolve_knowledge_targets(
+        store, project_name=candidate.project_name,
+        target_ids=target_knowledge_ids, target_knowledge=target_knowledge,
+    )
     if disposition in {"refine", "replace"} and not target_knowledge_ids:
         raise ValueError(f"{disposition} requires at least one current knowledge target")
     if disposition == "confirm" and len(target_knowledge_ids) != 1:
@@ -527,19 +589,23 @@ async def delete_current_knowledge(
     backend: LocalMemoryBackend,
     *,
     project_name: str,
-    target_knowledge_ids: Sequence[str],
+    target_knowledge_ids: Sequence[str] = (),
+    target_knowledge: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     """Delete exactly one current project-knowledge entry."""
 
     normalized_project = str(project_name).strip()
-    targets = [str(value).strip() for value in target_knowledge_ids]
     if not normalized_project:
         raise ValueError("knowledge delete requires project_name")
+    store = backend.structured_store.knowledge_store
+    targets = await resolve_knowledge_targets(
+        store, project_name=normalized_project,
+        target_ids=target_knowledge_ids, target_knowledge=target_knowledge,
+    )
     if len(targets) != 1 or not targets[0]:
         raise ValueError("knowledge delete requires exactly one target knowledge id")
 
     entry_id = targets[0]
-    store = backend.structured_store.knowledge_store
     current = await store.get_entry(
         entry_id,
         project_name=normalized_project,

@@ -174,7 +174,12 @@ Historical operator snapshot (2026-08-12; not a current throughput claim):
 The versioned 0.9.10 canvases remain historical snapshots; the unversioned v1
 panel carries the current source evidence.
 
-The public MCP contract currently contains 20 tools. The former low-level
+The released 0.9.28 MCP contract contains 20 tools. The unreleased development
+tree also contains 20: the previous 19 plus `inspect_sessions`. Automatic
+`dream_auto_tick` scheduling is internal, while explicit run and ledger tools
+remain public. Published 0.9.28 includes `dream_auto_tick`, not `inspect_sessions`;
+the release evidence above does not validate the changed tool set.
+The former low-level
 suggest/confirm/reject schemas and
 registry entries are retired; their private implementations remain behind
 `govern_memory` in `mcp/governance_handlers.py`. Read/status/dream/distill

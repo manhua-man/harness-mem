@@ -758,6 +758,36 @@ def parse_codex_archive_jsonl_session(
                 session_meta["start_timestamp"] = payload.get("timestamp") or session_meta["start_timestamp"]
                 continue
 
+            role_values = [record.get("role"), payload.get("role")]
+            nested_message = payload.get("message")
+            if isinstance(nested_message, dict):
+                role_values.append(nested_message.get("role"))
+            declared_roles = {value for value in role_values if isinstance(value, str)}
+            if top_level_type in {"user", "assistant", "tool"}:
+                declared_roles.add(top_level_type)
+            if top_level_type == "event_msg":
+                event_role = {"user_message": "user", "agent_message": "assistant"}.get(
+                    str(payload.get("type") or ""),
+                )
+                if event_role:
+                    declared_roles.add(event_role)
+            invalid_author = len(declared_roles) > 1 or any(
+                value is not None and not isinstance(value, str) for value in role_values
+            )
+            if declared_roles == {"user"}:
+                content_items = payload.get("content")
+                if isinstance(content_items, list):
+                    invalid_author |= any(
+                        not isinstance(item, dict) or item.get("type") not in {"text", "input_text"}
+                        for item in content_items
+                    )
+                if top_level_type == "event_msg":
+                    invalid_author |= not isinstance(payload.get("message"), str)
+            if invalid_author:
+                _append_issue(issues, level="error", code="author_conflict",
+                              message="Conflicting or malformed native message authorship", path=session_path)
+                continue
+
             # Every event-carrying record should have a turn_id
             turn_id = payload.get("turn_id")
             turn = _ensure_turn(turn_id)
@@ -846,8 +876,9 @@ def render_codex_conversation(turns: list[Turn]) -> str:
 def list_session_files(
     directory: Path,
     *,
-    min_size_kb: int = 100,
+    min_size_kb: int = 0,
     pattern: str = "*.jsonl",
+    issues: list[Issue] | None = None,
 ) -> list[SessionRecord]:
     """List session files in *directory*, sorted by modification time (newest first).
 
@@ -863,23 +894,46 @@ def list_session_files(
 
     sessions: list[SessionRecord] = []
     for session_file in sorted(directory.glob(pattern)):
-        size_kb = session_file.stat().st_size / 1024
-        if size_kb >= min_size_kb:
+        try:
+            stat = session_file.stat()
+        except OSError:
+            _append_issue(
+                issues, level="error", code="session_stat_failed",
+                message="Unable to inspect session file; source retained.",
+                path=session_file,
+            )
             sessions.append({
+                "path": session_file, "name": session_file.name,
+                "session_id": session_file.stem, "source_status": "unreadable",
+            })
+            continue
+        size_kb = stat.st_size / 1024
+        if size_kb >= min_size_kb:
+            session: SessionRecord = {
                 "path": session_file,
                 "name": session_file.name,
                 "session_id": session_file.stem,
                 "size_kb": size_kb,
                 "size": f"{size_kb:.1f}KB",
-                "lines": len(
-                    session_file.read_text(
-                        encoding="utf-8-sig", errors="replace"
-                    ).splitlines()
-                ),
                 "mtime": datetime.fromtimestamp(
-                    session_file.stat().st_mtime, tz=UTC
+                    stat.st_mtime, tz=UTC
                 ),
-            })
+            }
+            try:
+                content = session_file.read_text(encoding="utf-8-sig", errors="strict")
+            except (OSError, UnicodeError):
+                session["source_status"] = "unreadable"
+                _append_issue(
+                    issues, level="error", code="session_read_failed",
+                    message="Unable to read session text; source retained.",
+                    path=session_file,
+                )
+            else:
+                session["lines"] = len(content.splitlines())
+                # This is source readability, not semantic draft classification.
+                # Unknown or malformed nonempty JSON must never count as empty.
+                session["source_status"] = "readable" if content.strip() else "empty_source"
+            sessions.append(session)
     return sorted(sessions, key=session_sort_key, reverse=True)
 
 

@@ -9,7 +9,10 @@ from harness_mem.qualification.clean_retrieval_outcome_probe import (
 
 
 def test_clean_retrieval_outcome_probe() -> None:
-    assert run_clean_retrieval_outcome_probe()["verified"] is True
+    result = run_clean_retrieval_outcome_probe()
+    assert result["verified"] is True
+    assert result["chinese_question_retrievable"] is True
+    assert result["unrelated_chinese_question_empty"] is True
 
 
 def test_clean_retrieval_outcome_probe_emits_json_on_stdout() -> None:

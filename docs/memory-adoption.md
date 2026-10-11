@@ -43,6 +43,35 @@ deliberately different responsibilities:
 - retrieval/use exposes current project knowledge from SQLite to future tasks
   and records bounded outcome feedback.
 
+## Read-only inspection and manual scope (unreleased)
+
+The working tree adds `inspect_sessions` to the previous 19 public tools for a
+20-tool surface; `dream_auto_tick` remains internal. This differs from the
+published 0.9.28 tool set even though its count is also 20.
+
+Inventory reports ownership, readability and processing separately. Complete
+source paging exposes only the permitted, project-scoped revision under capture
+policy; it does not import, create jobs, mutate knowledge or invoke a model.
+Theme overview validates submitted page digests and coverage ranges, permits
+multiple Agent-proposed themes and unclassified sessions, and reports partial
+coverage honestly. It is navigation assistance, not proof of knowledge value.
+
+`prepare_session_distill` accepts `batch_sessions` for a frozen manual selection
+and `batch_id` for resume. The temporary manifest pins project/root, source
+revisions, runtime fingerprint and prior-completed references alongside job
+bindings and unresolved failures. It is not a second knowledge store or a
+history of knowledge. Explicit `retry_failures=true` clears failures only for
+an active batch; a stopped batch cannot automatically resume.
+
+The current Agent performs extraction and judgment through the existing chunk
+and finalize flow, independently of background CLI availability or authorization.
+Completion reports require current-knowledge and readback evidence; prior work
+is not attributed to this run. Fixed batch processing retains sources and does
+not authorize deletion. Cursor SQLite inspection has isolated fixture coverage
+for supported layouts, not a guarantee for all live databases. The original 12
+outcome contracts now include `manual_session_batch` as the thirteenth probe in the working tree;
+neither adding it nor passing fixtures establishes real background Hook success.
+
 ## Module operating contract
 
 The five sections below are the single authoritative contract. Each names its
@@ -163,6 +192,21 @@ The runtime keeps three judgments distinct:
 `NOT_APPLICABLE` never acts as a hidden promotable state. A supported durable
 user preference is `ANSWERED` on authentic user-statement evidence; otherwise
 the point does not proceed to durable assimilation.
+
+The reference's author field may be omitted when the frozen source can establish
+the actual author. Automatic proof currently covers supported Codex/Cursor
+structured sources and binds their native user messages to the cited windows.
+Injected role delimiters make that source ambiguous and block automatic proof;
+this conservative rejection applies to the whole source. Other hosts and legacy
+text retain the explicit-role compatibility path, not native author proof.
+Omitted roles in unsupported/ambiguous sources never default to user evidence;
+explicit incompatible roles and digest/source failures still block admission.
+Agent-reported verification is not authoritative for Note or
+completion prose: runtime evidence and persisted job-bound handoffs determine
+unresolved work in single-session and batch results.
+An `ANSWERED` point with `no_write` or confirmation does not imply a new write.
+Already-completed selections are excluded from a new batch's knowledge-change
+totals, but their unresolved handoffs remain visible within the selected scope.
 
 An unfinished task envelope is not a project policy. When the only source is a
 user request structured as fields such as `Goal`/`Read`/`Write`/`Acceptance`

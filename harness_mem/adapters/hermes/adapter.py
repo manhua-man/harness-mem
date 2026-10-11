@@ -70,7 +70,7 @@ class HermesAdapter:
         self,
         project_name: str | None = None,
         *,
-        min_size_kb: int = 1,
+        min_size_kb: int = 0,
         limit: int | None = None,
         issues: list[Issue] | None = None,
     ) -> list[SessionRecord]:
@@ -222,7 +222,7 @@ class HermesAdapter:
         self,
         project_name: str | None = None,
         limit: int | None = None,
-        min_size_kb: int = 1,
+        min_size_kb: int = 0,
     ) -> dict[str, Any]:
         warnings: list[Issue] = []
         all_sessions = self._all_session_records(

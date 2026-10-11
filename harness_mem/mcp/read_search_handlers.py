@@ -8,11 +8,10 @@ from typing import Any
 
 from harness_mem.commands.support import get_active_project
 from harness_mem.autopilot_search import plan_autopilot_search
-from harness_mem.read_knowledge import search_current_knowledge
+from harness_mem.read_knowledge import list_current_knowledge, search_current_knowledge
 
 from .handler_facade_proxy import tool_handlers_facade as _core
 from harness_mem.mcp.read_query_support import (
-    _autopilot_dx_metadata,
     _new_retrieval_id,
     _record_search_quality_signals,
 )
@@ -54,6 +53,8 @@ def tool_search_memory(
                     project_name=project_name,
                     query=query,
                 )
+                if query.strip()
+                else list_current_knowledge(backend, project_name=project_name)
             )
         except ValueError as error:
             return {
@@ -76,7 +77,9 @@ def tool_search_memory(
                 retrieval_id=retrieval_id,
             )
         )
-        memories = project_memory_entries(entries)
+        # An explicit blank project query means "show current knowledge".
+        # Keep one projection; normal searches still return title/statement.
+        memories = project_memory_entries(entries, include_modules=not query.strip())
         payload = {
             "project_name": project_name,
             "query": query,
@@ -244,11 +247,6 @@ def tool_autopilot_search_tick(
             "search_executed": False,
             "decision": decision_payload,
             "context_injection": None,
-            **_autopilot_dx_metadata(
-                should_search=False,
-                trigger=decision.trigger,
-                search_executed=False,
-            ),
         }
     if not resolved_project:
         return {
@@ -257,12 +255,7 @@ def tool_autopilot_search_tick(
             "search_executed": False,
             "decision": decision_payload,
             "context_injection": None,
-            **_autopilot_dx_metadata(
-                should_search=True,
-                trigger=decision.trigger,
-                search_executed=False,
-                missing_project=True,
-            ),
+            "error": "No project is available. Open the intended workspace or pass project_name.",
         }
 
     search_payload = tool_search_memory(
@@ -271,25 +264,29 @@ def tool_autopilot_search_tick(
         scope="project",
         _include_diagnostics=True,
     )
+    if search_payload.get("status") == "unavailable" or search_payload.get("success") is False:
+        return {
+            "success": False,
+            "project_name": resolved_project,
+            "search_executed": True,
+            "decision": decision_payload,
+            "context_injection": None,
+            "error": search_payload.get("reason") or search_payload.get("error"),
+        }
     source_ids = [
         source_id
         for source_id in search_payload.get("context_plan", {}).get("source_ids", [])
         if isinstance(source_id, str)
     ]
     search_outcome_call = dict(search_payload.get("record_outcome_call") or {})
-    search_outcome_arguments = dict(search_outcome_call.get("arguments") or {})
-    if search_outcome_arguments:
-        search_outcome_arguments["surface"] = "autopilot_search_tick"
-        search_outcome_call["arguments"] = search_outcome_arguments
+    # Keep the actual retrieval surface: feedback must resolve the stored receipt.
     context_injection = {
         "target": decision.injection_target,
         "trigger": decision.trigger,
         "query": decision.query,
         "source_ids": source_ids,
-        "answer_ready_context": search_payload.get("answer_ready_context"),
-        "context_plan": search_payload.get("context_plan"),
-        "supporting_evidence": search_payload.get("supporting_evidence", []),
-        "drilldown_hints": search_payload.get("drilldown_hints", []),
+        "status": search_payload["status"],
+        "memories": search_payload["memories"],
         "retrieval_id": search_payload.get("retrieval_id"),
         "record_outcome_call": search_outcome_call or None,
     }
@@ -298,13 +295,7 @@ def tool_autopilot_search_tick(
         "project_name": resolved_project,
         "search_executed": True,
         "decision": decision_payload,
-        "search": search_payload,
         "context_injection": context_injection,
-        **_autopilot_dx_metadata(
-            should_search=True,
-            trigger=decision.trigger,
-            search_executed=True,
-        ),
     }
 
 

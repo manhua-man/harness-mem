@@ -42,6 +42,7 @@ from harness_mem.core.schemas.session_distill import (
     SessionDistillJob,
     ZeroCandidateChallenge as RuntimeZeroCandidateChallenge,
 )
+from harness_mem.diagnostic_events import DiagnosticRun, diagnostic_parent_id, emit_current_stage
 from harness_mem.hook_receipts import hook_configuration_fingerprint
 from harness_mem.session_notes import (
     existing_session_note_path,
@@ -69,11 +70,30 @@ _RUNTIME_SOURCE_FILES = (
     Path(__file__).parents[1] / "commands" / "distill_lifecycle.py",
     Path(__file__).parents[1] / "commands" / "separated_assimilation.py",
     Path(__file__).parents[1] / "commands" / "knowledge_assimilation.py",
+    Path(__file__).parents[1] / "commands" / "evidence_admission.py",
+    Path(__file__).parents[1] / "adapters" / "parser.py",
+    Path(__file__).parents[1] / "adapters" / "snapshot.py",
+    Path(__file__).parents[1] / "adapters" / "codex" / "adapter.py",
+    Path(__file__).parents[1] / "adapters" / "codex" / "archive_adapter.py",
+    Path(__file__).parents[1] / "rust_core.py",
+    Path(__file__).parents[1] / "commands" / "distill_result.py",
+    Path(__file__).parents[1] / "commands" / "manual_distill.py",
+    Path(__file__).parents[1] / "mcp" / "governance_handlers.py",
+    Path(__file__).parents[1] / "mcp" / "tool_specs.py",
     Path(__file__).parents[1] / "mcp" / "distill_handlers.py",
+    Path(__file__).parents[1] / "mcp" / "distill_projection.py",
+    Path(__file__).parents[1] / "mcp" / "read_search_handlers.py",
+    Path(__file__).parents[1] / "mcp" / "read_projection.py",
+    Path(__file__).parents[1] / "read_knowledge.py",
+    Path(__file__).parents[1] / "storage" / "knowledge_store.py",
     Path(__file__).parents[1] / "storage" / "session_distill_store.py",
     Path(__file__).parents[1] / "storage" / "transcript_store.py",
     Path(__file__).parents[1] / "core" / "schemas" / "session_distill.py",
+    Path(__file__).parents[1] / "commands" / "archive_distill.py",
+    Path(__file__).parents[1] / "storage" / "manual_batch_store.py",
+    Path(__file__).parents[1] / "core" / "schemas" / "knowledge.py",
     Path(__file__).parents[1] / "session_notes.py",
+    Path(__file__).parents[2] / "code" / "plugins" / "harness-mem" / "commands" / "hm" / "hm.md",
 )
 
 
@@ -114,11 +134,14 @@ def _invoke_provider(
     heartbeat: Any,
 ) -> ProviderResult:
     method = getattr(provider, method_name)
-    return method(
+    emit_current_stage("provider_started", details={"method": method_name})
+    result = method(
         manifest,
         runtime_dir=runtime_dir,
         heartbeat=heartbeat,
     )
+    emit_current_stage("provider_finished", details={"method": method_name})
+    return result
 
 
 def _now() -> str:
@@ -635,12 +658,17 @@ def run_autonomous_distill_batch(
         recent_first=config.distill_auto_recent_first,
         max_jobs=backlog_limit,
         record_offer=True,
+        background_only=True,
     )
     preferred = (
         backend.transcript_store.get_distill_job(preferred_job_id)
         if preferred_job_id
         else None
     )
+    from harness_mem.commands.manual_distill import is_manual_distill_job
+
+    if preferred is not None and is_manual_distill_job(backend, preferred):
+        preferred = None
     # A repeated Stop hook may name a job that has already completed.  That is
     # not another batch result: materialize a missing Note and publish a fresh
     # terminal receipt for the hook, but keep ``outcomes`` empty so callers can
@@ -844,6 +872,7 @@ def _preferred_job_is_eligible(
             trigger_id=trigger_id,
         )
         and job is not None
+        and not job.manual_only
         and job.status in {"queued", "parked", "processing", "reviewing", "retryable"}
     )
 
@@ -933,7 +962,92 @@ def _run_one(
     runtime_dir: Path,
     notes_dir: Path,
 ) -> dict[str, Any]:
+    """Run one job while recording an independent content-free timeline."""
+
+    diagnostic = DiagnosticRun(
+        backend.data_dir,
+        operation="autonomous",
+        project_name=project_name,
+        project_root=project_root,
+parent_run_id=diagnostic_parent_id(),
+        references={
+            "job_id": job_id,
+            "trigger_id": trigger_id,
+            "client": client,
+        },
+    )
+    diagnostic.emit("accepted", "running")
+    diagnostic.emit("started", "running")
+    try:
+        with diagnostic.activate_children():
+            result = _run_one_core(
+                backend,
+                tools=tools,
+                job_id=job_id,
+                project_name=project_name,
+                project_root=project_root,
+                config=config,
+                trigger_id=trigger_id,
+                client=client,
+                provider=provider,
+                runtime_dir=runtime_dir,
+                notes_dir=notes_dir,
+            )
+    except Exception as exc:  # pragma: no cover - defensive wrapper boundary.
+        diagnostic.emit(
+            "failed",
+            "failed",
+            references={"job_id": job_id},
+            error={
+                "kind": "autonomous_exception",
+                "exception_type": type(exc).__name__,
+                "message": str(exc),
+            },
+        )
+        raise
+    references = {
+        key: result.get(key)
+        for key in ("job_id", "session_id")
+        if result.get(key) is not None
+    }
+    status = str(result.get("status") or "deferred")
+    if status == "completed":
+        diagnostic.emit("completed", "completed", references=references)
+    elif status == "busy":
+        diagnostic.emit("skipped", "skipped", references=references)
+    elif status in {"deferred", "blocked"}:
+        diagnostic.emit(status, status, references=references, error=result.get("error"))
+    else:
+        diagnostic.emit(
+            "failed",
+            "failed",
+            references=references,
+            error=result.get("error"),
+        )
+    return result
+
+
+def _run_one_core(
+    backend: LocalMemoryBackend,
+    *,
+    tools: Any,
+    job_id: str,
+    project_name: str,
+    project_root: Path,
+    config: MergedConfig,
+    trigger_id: str | None,
+    client: str,
+    provider: DistillProvider,
+    runtime_dir: Path,
+    notes_dir: Path,
+) -> dict[str, Any]:
     lease_owner = f"autonomous:{os.getpid()}:{uuid4()}"
+    from harness_mem.commands.manual_distill import is_manual_distill_job
+
+    current_job = backend.transcript_store.get_distill_job(job_id)
+    if current_job is not None and is_manual_distill_job(backend, current_job):
+        return {"job_id": job_id, "session_id": current_job.session_id,
+                "status": "busy", "reason": "manual_session_owned"}
     try:
         packet = tools.tool_prepare_session_distill(
             project_name=project_name,

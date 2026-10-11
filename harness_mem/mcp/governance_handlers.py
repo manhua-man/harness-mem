@@ -67,6 +67,7 @@ def _assimilation_fields(
     assimilation_disposition: str | None,
     assimilation_reason: str | None,
     assimilation_target_ids: list[str] | None,
+    target_knowledge: list[dict[str, Any]] | None,
     canonical_title: str | None,
     topic_path: list[str] | None,
 ) -> dict[str, Any]:
@@ -76,6 +77,7 @@ def _assimilation_fields(
         "assimilation_disposition": assimilation_disposition,
         "assimilation_reason": assimilation_reason,
         "assimilation_target_ids": list(assimilation_target_ids or []),
+        "assimilation_targets": list(target_knowledge or []),
         "canonical_title": canonical_title,
         "topic_path": list(topic_path or []),
     }
@@ -143,6 +145,7 @@ def tool_suggest_rule(
     assimilation_disposition: str | None = None,
     assimilation_reason: str | None = None,
     assimilation_target_ids: list[str] | None = None,
+    target_knowledge: list[dict[str, Any]] | None = None,
     canonical_title: str | None = None,
     topic_path: list[str] | None = None,
 ) -> dict:
@@ -171,6 +174,7 @@ def tool_suggest_rule(
         assimilation_disposition=assimilation_disposition,
         assimilation_reason=assimilation_reason,
         assimilation_target_ids=assimilation_target_ids,
+        target_knowledge=target_knowledge,
         canonical_title=canonical_title,
         topic_path=topic_path,
     )
@@ -212,6 +216,7 @@ def tool_suggest_memory_entry(
     assimilation_disposition: str | None = None,
     assimilation_reason: str | None = None,
     assimilation_target_ids: list[str] | None = None,
+    target_knowledge: list[dict[str, Any]] | None = None,
     canonical_title: str | None = None,
     topic_path: list[str] | None = None,
 ) -> dict:
@@ -241,6 +246,7 @@ def tool_suggest_memory_entry(
         assimilation_disposition=assimilation_disposition,
         assimilation_reason=assimilation_reason,
         assimilation_target_ids=assimilation_target_ids,
+        target_knowledge=target_knowledge,
         canonical_title=canonical_title,
         topic_path=topic_path,
     )
@@ -282,6 +288,7 @@ def tool_suggest_relation_fact(
     assimilation_disposition: str | None = None,
     assimilation_reason: str | None = None,
     assimilation_target_ids: list[str] | None = None,
+    target_knowledge: list[dict[str, Any]] | None = None,
     canonical_title: str | None = None,
     topic_path: list[str] | None = None,
 ) -> dict:
@@ -312,6 +319,7 @@ def tool_suggest_relation_fact(
         assimilation_disposition=assimilation_disposition,
         assimilation_reason=assimilation_reason,
         assimilation_target_ids=assimilation_target_ids,
+        target_knowledge=target_knowledge,
         canonical_title=canonical_title,
         topic_path=topic_path,
     )
@@ -350,6 +358,12 @@ def tool_create_task_handoff(
     from harness_mem.core.schemas.task_handoff import TaskHandoff
 
     backend = _get_backend()
+    # Older callers used the job as task_id but omitted its explicit binding.
+    # Adopt that binding only when the persisted job belongs to this project.
+    if distill_job_id is None:
+        task_job = backend.transcript_store.get_distill_job(task_id)
+        if task_job is not None and task_job.project_name == project_name:
+            distill_job_id = task_job.id
     handoff_id = _distill_candidate_id(
         backend,
         project_name=project_name,
@@ -416,18 +430,19 @@ def tool_govern_memory(action: str, arguments: dict[str, Any]) -> dict:
                     }
                 if decision == "delete":
                     target_knowledge_ids = args.pop("target_knowledge_ids", None)
+                    target_knowledge = args.pop("target_knowledge", None)
                     if (
                         candidate_id_supplied
                         or args
-                        or not isinstance(target_knowledge_ids, list)
-                        or len(target_knowledge_ids) != 1
-                        or not str(target_knowledge_ids[0]).strip()
+                        or bool(target_knowledge_ids) == bool(target_knowledge)
+                        or not isinstance(target_knowledge_ids or target_knowledge, list)
+                        or len(target_knowledge_ids or target_knowledge) != 1
                     ):
                         return {
                             "success": False,
                             "error": (
                                 "knowledge delete requires project_name and exactly one "
-                                "target_knowledge_ids value; candidate_id, "
+                                "target_knowledge selection (or legacy target_knowledge_ids value); candidate_id, "
                                 "knowledge_items, and extra arguments are not allowed"
                             ),
                         }
@@ -439,7 +454,8 @@ def tool_govern_memory(action: str, arguments: dict[str, Any]) -> dict:
                         delete_current_knowledge(
                             _get_backend(),
                             project_name=project_name,
-                            target_knowledge_ids=target_knowledge_ids,
+                            target_knowledge_ids=target_knowledge_ids or [],
+                            target_knowledge=target_knowledge or [],
                         )
                     )
                     return {"governance_action": action, "success": True, **result}
@@ -450,6 +466,7 @@ def tool_govern_memory(action: str, arguments: dict[str, Any]) -> dict:
                 )
                 knowledge_items = list(args.pop("knowledge_items", []) or [])
                 target_knowledge_ids = list(args.pop("target_knowledge_ids", []) or [])
+                target_knowledge = list(args.pop("target_knowledge", []) or [])
                 if (
                     args
                     or decision not in {"confirm", "reject"}
@@ -471,7 +488,7 @@ def tool_govern_memory(action: str, arguments: dict[str, Any]) -> dict:
                         "success": False,
                         "error": (
                             "knowledge decide requires confirm|reject, candidate_id, and "
-                            "optional disposition, knowledge_items, and target_knowledge_ids"
+                            "optional disposition, knowledge_items, and target_knowledge"
                         ),
                     }
                 from harness_mem.commands.knowledge_assimilation import (
@@ -486,6 +503,7 @@ def tool_govern_memory(action: str, arguments: dict[str, Any]) -> dict:
                         reason=str(reason or f"review {decision}"),
                         knowledge_items=knowledge_items,
                         target_knowledge_ids=target_knowledge_ids,
+                        target_knowledge=target_knowledge,
                         expected_project_name=project_name,
                     )
                 )

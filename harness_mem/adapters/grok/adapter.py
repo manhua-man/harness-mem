@@ -11,7 +11,7 @@ from uuid import uuid4
 from harness_mem.adapters.claude_code.project_profile_detector import (
     normalize_project_root,
 )
-from harness_mem.adapters.parser import parse_grok_jsonl_session, session_sort_key
+from harness_mem.adapters.parser import list_session_files, parse_grok_jsonl_session, session_sort_key
 from harness_mem.adapters.protocol import Issue, SessionRecord
 from harness_mem.adapters.scan_scheduler import sync_sessions_fairly
 from harness_mem.adapters.snapshot import TranscriptSyncResult, persist_session_snapshot
@@ -44,7 +44,7 @@ class GrokAdapter:
         self,
         project_name: str | None = None,
         *,
-        min_size_kb: int = 1,
+        min_size_kb: int = 0,
         limit: int | None = None,
         issues: list[Issue] | None = None,
     ) -> list[SessionRecord]:
@@ -62,33 +62,10 @@ class GrokAdapter:
         project_dirs = self._matching_project_dirs(issues=issues)
         sessions: list[SessionRecord] = []
         for project_dir in project_dirs:
-            for session_dir in project_dir.iterdir():
-                chat_history = session_dir / "chat_history.jsonl"
-                if not chat_history.is_file():
-                    continue
-                size_kb = chat_history.stat().st_size / 1024
-                if size_kb < min_size_kb:
-                    continue
-                sessions.append(
-                    {
-                        "path": chat_history,
-                        "name": chat_history.name,
-                        "session_id": session_dir.name,
-                        "size_kb": size_kb,
-                        "size_bytes": chat_history.stat().st_size,
-                        "size": f"{size_kb:.1f}KB",
-                        "lines": len(
-                            chat_history.read_text(
-                                encoding="utf-8-sig",
-                                errors="replace",
-                            ).splitlines()
-                        ),
-                        "mtime": datetime.fromtimestamp(
-                            chat_history.stat().st_mtime,
-                            tz=timezone.utc,
-                        ),
-                    }
-                )
+            for record in list_session_files(project_dir, pattern="*/chat_history.jsonl",
+                                             min_size_kb=min_size_kb, issues=issues):
+                record["session_id"] = Path(record["path"]).parent.name
+                sessions.append(record)
 
         ordered = sorted(sessions, key=session_sort_key, reverse=True)
         if limit is not None:
@@ -185,7 +162,7 @@ class GrokAdapter:
         self,
         project_name: str | None = None,
         limit: int | None = None,
-        min_size_kb: int = 1,
+        min_size_kb: int = 0,
     ) -> dict[str, Any]:
         warnings: list[Issue] = []
         sessions = self.list_sessions(

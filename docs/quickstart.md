@@ -5,21 +5,17 @@ one memory entry in any project.
 
 ## Install once
 
-Install the release:
+Install the release with this single-line command in PowerShell, Command Prompt, or Bash:
 
-```bash
-python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.28 \
-  harness-mem==0.9.28
+```text
+python -m pip install --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.28 harness-mem==0.9.28
 ```
 
 The package is distributed through GitHub Releases rather than PyPI. Optional
 local vector or hybrid search dependencies use the same index:
 
-```bash
-python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.28 \
-  "harness-mem[hybrid]==0.9.28"
+```text
+python -m pip install --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.28 "harness-mem[hybrid]==0.9.28"
 ```
 
 Run Quickstart once for each Agent app you actually use, not once per project.
@@ -39,11 +35,13 @@ harness-mem quickstart --client cursor
 Quickstart installs one entry for that app: `$hm` in Codex or `/hm` in the
 other supported apps. It does not inspect a project, create project files,
 install project Hooks, or scan or import historical sessions. It also does not
-inspect or change MCP settings. The Agent, MCP Router, plugin, or other setup
-tool that owns the MCP connection remains responsible for it. If harness-mem is
-not already available in the Agent, follow [MCP setup](mcp-setup.md).
+inspect or change MCP settings.
 
-Start a new Agent task after Quickstart so the new entry is discovered.
+After Quickstart confirms the entry is installed, start a new Agent task so the
+new entry is discovered. If harness-mem tools are already available, use `hm`.
+Otherwise, ask the Agent, MCP Router, plugin, or existing setup tool that manages
+your MCP connection to connect harness-mem using [MCP setup](mcp-setup.md).
+Keep an existing connection rather than adding a second one.
 
 ## Use it in any project
 

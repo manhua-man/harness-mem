@@ -9,7 +9,7 @@ admission subject rather than persisting a ``MemoryEntry`` / ``RuleCandidate``
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 import re
@@ -24,6 +24,9 @@ from harness_mem.commands.evidence_admission import (
 from harness_mem.commands.knowledge_assimilation import (
     record_assimilation_result,
     resolve_candidate_source_context,
+    normalize_knowledge_targets,
+    KnowledgeTargetError,
+    resolve_knowledge_targets,
 )
 from harness_mem.core.schemas import (
     EvidenceRef,
@@ -123,6 +126,7 @@ async def admit_separated_candidate(
     assimilation_disposition: str | None = None,
     assimilation_reason: str | None = None,
     assimilation_target_ids: Sequence[str] = (),
+    assimilation_targets: Sequence[Mapping[str, Any]] = (),
     canonical_title: str | None = None,
     topic_path: Sequence[str] = (),
 ) -> tuple[KnowledgeCandidate, bool]:
@@ -159,6 +163,7 @@ async def admit_separated_candidate(
     candidate.assimilation_target_ids = [
         str(value).strip() for value in assimilation_target_ids if str(value).strip()
     ]
+    candidate.assimilation_targets = normalize_knowledge_targets(assimilation_targets)
     candidate.canonical_title = canonical_title
     candidate.topic_path = [str(part).strip() for part in topic_path if str(part).strip()]
     candidate.updated_at = datetime.now(timezone.utc)
@@ -568,6 +573,101 @@ def normalize_identical_replacements(
     return type(decision).model_validate(payload)
 
 
+async def prepare_interactive_assimilation(
+    backend: LocalMemoryBackend, *, project_name: str, project_root: str,
+    candidate_ids: Sequence[str],
+) -> dict[str, Any]:
+    """Validate each manual proposal separately; retain unsafe points as work."""
+    from harness_mem.autonomous.models import AssimilationDecision
+
+    prepared = await prepare_separated_assimilation(
+        backend, project_name=project_name, project_root=project_root,
+        candidate_ids=candidate_ids,
+    )
+    points = [dict(point) for point in prepared.automatic_points]
+    accepted = bool(points)
+    errors: list[str] = []
+    for candidate_id in prepared.eligible_candidate_ids:
+        candidate = await backend.structured_store.knowledge_store.get_candidate(candidate_id)
+        if candidate is None:
+            # Missing work or a changed project/source is a shared safety error.
+            raise ValueError("interactive candidate is no longer readable")
+        try:
+            proposal = await _interactive_proposal(backend, prepared, candidate)
+            single = replace(prepared, candidate_ids=(candidate_id,),
+                             eligible_candidate_ids=(candidate_id,), automatic_points=())
+            validated = validate_separated_assimilation_decision(
+                single, AssimilationDecision.model_validate({"points": [proposal]}),
+            )
+            points.extend(validated["points"])
+            accepted = True
+        except (TypeError, ValueError) as exc:
+            errors.append(str(exc))
+            reason = str(exc) if isinstance(exc, KnowledgeTargetError) else "这条内容的处理决定或写入内容还不完整，需要核对后再保存。"
+            points.append(_automatic_point(candidate_id, answer_status="ANSWERED",
+                                           disposition="defer", reason=reason))
+    if not accepted and errors:
+        # With no independently valid point, keep the existing retryable job.
+        raise ValueError(errors[0])
+    by_target: dict[str, list[dict[str, Any]]] = {}
+    for point in points:
+        for target in point.get("matched_truth_ids") or []:
+            by_target.setdefault(target, []).append(point)
+    conflicting = {str(point["candidate_id"]) for uses in by_target.values()
+                   if len(uses) > 1 and any(point["disposition"] in {"refine", "replace"} for point in uses)
+                   for point in uses}
+    points = [
+        _automatic_point(str(point["candidate_id"]), answer_status="ANSWERED", disposition="defer",
+                         reason="多项修改指向同一条旧记忆，原内容未改动；需要先确定采用哪项修改。")
+        if point["candidate_id"] in conflicting else point for point in points
+    ]
+    points.sort(key=lambda point: prepared.candidate_ids.index(str(point["candidate_id"])))
+    return {"version": "separated-v1", "candidate_ids": list(prepared.candidate_ids),
+            "point_count": len(points), "points": points,
+            "provider_candidate_ids": list(prepared.eligible_candidate_ids)}
+
+
+async def _interactive_proposal(
+    backend: LocalMemoryBackend, prepared: SeparatedPreparedAssimilation,
+    candidate: KnowledgeCandidate,
+) -> dict[str, Any]:
+    disposition = str(candidate.assimilation_disposition or "").strip()
+    reason = str(candidate.assimilation_reason or "").strip()
+    if disposition not in _ASSIMILATION_DISPOSITIONS or len(reason) < 8:
+        raise ValueError("interactive candidate needs an explicit processing decision and reason")
+    targets = await resolve_knowledge_targets(
+        backend.structured_store.knowledge_store, project_name=candidate.project_name,
+        target_ids=candidate.assimilation_target_ids,
+        target_knowledge=candidate.assimilation_targets,
+    )
+    # Confirmation can use its unchanged content directly; replacements must
+    # name the old prose, not infer a target from the new content or title.
+    if disposition == "confirm" and not targets:
+        targets = await resolve_knowledge_targets(
+            backend.structured_store.knowledge_store, project_name=candidate.project_name,
+            target_knowledge=[{"statement": candidate.statement}],
+        )
+    if disposition in {"confirm", "refine", "replace"} and not targets:
+        raise KnowledgeTargetError("还没有确定要修改的旧记忆，原内容未改动；请核对旧标题或内容。")
+    handle_by_id = {truth_id: handle for handle, truth_id in prepared.truth_by_handle.items()}
+    if any(target not in handle_by_id for target in targets):
+        raise KnowledgeTargetError("要修改的旧记忆已变化，原内容未改动；请重新核对当前内容。")
+    knowledge_items: list[dict[str, Any]] = []
+    if disposition in _WRITING_DISPOSITIONS:
+        if not candidate.canonical_title or not candidate.topic_path:
+            raise ValueError("interactive writing candidate needs a title and project module")
+        evidence = await backend.structured_store.knowledge_store.list_evidence(candidate.id)
+        basis = evidence[0].evidence_basis if len(evidence) == 1 else None
+        knowledge_items = [{"title": candidate.canonical_title, "statement": candidate.statement,
+                            "topic_path": list(candidate.topic_path),
+                            "claim_kind": "procedure" if candidate.candidate_type == "rule"
+                            else "durable_preference" if basis == "user_statement"
+                            else "implementation_fact"}]
+    return {"candidate_id": candidate.id, "disposition": disposition,
+            "matched_truth_handles": [handle_by_id[target] for target in targets],
+            "knowledge_items": knowledge_items, "reason": reason}
+
+
 async def apply_separated_assimilation(
     backend: LocalMemoryBackend,
     *,
@@ -697,6 +797,8 @@ async def apply_separated_assimilation(
             "canonical_truth_ids": truth_ids,
             "separated_knowledge_ids": truth_ids,
             "handoff_id": handoff_id,
+            "replaced_truth_ids": list(point.get("matched_truth_ids") or []) if disposition in {"refine", "replace"} else [],
+            "reason": str(point.get("reason") or disposition),
         }
         results.append(result)
         if disposition in {"add", "refine", "replace"}:
@@ -1303,7 +1405,7 @@ async def _materialize_handoff(
         task_id=f"assimilation:{candidate.id}",
         summary=statement,
         status="in_progress",
-        next_steps=[statement],
+        next_steps=[f"还没保存：{statement}。{point['reason']}" if point.get("disposition") == "defer" else statement],
         context={
             "distill_job_id": evidence.distill_job_id,
             "candidate_id": candidate.id,

@@ -116,6 +116,21 @@ def _terminal_entry_matches(row: dict[str, Any], entry: Any) -> bool:
     )
 
 
+def _terminal_entry_in_project(entry: Any, project_root: Path) -> bool:
+    """Bind current-scope terminal records to a stored absolute project root."""
+
+    if not isinstance(entry, dict):
+        return False
+    raw_root = entry.get("project_root")
+    if not isinstance(raw_root, str) or not raw_root.strip():
+        return False
+    try:
+        stored_root = Path(raw_root).expanduser()
+        return stored_root.is_absolute() and stored_root.resolve() == project_root
+    except (OSError, ValueError, RuntimeError):
+        return False
+
+
 def _partial_run_receipts(data_dir: Path) -> list[dict[str, Any]]:
     receipts: list[dict[str, Any]] = []
     runs_dir = data_dir / "archive_distill" / "runs"
@@ -655,6 +670,17 @@ async def run_archive_distill_batch(
     ledger = _read_ledger(data_dir, day)
     terminal_index = _read_terminal_index(data_dir)
     terminal_sessions = dict(terminal_index.get("sessions") or {})
+    # Scope the read view, not the shared index: deleted sources still have
+    # stored attribution, and records for other projects must remain intact.
+    scoped_terminal_sessions = (
+        {
+            session_id: entry
+            for session_id, entry in terminal_sessions.items()
+            if _terminal_entry_in_project(entry, root)
+        }
+        if config.archive_distill_project_scope == "current"
+        else terminal_sessions
+    )
     durable_attempts = dict(terminal_index.get("attempts") or {})
     inventory_dispositions = {
         str(row["session_id"]): {
@@ -683,6 +709,7 @@ async def run_archive_distill_batch(
     current_source_revisions: dict[str, str | None] = {}
     verified_terminal = 0
     quarantined_terminal = 0
+    matched_terminal_ids: set[str] = set()
     for row in inventory["eligible_sessions"]:
         session_id = str(row["session_id"])
         source_revision: str | None = None
@@ -691,10 +718,11 @@ async def run_archive_distill_batch(
         except OSError:
             pass
         current_source_revisions[session_id] = source_revision
-        entry = terminal_sessions.get(session_id)
+        entry = scoped_terminal_sessions.get(session_id)
         if entry is not None:
             candidate = {**row, "source_revision": source_revision}
             if _terminal_entry_matches(candidate, entry):
+                matched_terminal_ids.add(session_id)
                 if entry.get("disposition") == "verified_completed":
                     verified_terminal += 1
                 else:
@@ -714,36 +742,52 @@ async def run_archive_distill_batch(
         eligible.append(row)
     unresolved_count = int(inventory["unresolved"])
     excluded_count = int(inventory["excluded"])
+    current_scope = config.archive_distill_project_scope == "current"
+    # Global exclusions remain inventory diagnostics, not this project's totals.
+    scoped_unresolved = 0 if current_scope else unresolved_count
+    scoped_excluded = 0 if current_scope else excluded_count
     terminal_counts = {
         "verified_completed": verified_terminal,
         "quarantined": quarantined_terminal,
         "pending_eligible": len(eligible),
-        "deferred_unresolved": unresolved_count,
-        "excluded": excluded_count,
+        "deferred_unresolved": scoped_unresolved,
+        "excluded": scoped_excluded,
     }
     terminal_counts["total"] = sum(terminal_counts.values())
-    terminal_counts["inventory_total"] = int(inventory["sessions_found"])
+    terminal_counts["inventory_total"] = (
+        len(inventory["eligible_sessions"]) if current_scope else int(inventory["sessions_found"])
+    )
     terminal_counts["conserved"] = (
         terminal_counts["total"] == terminal_counts["inventory_total"]
     )
+    live_session_ids = {str(row["session_id"]) for row in inventory["sessions"]}
+    attributed_live_ids = live_session_ids if current_scope else set(current_source_revisions)
+    # A live source with a new revision has one current pending state. Its old
+    # terminal record remains stored for attribution, but is not current.
+    lifecycle_sessions = {
+        session_id: entry
+        for session_id, entry in scoped_terminal_sessions.items()
+        if session_id not in attributed_live_ids or session_id in matched_terminal_ids
+    }
     lifecycle_counts = {
         "verified_completed": sum(
             entry.get("disposition") == "verified_completed"
-            for entry in terminal_sessions.values()
+            for entry in lifecycle_sessions.values()
             if isinstance(entry, dict)
         ),
         "quarantined": sum(
             entry.get("disposition") == "quarantined"
-            for entry in terminal_sessions.values()
+            for entry in lifecycle_sessions.values()
             if isinstance(entry, dict)
         ),
         "pending_eligible": len(eligible),
-        "deferred_unresolved": unresolved_count,
-        "excluded": excluded_count,
+        "deferred_unresolved": scoped_unresolved,
+        "excluded": scoped_excluded,
     }
     lifecycle_counts["source_deleted_after_verified"] = sum(
-        session_id not in {str(row["session_id"]) for row in inventory["sessions"]}
-        for session_id in terminal_sessions
+        session_id not in live_session_ids
+        for session_id, entry in lifecycle_sessions.items()
+        if isinstance(entry, dict) and entry.get("disposition") == "verified_completed"
     )
     lifecycle_counts["total"] = sum(
         lifecycle_counts[key]
@@ -757,7 +801,8 @@ async def run_archive_distill_batch(
     )
     lifecycle_counts["conserved"] = (
         lifecycle_counts["total"]
-        == len(terminal_sessions) + len(eligible) + unresolved_count + excluded_count
+        == len(set(lifecycle_sessions).union(str(row["session_id"]) for row in eligible))
+        + scoped_unresolved + scoped_excluded
     )
     selected = (
         eligible
@@ -885,6 +930,7 @@ async def run_archive_distill_batch(
                 "session_id": row["session_id"],
                 "project_name": project_name,
                 "project_root": str(project_root),
+                "source_revision": current_source_revisions.get(str(row["session_id"])),
             }
             try:
                 empty_revision = _empty_archive_source_revision(
@@ -952,6 +998,10 @@ async def run_archive_distill_batch(
                     outcomes.append(outcome)
                     continue
                 job = backend.transcript_store.get_distill_job(synced.distill_job_id)
+                outcome.update(
+                    distill_job_id=synced.distill_job_id,
+                    source_revision=job.source_revision if job else outcome["source_revision"],
+                )
                 # Selecting an archive and actually attempting its semantic
                 # job are deliberately different events.  A worker that has
                 # asked for retry backoff must not consume another attempt
@@ -973,28 +1023,47 @@ async def run_archive_distill_batch(
                     continue
                 attempted_ids.append(str(row["session_id"]))
                 if job is not None and job.status == "completed":
-                    # Explicit archive processing is user-requested work.  A
-                    # completed job must clear its selected archive source;
-                    # Dream uses a different path and keeps its source.
+                    # Reuse the run verifier before any native cleanup. Keep
+                    # the original identity in memory for the Note even when
+                    # successful cleanup sanitizes the persisted job.
+                    packet = dict(job.promotion_summary.get("answer_packet") or {})
+                    outcome.update(
+                        status="completed",
+                        answer_packet=packet if config.archive_distill_require_answer_packet else None,
+                        note=materialize_session_note(job, notes_dir=resolved_notes_dir),
+                    )
+                    reverified = await _verify_archive_distill_run(
+                        backend, result={**base, "selected": [row], "outcomes": [outcome]},
+                    )
+                    if reverified["status"] != "passed":
+                        outcome.update(
+                            status="deferred", reason="completed_job_verification_failed",
+                            verification=reverified["outcomes"][0],
+                        )
+                        outcomes.append(outcome)
+                        continue
+                    from harness_mem.commands.manual_distill import is_manual_distill_job
                     from harness_mem.mcp.distill_handlers import (
-                        _cleanup_completed_distill_source,
+                        _replay_completed_source_cleanup,
                     )
 
-                    cleanup = await asyncio.to_thread(
-                        _cleanup_completed_distill_source,
-                        backend,
-                        completed=job,
-                    )
-                    job = backend.transcript_store.get_distill_job(job.id) or job
+                    if is_manual_distill_job(backend, job):
+                        cleanup = {"configured": False, "status": "retained",
+                                   "reason_codes": ["manual_session_owned"]}
+                    else:
+                        cleanup = await asyncio.to_thread(
+                            _replay_completed_source_cleanup, backend, job=job,
+                        )
+                    # The shared cleanup owner may remove the default Note;
+                    # regenerate from this run's pre-cleanup identity only.
+                    if not Path(outcome["note"]["path"]).is_file():
+                        outcome["note"] = materialize_session_note(job, notes_dir=resolved_notes_dir)
                     batch: dict[str, Any] = {"state": "succeeded", "outcomes": []}
                     job_outcome = {
                         "job_id": job.id,
                         "session_id": row["session_id"],
                         "status": "completed",
-                        "note": materialize_session_note(
-                            job,
-                            notes_dir=resolved_notes_dir,
-                        ),
+                        "note": outcome["note"],
                         "provider": {"total_tokens": 0, "duration_seconds": 0.0},
                         "source_cleanup": cleanup,
                     }
@@ -1132,6 +1201,12 @@ async def run_archive_distill_batch(
             for outcome, verified in zip(outcomes, verification["outcomes"], strict=True)
             if verified["status"] != "passed"
         }
+        result["completed"] = len(verified_ids)
+        result["deferred"] = len(outcomes) - len(verified_ids)
+        for outcome, verified in zip(outcomes, verification["outcomes"], strict=True):
+            if outcome.get("status") == "completed" and verified["status"] != "passed":
+                outcome.update(status="deferred", reason="archive_completion_verification_failed",
+                               verification=verified)
         for session_id in attempted_ids:
             attempt_counts[session_id] = attempt_counts.get(session_id, 0) + 1
         ledger["day"] = day
@@ -1168,16 +1243,12 @@ async def run_archive_distill_batch(
         outcomes_by_session = {
             str(item.get("session_id") or ""): item for item in outcomes
         }
-        selected_by_session = {
-            str(item["session_id"]): item for item in selected
-        }
         for session_id in attempted_ids:
             outcome = outcomes_by_session[session_id]
-            row = selected_by_session[session_id]
             durable_attempts[session_id] = {
                 "session_id": session_id,
                 "source_revision": outcome.get("source_revision")
-                or _row_source_revision(row),
+                or current_source_revisions.get(session_id),
                 "count": attempt_counts[session_id],
                 "last_status": outcome.get("status"),
                 "last_reason": outcome.get("reason"),
@@ -1325,16 +1396,9 @@ async def _verify_archive_distill_run(
         cleanup = receipts.get(str(job.source_cleanup_receipt_id or "")) if job else None
         scope = dict((cleanup or {}).get("scope") or {})
         session_digest = hashlib.sha256(session_id.encode("utf-8")).hexdigest()
-        source_path = Path(str(
-            next(
-                (
-                    row.get("source_path")
-                    for row in result.get("selected", [])
-                    if row.get("session_id") == session_id
-                ),
-                "",
-            )
-        ))
+        source_row = next((row for row in result.get("selected", [])
+                           if row.get("session_id") == session_id), None)
+        source_path = Path(str((source_row or {}).get("source_path") or ""))
         note_payload = dict(outcome.get("note") or {})
         note_path = Path(str(note_payload.get("path") or ""))
         note_text = ""
@@ -1344,6 +1408,69 @@ async def _verify_archive_distill_run(
             pass
         promoted = list(persisted_packet.get("promoted_items") or [])
         cleanup_status = str(job.source_cleanup_status or "") if job else "missing"
+        receipt_valid = bool(job and not job.source_cleanup_receipt_id and cleanup_status != "deleted")
+        if job and cleanup:
+            receipt_valid = bool(
+                cleanup.get("kind") == "processed_source_cleanup"
+                and cleanup.get("project_name") == project_name
+                and cleanup.get("status") == "succeeded"
+                and (cleanup.get("verification") or {}).get("passed") is True
+                and scope.get("job_id_sha256") == hashlib.sha256(job.id.encode("utf-8")).hexdigest()
+                and scope.get("source_id_sha256") == hashlib.sha256(job.source_id.encode("utf-8")).hexdigest()
+                and scope.get("source_revision_sha256") == hashlib.sha256(job.source_revision.encode("utf-8")).hexdigest()
+                and scope.get("session_id_sha256") == session_digest
+            )
+        # Repair-only receipts can have no selected live source. A selected
+        # replay, however, must still bind the exact native bytes and complete
+        # immutable capture before it may remove anything.
+        selected_live_source = source_row is not None and source_path.exists()
+        source_valid = source_row is None or (cleanup_status == "deleted" and not selected_live_source)
+        # A past deletion receipt cannot stand in for bytes reintroduced at
+        # the same selected path, even when their conversation revision agrees.
+        if job and source_row is not None and (cleanup_status != "deleted" or selected_live_source):
+            from harness_mem.native_source_cleanup import path_from_local_file_uri
+
+            source = backend.transcript_store.get_source(job.source_id)
+            revision = backend.transcript_store.get_revision(job.source_id, job.source_revision)
+            source_valid = bool(
+                source and revision
+                and source.source_revision == job.source_revision == outcome.get("source_revision")
+                and source.project_name == revision.project_name == project_name
+                and source.project_root == revision.project_root == str(outcome.get("project_root") or "")
+                and source.session_id == revision.session_id == session_id
+                and source.client == revision.client == job.client
+                and source.status == "synced" and source.coverage == revision.coverage == "complete"
+            )
+            if source_valid and source is not None:
+                try:
+                    backend.transcript_store.reconstruct_raw(job.source_id, source_revision=job.source_revision)
+                    backend.transcript_store.reconstruct(job.source_id, source_revision=job.source_revision)
+                    source_valid = bool(
+                        path_from_local_file_uri(source.source_uri).resolve() == source_path.resolve()
+                        and _row_source_revision(source_row) == job.source_revision
+                        and hashlib.sha256(source_path.read_bytes()).hexdigest()
+                        == source.metadata.get("native_input_sha256")
+                    )
+                except (OSError, KeyError, ValueError):
+                    source_valid = False
+        current_knowledge_valid = False
+        if job:
+            from harness_mem.commands.distill_result import current_distill_result
+            from harness_mem.mcp.distill_handlers import _promotion_commit_error
+
+            try:
+                await current_distill_result(backend, job)
+                points = job.promotion_summary.get("points")
+                if points is not None:
+                    current_knowledge_valid = await _promotion_commit_error(
+                        backend, project_name=project_name, promotion_summary=job.promotion_summary,
+                    ) is None
+                else:
+                    # Legacy completion packets still need actual current
+                    # retrieval; a positive write count alone is never proof.
+                    current_knowledge_valid = not job.promotion_summary.get("promoted") or bool(promoted)
+            except ValueError:
+                current_knowledge_valid = False
         retrieval = await _verify_promoted_items(
             backend,
             project_name=project_name,
@@ -1366,16 +1493,12 @@ async def _verify_archive_distill_run(
             )
         )
         cleanup_passed = bool(
-            cleanup_status != "deleted"
-            or (
-                cleanup
-                and (cleanup.get("verification") or {}).get("passed") is True
-                and not source_path.exists()
-                and scope.get("session_id_sha256") == session_digest
-            )
+            receipt_valid and (cleanup_status != "deleted" or not source_path.exists())
         )
         checks = {
+            "outcome_completed": outcome.get("status") == "completed",
             "job_persisted": job is not None and job.status == "completed",
+            "source_revision_matches": bool(job and job.source_revision == outcome.get("source_revision")),
             "answer_packet_persisted": (
                 (not require_answer_packet and not outcome_packet)
                 or (
@@ -1405,6 +1528,8 @@ async def _verify_archive_distill_run(
             "note_session_binding_valid": session_id in note_text,
             "note_job_binding_valid": job_id in note_text,
             "source_cleanup_verified": cleanup_passed,
+            "source_binding_valid": source_valid,
+            "current_knowledge_verified": current_knowledge_valid,
             "retrieval_verified": retrieval["status"] in {"passed", "not_applicable"},
         }
         failed = [name for name, passed in checks.items() if not passed]

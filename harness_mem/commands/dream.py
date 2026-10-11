@@ -24,6 +24,7 @@ from harness_mem.autonomous.models import (
 from harness_mem.autonomous.authorization import background_on, background_status
 from harness_mem.autonomous.provider import ProviderError
 from harness_mem.config.merge import MergedConfig
+from harness_mem.diagnostic_events import DiagnosticRun, diagnostic_parent_id
 from harness_mem.core.schemas import (
     DreamItem,
     DreamRun,
@@ -807,6 +808,84 @@ async def dream_scheduler_decision(
 
 
 async def dream_auto_tick(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+    project_root: str,
+    config: MergedConfig,
+    source: DreamSource = "agent",
+    trigger_id: str | None = None,
+    trigger_job_id: str | None = None,
+    host_client: str | None = None,
+) -> dict[str, Any]:
+    """Run one Dream tick and record its independent diagnostic lifecycle."""
+
+    diagnostic = DiagnosticRun(
+        backend.data_dir,
+        operation="dream",
+        project_name=project_name,
+        project_root=project_root,
+parent_run_id=diagnostic_parent_id(),
+        references={
+            "trigger_id": trigger_id,
+            "job_id": trigger_job_id,
+            "source": source,
+            "client": host_client,
+        },
+    )
+    diagnostic.emit("accepted", "running")
+    diagnostic.emit("started", "running")
+    try:
+        with diagnostic.activate_children():
+            result = await _dream_auto_tick_core(
+                backend,
+                project_name=project_name,
+                project_root=project_root,
+                config=config,
+                source=source,
+                trigger_id=trigger_id,
+                trigger_job_id=trigger_job_id,
+                host_client=host_client,
+            )
+    except Exception as exc:  # pragma: no cover - defensive wrapper boundary.
+        diagnostic.emit(
+            "failed",
+            "failed",
+            error={
+                "kind": "dream_exception",
+                "exception_type": type(exc).__name__,
+                "message": str(exc),
+            },
+        )
+        raise
+    status = str(result.get("status") or "failed")
+    references = {
+        key: result.get(key)
+        for key in ("job_id", "run_id", "trigger_id")
+        if result.get(key) is not None
+    }
+    if status == "completed":
+        diagnostic.emit("completed", "completed", references=references)
+    elif status == "skipped":
+        diagnostic.emit("skipped", "skipped", references=references)
+    elif status in {"deferred", "blocked"}:
+        diagnostic.emit(
+            status,
+            status,
+            references=references,
+            error=result.get("error") or result.get("reason"),
+        )
+    else:
+        diagnostic.emit(
+            "failed",
+            "failed",
+            references=references,
+            error=result.get("error") or {"kind": "dream_failed", "message": status},
+        )
+    return result
+
+
+async def _dream_auto_tick_core(
     backend: LocalMemoryBackend,
     *,
     project_name: str,

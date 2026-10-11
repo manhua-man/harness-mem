@@ -195,8 +195,8 @@ def main() -> int:
             "success": True,
             "project_name": workspace.name,
             "message": (
-                "Memory is ready. Review the new project Hooks in Codex Settings, "
-                "then start a new task."
+                "Memory storage is ready; Hook files are prepared. "
+                "If not yet trusted, review project Hooks in Codex Settings, then start a new task."
             ),
         }
         if status != expected_status:

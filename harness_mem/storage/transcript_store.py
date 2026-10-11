@@ -7,7 +7,7 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from uuid import uuid4
 
 from harness_mem.core.schemas.session_distill import (
@@ -33,26 +33,45 @@ TRANSCRIPT_LEDGER_SCHEMA_VERSION = 7
 class TranscriptStore:
     """SQLite-backed source-revision ledger independent of derived search data."""
 
-    def __init__(self, data_dir: Path) -> None:
+    def __init__(self, data_dir: Path, *, read_only: bool = False) -> None:
         self.db_path = Path(data_dir) / "transcript_ledger.sqlite"
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        if not read_only:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(
-            self.db_path,
+            f"{self.db_path.resolve().as_uri()}?mode=ro" if read_only else self.db_path,
+            uri=read_only,
             timeout=10,
             check_same_thread=False,
         )
         self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA secure_delete=ON")
-        self._conn.execute("PRAGMA foreign_keys=ON")
-        self._init_schema()
+        if read_only:
+            self._conn.execute("PRAGMA query_only=ON")
+            # Pin all inventory/source/job reads to one consistent snapshot.
+            self._conn.execute("BEGIN")
+        else:
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA secure_delete=ON")
+            self._conn.execute("PRAGMA foreign_keys=ON")
+            self._init_schema()
         self._distill = SessionDistillStore(
             self._conn,
             self._lock,
             get_source=self.get_source,
             reconstruct=self.reconstruct,
+            manual_job_check=self._manual_job_check,
         )
+
+    def _manual_job_check(self, job: SessionDistillJob) -> bool:
+        from harness_mem.storage.manual_batch_store import ManualBatchStore
+
+        return ManualBatchStore(self.db_path.parent).owns_job(
+            job, self.get_revision(job.source_id, job.source_revision),
+        )
+
+    def freeze_manual_selection(self, publish: Callable[[], dict], *,
+                                matches: Callable[[SessionDistillJob], bool]) -> dict:
+        return self._distill.freeze_manual_selection(publish, matches=matches)
 
     def close(self) -> None:
         with self._lock:
@@ -243,7 +262,7 @@ class TranscriptStore:
         project_name: str | None = None,
         client: str | None = None,
         status: str | None = None,
-        limit: int = 100,
+        limit: int | None = 100,
     ) -> list[TranscriptSource]:
         where: list[str] = []
         params: list[Any] = []
@@ -259,8 +278,10 @@ class TranscriptStore:
         sql = "SELECT data FROM transcript_sources"
         if where:
             sql += " WHERE " + " AND ".join(where)
-        sql += " ORDER BY updated_at DESC LIMIT ?"
-        params.append(max(1, limit))
+        sql += " ORDER BY updated_at DESC"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(max(1, limit))
         with self._lock:
             rows = self._conn.execute(sql, params).fetchall()
         return [TranscriptSource.from_dict(json.loads(row["data"])) for row in rows]
@@ -619,6 +640,12 @@ class TranscriptStore:
     def get_distill_job(self, job_id: str) -> SessionDistillJob | None:
         return self._distill.get(job_id)
 
+    def retain_distill_source(self, job_id: str) -> SessionDistillJob:
+        return self._distill.retain_source(job_id)
+
+    def reserve_manual_distill_job(self, job_id: str) -> SessionDistillJob:
+        return self._distill.reserve_manual(job_id)
+
     def enable_zero_candidate_challenge(
         self,
         job_id: str,
@@ -708,6 +735,7 @@ class TranscriptStore:
         project_name: str | None = None,
         now: datetime | None = None,
         recovery_budget: int | None = None,
+        manual_job_ids: set[str] | None = None,
     ) -> dict[str, int]:
         """Recompute job state from durable checkpoints after a restart."""
 
@@ -715,6 +743,7 @@ class TranscriptStore:
             project_name=project_name,
             now=now,
             recovery_budget=recovery_budget,
+            manual_job_ids=manual_job_ids,
         )
 
     def mark_distill_jobs_agent_offered(
@@ -767,12 +796,14 @@ class TranscriptStore:
         lease_owner: str,
         limit: int | None = 1,
         lease_seconds: int = 300,
+        execution_source: str = "interactive_agent",
     ) -> list[tuple[TranscriptChunk, DistillChunkCheckpoint]]:
         return self._distill.claim_chunks(
             job_id,
             lease_owner=lease_owner,
             limit=limit,
             lease_seconds=lease_seconds,
+            execution_source=execution_source,
         )
 
     def checkpoint_distill_chunk(

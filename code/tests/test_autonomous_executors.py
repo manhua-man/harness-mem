@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib
+from contextlib import nullcontext
 import json
 import os
 from pathlib import Path
@@ -18,9 +19,123 @@ from harness_mem.autonomous.models import AutonomousDecision
 from harness_mem.config.merge import MergedConfig, load_merged_config
 
 
+@pytest.fixture(autouse=True)
+def fake_process_scope(monkeypatch: pytest.MonkeyPatch) -> None:
+    # This file mocks Popen; real Windows process containment is tested separately.
+    monkeypatch.setattr(
+        host_structured_cli, "_invocation_process_scope",
+        lambda _process, **_kwargs: nullcontext(),
+    )
+
+
 def test_coerce_json_text_accepts_json_with_trailing_cli_text() -> None:
     raw = '{"points": []}\nHermes finished. usage={"total_tokens": 12}'
     assert host_structured_cli._coerce_json_text(raw) == '{"points": []}'
+
+
+def test_codex_background_disables_global_and_project_mcps_without_config_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    codex_root = tmp_path / "user-codex"
+    project = tmp_path / "fictional-project"
+    invocation = project / "runtime" / "call"
+    invocation.mkdir(parents=True)
+    codex_root.mkdir()
+    project.joinpath(".codex").mkdir()
+    global_path = codex_root / "config.toml"
+    project_path = project / ".codex/config.toml"
+    global_path.write_text(
+        'model="operator-model"\n[mcp_servers."server.with.dot"]\n'
+        'command="fictional-server"\n[mcp_servers."server.with.dot".env]\n'
+        'TOKEN="fictional-private-value"\n', encoding="utf-8",
+    )
+    project_path.write_text('[mcp_servers.local]\ncommand="fictional-local"\n', encoding="utf-8")
+    before = [path.read_bytes() for path in (global_path, project_path)]
+    monkeypatch.setenv("CODEX_HOME", str(codex_root))
+    args = host_cli._codex_background_overrides(invocation)
+    import tomllib
+    overrides = [tomllib.loads(value) for value in args[1::2]]
+    assert overrides[0] == {"mcp_servers": {
+        "server.with.dot": {"enabled": False}, "local": {"enabled": False},
+    }}
+    assert overrides[1] == {"features": {"memories": False}}
+    assert overrides[2] == {"web_search": "disabled"}
+    assert "operator-model" not in str(args)
+    assert "fictional-private-value" not in str(args)
+    assert before == [path.read_bytes() for path in (global_path, project_path)]
+
+
+def test_codex_background_invalid_config_fails_before_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    (tmp_path / "config.toml").write_text('mcp_servers = "invalid"', encoding="utf-8")
+    with pytest.raises(ProviderError, match="Invalid Codex MCP configuration"):
+        host_cli._codex_background_overrides(tmp_path / "invocation")
+
+
+def test_codex_background_missing_toml_parser_is_a_setup_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    (tmp_path / "config.toml").write_text("", encoding="utf-8")
+
+    def unavailable(_name: str):
+        raise ModuleNotFoundError("TOML parser unavailable")
+
+    monkeypatch.setattr(host_cli.importlib, "import_module", unavailable)
+    with pytest.raises(ProviderError, match="Cannot inspect") as raised:
+        host_cli._codex_background_overrides(tmp_path / "invocation")
+    assert raised.value.kind == "setup_required"
+
+
+def test_codex_background_uses_available_tomli_backport(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import tomllib
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    (tmp_path / "config.toml").write_text(
+        '[mcp_servers.local]\ncommand="fixture"', encoding="utf-8"
+    )
+    imports: list[str] = []
+
+    def backport(name: str):
+        imports.append(name)
+        if name == "tomllib":
+            raise ModuleNotFoundError("Python predates 3.11")
+        return tomllib  # A deterministic stand-in with the backport's API.
+
+    monkeypatch.setattr(host_cli.importlib, "import_module", backport)
+    assert "local" in host_cli._codex_background_overrides(tmp_path / "call")[1]
+    assert imports == ["tomllib", "tomli"]
+
+
+@pytest.mark.parametrize("fail_at", [1, 2])
+def test_stream_allocation_failure_does_not_register_a_provider_lease(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail_at: int,
+) -> None:
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "fictional-codex-home"))
+    leases: list[str] = []
+    temporary_file = host_structured_cli.tempfile.TemporaryFile
+    calls = 0
+
+    def allocate(**kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == fail_at:
+            raise OSError("fixture allocation failed")
+        return temporary_file(**kwargs)
+
+    monkeypatch.setattr(host_structured_cli.tempfile, "TemporaryFile", allocate)
+    monkeypatch.setattr(
+        host_structured_cli, "register_provider_process_lease",
+        lambda *_args, **_kwargs: leases.append("lease"),
+    )
+    provider = HostStructuredCliProvider(host_client="codex", executable="fixture")
+    with pytest.raises(OSError, match="fixture allocation failed"):
+        provider.assimilate({}, runtime_dir=tmp_path / "runtime")
+    assert leases == []
+    assert not list((tmp_path / "runtime").iterdir())
 
 
 def _authorized_config() -> MergedConfig:

@@ -34,6 +34,9 @@ _PROMOTION_STATUS_LABELS = {
 _COMPLETION_LABELS = {
     "promoted": "形成长期记忆",
     "no_candidate": "无需长期记忆",
+    "deferred": "暂缓处理",
+    "handoff": "保留为未完成事项",
+    "conflict": "存在待解决冲突",
 }
 _EVIDENCE_BASIS_LABELS = {
     "repository": "当前项目文件",
@@ -198,7 +201,9 @@ def materialize_session_note(
 
 
 def render_session_note(job: SessionDistillJob) -> str:
-    review = dict(job.semantic_review or {})
+    from harness_mem.commands.distill_result import distill_display_review
+
+    review = distill_display_review(job)
     summary = _user_visible_text(
         review.get("session_summary") or review.get("final_user_request") or ""
     )
@@ -212,6 +217,16 @@ def render_session_note(job: SessionDistillJob) -> str:
     ]
     promotion = dict(job.promotion_summary or {})
     packet = dict(promotion.get("answer_packet") or {})
+    completion_label = _readable_label(job.completion_disposition, _COMPLETION_LABELS, "状态未知")
+    if packet.get("answer_status") in {"PARTIAL", "UNANSWERED", "CONTRADICTED", "STALE"}:
+        if promotion.get("promoted"):
+            completion_label = "部分写入，仍需处理" if unfinished else "部分内容写入长期记忆"
+        else:
+            completion_label = "未写入，仍需处理" if unfinished else "未写入长期记忆"
+    elif unfinished:
+        completion_label = "已写入，仍有未完成事项" if promotion.get("promoted") else "保留为未完成事项"
+    elif promotion.get("points") and not promotion.get("promoted"):
+        completion_label = "未新增长期记忆"
     completed = job.completed_at or datetime.now(timezone.utc)
     completed_iso = completed.isoformat()
     lines = [
@@ -239,11 +254,7 @@ def render_session_note(job: SessionDistillJob) -> str:
             "## 记忆治理结果",
             "",
             "- 结果："
-            + _readable_label(
-                job.completion_disposition,
-                _COMPLETION_LABELS,
-                "状态未知",
-            ),
+            + completion_label,
             f"- 形成长期记忆：{int(promotion.get('promoted') or 0)} 条",
             "",
             "## Answer Packet（结果校验）",

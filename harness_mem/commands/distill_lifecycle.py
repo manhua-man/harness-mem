@@ -67,6 +67,7 @@ def pending_distill_jobs(
     max_jobs: int | None = None,
     record_offer: bool = True,
     now: datetime | None = None,
+    background_only: bool = False,
 ) -> list[ReflectionJob | SessionDistillJob]:
     """Return eligible Agent work in queue order.
 
@@ -76,12 +77,22 @@ def pending_distill_jobs(
 
     current = now or datetime.now(timezone.utc)
 
+    manual_job_ids = None
+    if background_only:
+        from harness_mem.commands.manual_distill import is_manual_distill_job
+
+        manual_job_ids = {
+            job.id for job in backend.transcript_store.list_distill_jobs(project_name=project_name)
+            if is_manual_distill_job(backend, job)
+        }
+
     # Reconcile abandoned leases before lane selection. This only repairs
     # durable state; semantic work still requires the offered Agent job.
     backend.transcript_store.reconcile_distill_jobs(
         project_name=project_name,
         now=current,
         recovery_budget=3,
+        **({"manual_job_ids": manual_job_ids} if background_only else {}),
     )
     lossless_jobs: list[SessionDistillJob] = []
     for status in ("queued", "processing", "reviewing", "parked", "retryable"):
@@ -91,6 +102,10 @@ def pending_distill_jobs(
                 status=status,
             )
         )
+    if background_only:
+        from harness_mem.commands.manual_distill import is_manual_distill_job
+
+        lossless_jobs = [job for job in lossless_jobs if not is_manual_distill_job(backend, job)]
     ordered = sorted(
         [
             job

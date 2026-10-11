@@ -13,7 +13,21 @@ from harness_mem.integration.command_sync import (
     sync_host_commands,
 )
 from harness_mem.plugin_assets import REMOVED_COMMANDS
+from harness_mem.version import WIRE_FORMAT_VERSION
 from tests.support.host_contracts import HOST_COMMAND_HINT_CASES, HOST_NAMES
+
+
+def test_canonical_entry_wire_matches_runtime_before_host_rendering() -> None:
+    source = (
+        Path(__file__).resolve().parents[2]
+        / "code/plugins/harness-mem/commands/hm/hm.md"
+    )
+    front_matter = source.read_text(encoding="utf-8").split("---", 2)[1]
+    wire_lines = [
+        line.strip() for line in front_matter.splitlines()
+        if line.strip().startswith("wireFormatVersion:")
+    ]
+    assert wire_lines == [f"wireFormatVersion: {WIRE_FORMAT_VERSION}"]
 
 
 def _write_source(source_dir: Path, text: str = "# HM\n") -> None:

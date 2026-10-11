@@ -39,6 +39,7 @@ from harness_mem.commands.support import (
     normalize_client_name,
     resolve_project_context,
 )
+from harness_mem.diagnostic_events import DiagnosticRun, diagnostic_parent_id
 from harness_mem.host_entry.exit_codes import ExitCode
 from harness_mem.host_entry.output import HostEntryResult
 
@@ -533,6 +534,84 @@ def _run_adapter(args: argparse.Namespace) -> int:
 
 
 async def run(args: argparse.Namespace) -> tuple[int, str | None]:
+    """Run one Hook request and emit a content-free diagnostic lifecycle."""
+
+    from harness_mem.storage.local_memory_backend import DEFAULT_DATA_DIR
+
+    diagnostic = DiagnosticRun(
+        DEFAULT_DATA_DIR,
+        operation="hook",
+        project_name=(Path(args.project_root).resolve().name if getattr(args, "project_root", None) else None),
+        project_root=getattr(args, "project_root", None),
+parent_run_id=diagnostic_parent_id(),
+        references={
+            "trigger_id": getattr(args, "trigger_id", None),
+            "client": getattr(args, "client", None),
+            "source": getattr(args, "source", None),
+            "action": getattr(args, "action", None),
+        },
+    )
+    diagnostic.emit("accepted", "running")
+    diagnostic.emit("started", "running")
+    try:
+        with diagnostic.activate_children():
+            exit_code, payload = await _run_core(args)
+    except Exception as exc:  # pragma: no cover - defensive wrapper boundary.
+        diagnostic.emit(
+            "failed",
+            "failed",
+            error={
+                "kind": "host_entry_exception",
+                "exception_type": type(exc).__name__,
+                "message": str(exc),
+            },
+        )
+        raise
+    parsed: dict[str, Any] = {}
+    if payload:
+        try:
+            candidate = json.loads(payload)
+            if isinstance(candidate, dict):
+                parsed = candidate
+        except (TypeError, ValueError, json.JSONDecodeError):
+            parsed = {}
+    summary_value = parsed.get("summary")
+    summary: dict[str, Any] = (
+        summary_value if isinstance(summary_value, dict) else {}
+    )
+    references = {
+        key: parsed.get(key) or summary.get(key)
+        for key in ("trigger_id", "job_id", "session_id", "run_id", "dispatch_generation")
+    }
+    references = {key: value for key, value in references.items() if value is not None}
+    response_status = str(parsed.get("status") or "")
+    if exit_code != ExitCode.SUCCESS or response_status == "failed":
+        diagnostic.emit(
+            "failed",
+            "failed",
+            references=references,
+            error=(parsed.get("error") or {"kind": "hook_failed", "message": response_status}),
+        )
+    elif response_status == "skipped":
+        diagnostic.emit("skipped", "skipped", references=references)
+    elif response_status == "queued":
+        diagnostic.emit(
+            "queued",
+            "completed",
+            references=references,
+        )
+    elif response_status in {"in_progress", "deferred"}:
+        diagnostic.emit(
+            "deferred",
+            "deferred",
+            references=references,
+        )
+    else:
+        diagnostic.emit("completed", "completed", references=references)
+    return exit_code, payload
+
+
+async def _run_core(args: argparse.Namespace) -> tuple[int, str | None]:
     """Core host-entry logic. Returns ``(exit_code, stdout_json_or_None)``.
 
     This function never raises: every failure path is mapped to an exit code and

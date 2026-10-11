@@ -172,6 +172,162 @@ def test_archive_dry_run_does_not_require_enabled_or_write_ledger(tmp_path: Path
     assert not (tmp_path / "data" / "archive_distill").exists()
 
 
+@pytest.mark.parametrize("project_scope", ["current", "all", "detected"])
+def test_archive_terminal_statistics_respect_project_scope(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    project_scope: str,
+) -> None:
+    from harness_mem.commands.archive_distill import _source_revision
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    control = tmp_path / "current" / "shared-name"
+    other = tmp_path / "other" / "shared-name"
+    control.mkdir(parents=True)
+    other.mkdir(parents=True)
+    control.joinpath(".harness-mem.toml").write_text(
+        f'[archive_distill]\nproject_scope = "{project_scope}"\n',
+        encoding="utf-8",
+    )
+    archive = tmp_path / "archives"
+    data = tmp_path / "data"
+    entries = {}
+    # Both projects deliberately have the same name. A source revision and
+    # project name alone cannot bind a terminal record to the current root.
+    live_records = [
+        ("current-completed", control, control / ".." / control.name, "verified_completed"),
+        ("current-quarantined", control, control, "quarantined"),
+        ("wrong-root-live", control, other, "verified_completed"),
+        ("missing-root-live", control, None, "quarantined"),
+        ("other-live", other, other, "verified_completed"),
+        ("unresolved-live", tmp_path / "missing", None, "quarantined"),
+    ]
+    for session_id, workspace, entry_root, disposition in live_records:
+        source = _write_archive(archive, workspace, session_id)
+        entries[session_id] = {
+            "project_name": control.name,
+            "project_root": str(entry_root) if entry_root is not None else None,
+            "source_revision": _source_revision(source),
+            "disposition": disposition,
+        }
+    _write_archive(archive, control, "current-pending")
+    # Deleted sources must use the stored full root; they cannot rely on the
+    # live inventory for attribution. Keep both terminal dispositions covered.
+    for label, entry_root in [("current", control), ("other", other), ("unowned", None)]:
+        for disposition in ["verified_completed", "quarantined"]:
+            session_id = f"{label}-deleted-{disposition}"
+            source = _write_archive(archive, entry_root or control, session_id)
+            entries[session_id] = {
+                "project_name": control.name,
+                "source_revision": _source_revision(source),
+                "disposition": disposition,
+            }
+            if entry_root is not None:
+                entries[session_id]["project_root"] = str(entry_root)
+            source.unlink()
+    terminal = data / "archive_distill" / "terminal_index.json"
+    terminal.parent.mkdir(parents=True)
+    terminal.write_text(json.dumps({"version": 1, "sessions": entries}), encoding="utf-8")
+    original_index = terminal.read_bytes()
+
+    result = asyncio.run(
+        run_archive_distill_batch(
+            control_root=control,
+            apply=False,
+            archive_dir=archive,
+            data_dir=data,
+        )
+    )
+
+    if project_scope == "current":
+        assert {row["session_id"] for row in result["selected"]} == {
+            "wrong-root-live", "missing-root-live", "current-pending",
+        }
+        expected_terminal = (1, 1, 3, 0)
+        expected_lifecycle = {
+            "verified_completed": 2,
+            "quarantined": 2,
+            "pending_eligible": 3,
+            "deferred_unresolved": 0,
+            "excluded": 0,
+            "source_deleted_after_verified": 1,
+            "total": 7,
+            "conserved": True,
+        }
+    else:
+        assert [row["session_id"] for row in result["selected"]] == ["current-pending"]
+        expected_terminal = (3, 2, 1, 0)
+        expected_lifecycle = {
+            "verified_completed": 6,
+            "quarantined": 6,
+            "pending_eligible": 1,
+            "deferred_unresolved": 1,
+            "excluded": 0,
+            "source_deleted_after_verified": 3,
+            "total": 14,
+            "conserved": True,
+        }
+    assert tuple(
+        result["terminal"][key]
+        for key in ("verified_completed", "quarantined", "pending_eligible", "excluded")
+    ) == expected_terminal
+    assert result["terminal"]["inventory_total"] == (5 if project_scope == "current" else 7)
+    assert result["terminal"]["total"] == (5 if project_scope == "current" else 7)
+    assert result["inventory"]["sessions_found"] == 7
+    assert result["inventory"]["unresolved"] == 1
+    assert result["terminal"]["conserved"] is True
+    assert result["lifecycle_terminal"] == expected_lifecycle
+    assert terminal.read_bytes() == original_index
+    assert not (data / "archive_distill" / "daily").exists()
+
+
+@pytest.mark.parametrize("root_kind", ["missing", "empty", "relative", "invalid", "non_string"])
+def test_archive_current_scope_requires_absolute_terminal_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    root_kind: str,
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    control = tmp_path / "project"
+    control.mkdir()
+    monkeypatch.chdir(control)
+    control.joinpath(".harness-mem.toml").write_text(
+        '[archive_distill]\nproject_scope = "current"\n', encoding="utf-8"
+    )
+    entry = {"project_name": control.name, "disposition": "verified_completed"}
+    roots = {"empty": "", "relative": ".", "invalid": str(control) + "\0", "non_string": 42}
+    if root_kind != "missing":
+        entry["project_root"] = roots[root_kind]
+    data = tmp_path / "data"
+    terminal = data / "archive_distill" / "terminal_index.json"
+    terminal.parent.mkdir(parents=True)
+    terminal.write_text(
+        json.dumps({"version": 1, "sessions": {"unbound-deleted": entry}}),
+        encoding="utf-8",
+    )
+
+    result = asyncio.run(
+        run_archive_distill_batch(
+            control_root=control,
+            apply=False,
+            archive_dir=tmp_path / "archives",
+            data_dir=data,
+        )
+    )
+
+    assert result["selected"] == []
+    assert result["lifecycle_terminal"] == {
+        "verified_completed": 0,
+        "quarantined": 0,
+        "pending_eligible": 0,
+        "deferred_unresolved": 0,
+        "excluded": 0,
+        "source_deleted_after_verified": 0,
+        "total": 0,
+        "conserved": True,
+    }
+
+
 def test_archive_run_limits_can_be_overridden_without_editing_config(tmp_path: Path) -> None:
     control = tmp_path / "control"
     project = tmp_path / "project"
@@ -1772,3 +1928,345 @@ def test_archive_apply_releases_lock_when_backend_init_fails(
         )
 
     assert maintenance_is_locked(data_dir) is False
+
+
+@pytest.fixture
+def completed_archive(tmp_path: Path, monkeypatch):
+    """A quiet native-shaped archive with real isolated SQLite and no provider."""
+    import os
+    import time
+
+    from harness_mem.adapters.codex.archive_adapter import CodexArchiveAdapter
+    from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+
+    root = tmp_path / "project"
+    root.mkdir()
+    archive = tmp_path / ".codex" / "archived_sessions"
+    source = _write_archive(archive, root, "completed-replay")
+    os.utime(source, (time.time() - 600,) * 2)
+    data = tmp_path / "data"
+    notes = tmp_path / "notes"
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    config = MergedConfig(
+        archive_distill_enabled=True,
+        archive_distill_project_scope="current",
+        distill_autonomous_enabled=True,
+    )
+    monkeypatch.setattr("harness_mem.commands.archive_distill.load_merged_config", lambda *_: config)
+
+    def no_provider(*_args, **_kwargs):
+        pytest.fail("completed replay must not invoke a provider")
+
+    monkeypatch.setattr("harness_mem.commands.archive_distill.run_autonomous_distill_batch", no_provider)
+    backend = LocalMemoryBackend(data)
+    asyncio.run(backend.init())
+    try:
+        captured = asyncio.run(CodexArchiveAdapter(backend, archive_dir=archive).sync_session(
+            source, "completed-replay", root.name, project_root=root,
+        ))
+        job_id = captured.distill_job_id
+        for chunk, _ in backend.transcript_store.claim_distill_chunks(job_id, lease_owner="fixture", limit=None):
+            backend.transcript_store.checkpoint_distill_chunk(
+                job_id, chunk.id, lease_owner="fixture", result={"summary": "read"},
+            )
+        current = KnowledgeEntry(
+            project_name=root.name, module_path=["Testing"], title="Related tests",
+            statement="Always run the related tests for small changes.",
+            verified_at=datetime(2026, 10, 9, tzinfo=timezone.utc),
+        )
+        candidate = KnowledgeCandidate(project_name=root.name, candidate_type="rule", statement=current.statement)
+        decision = AssimilationDecision(
+            project_name=root.name, candidate_id=candidate.id, disposition="add",
+            canonical_truth_ids=[current.id], reason="Isolated archive replay fixture.",
+        )
+        store = backend.structured_store.knowledge_store
+        asyncio.run(store.save_candidate(candidate))
+        asyncio.run(store.apply_current_change(
+            candidate_before=candidate, candidate_after=candidate.model_copy(update={"status": "assimilated"}),
+            decision=decision, added_entries=[current], predecessor_entries=[],
+            source_refs_by_entry={current.id: [ProjectKnowledgeSourceRef(
+                label="Isolated archived session", target=f"session:{captured.source.id}", kind="transcript",
+            )]},
+        ))
+        asyncio.run(store.cleanup_candidate(candidate.id))
+        backend.transcript_store.finalize_distill_job(job_id, semantic_review={
+            "session_summary": "The user chose related tests as a reusable project testing rule.",
+            "final_user_request": current.statement, "final_outcome": "The testing rule was saved.",
+            "last_turn_status": "answered", "contradictions": [], "unfinished_work": [],
+            "evidence_status": "answered", "promotion_decision": "promote",
+        }, output_candidate_ids=[candidate.id])
+        packet = {
+            "answer_status": "ANSWERED", "question": "Which tests should run?",
+            "core_conclusion": current.statement, "promotion_status": "promoted",
+            "promoted_items": [{"title": current.title, "fact": current.statement, "kind": "rule", "category": "Testing"}],
+            "destination_project": root.name,
+        }
+        job = backend.transcript_store.record_distill_completion_outcome(
+            job_id, disposition="promoted", reason_codes=["durable_memory_promoted"],
+            promotion_summary={"promoted": 1, "suggested": 1, "answer_packet": packet, "points": [{
+                "candidate_id": candidate.id, "disposition": "add", "canonical_truth_ids": [current.id],
+            }]}, source_cleanup_status="retained",
+        )
+    finally:
+        asyncio.run(backend.close())
+
+    def run():
+        return asyncio.run(run_archive_distill_batch(
+            control_root=root, apply=True, verify=True, archive_dir=archive, data_dir=data, notes_dir=notes,
+        ))
+
+    return {"root": root, "archive": archive, "source": source, "data": data,
+            "notes": notes, "config": config, "job": job, "entry": current, "run": run}
+
+
+@pytest.mark.parametrize("require_packet", [True, False])
+def test_archive_replay_missing_current_keeps_source(completed_archive, monkeypatch, require_packet):
+    from dataclasses import replace
+
+    from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+
+    fixture = completed_archive
+    config = replace(fixture["config"], archive_distill_require_answer_packet=require_packet)
+    monkeypatch.setattr("harness_mem.commands.archive_distill.load_merged_config", lambda *_: config)
+    backend = LocalMemoryBackend(fixture["data"])
+    asyncio.run(backend.init())
+    try:
+        asyncio.run(backend.structured_store.knowledge_store.delete_current_entry(
+            project_name="project", entry_id=fixture["entry"].id,
+        ))
+    finally:
+        asyncio.run(backend.close())
+    before = fixture["source"].read_bytes()
+    result = fixture["run"]()
+    assert fixture["source"].read_bytes() == before
+    assert result["success"] is False
+    assert result["completed"] == result["verified_completed"] == 0
+    assert result["deferred"] == 1
+    index = json.loads(Path(result["terminal_index"]).read_text(encoding="utf-8"))
+    assert "completed-replay" not in index["sessions"]
+
+
+def test_archive_replay_unremoved_predecessor_keeps_source(completed_archive):
+    from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+
+    fixture = completed_archive
+    backend = LocalMemoryBackend(fixture["data"])
+    asyncio.run(backend.init())
+    try:
+        old = KnowledgeEntry(
+            project_name="project", module_path=["Testing"], title="Earlier testing rule",
+            statement="Previously the project ran every test for all edits.",
+            verified_at=datetime(2026, 10, 8, tzinfo=timezone.utc),
+        )
+        candidate = KnowledgeCandidate(project_name="project", candidate_type="rule", statement=old.statement)
+        store = backend.structured_store.knowledge_store
+        asyncio.run(store.save_candidate(candidate))
+        asyncio.run(store.apply_current_change(
+            candidate_before=candidate, candidate_after=candidate.model_copy(update={"status": "assimilated"}),
+            decision=AssimilationDecision(project_name="project", candidate_id=candidate.id, disposition="add",
+                                          canonical_truth_ids=[old.id], reason="Existing predecessor fixture."),
+            added_entries=[old], predecessor_entries=[], source_refs_by_entry={old.id: [ProjectKnowledgeSourceRef(
+                label="Isolated predecessor source", target=f"session:{fixture['job'].source_id}", kind="transcript",
+            )]},
+        ))
+        asyncio.run(store.cleanup_candidate(candidate.id))
+        job = fixture["job"]
+        promotion = {**job.promotion_summary, "points": [{
+            **job.promotion_summary["points"][0], "disposition": "replace", "replaced_truth_ids": [old.id],
+        }]}
+        backend.transcript_store.record_distill_completion_outcome(
+            job.id, disposition="promoted", reason_codes=job.completion_reason_codes,
+            promotion_summary=promotion, source_cleanup_status="retained",
+        )
+    finally:
+        asyncio.run(backend.close())
+    before = fixture["source"].read_bytes()
+    result = fixture["run"]()
+    assert fixture["source"].read_bytes() == before
+    assert result["completed"] == result["verified_completed"] == 0
+    assert result["success"] is False
+
+
+def test_archive_replay_note_failure_before_cleanup_keeps_source(completed_archive, monkeypatch):
+    fixture = completed_archive
+
+    def fail_note(*_args, **_kwargs):
+        raise OSError("isolated Note write failure")
+
+    monkeypatch.setattr("harness_mem.commands.archive_distill.materialize_session_note", fail_note)
+    before = fixture["source"].read_bytes()
+    result = fixture["run"]()
+    assert fixture["source"].read_bytes() == before
+    assert result["success"] is False
+    assert result["completed"] == result["verified_completed"] == 0
+    assert "isolated Note write failure" in result["outcomes"][0]["reason"]
+
+
+@pytest.mark.parametrize("protection", ["manual_only", "retain_source", "frozen_selection"])
+def test_archive_replay_manual_protection_keeps_source(completed_archive, protection):
+    from harness_mem.commands.session_inventory import session_reference
+    from harness_mem.storage.manual_batch_store import ManualBatchStore
+    from harness_mem.storage.transcript_store import TranscriptStore
+
+    fixture = completed_archive
+    ledger = TranscriptStore(fixture["data"])
+    try:
+        if protection == "manual_only":
+            ledger.reserve_manual_distill_job(fixture["job"].id)
+        elif protection == "retain_source":
+            ledger.retain_distill_source(fixture["job"].id)
+        else:
+            job = fixture["job"]
+            ManualBatchStore(fixture["data"]).create("project", str(fixture["root"]), [
+                session_reference(job.client, job.session_id, job.source_id, job.source_revision),
+            ])
+    finally:
+        ledger.close()
+    before = fixture["source"].read_bytes()
+    result = fixture["run"]()
+    assert fixture["source"].read_bytes() == before
+    assert result["success"] is True
+    assert result["verified_completed"] == 1
+
+
+@pytest.mark.parametrize("fault", ["native_changed", "ledger_changed", "receipt_mismatch"])
+def test_archive_replay_revalidates_source_and_receipt(completed_archive, monkeypatch, fault):
+    from harness_mem.adapters.codex.archive_adapter import CodexArchiveAdapter
+
+    fixture = completed_archive
+    original = CodexArchiveAdapter.sync_session
+
+    async def change_after_sync(adapter, *args, **kwargs):
+        result = await original(adapter, *args, **kwargs)
+        ledger = adapter.backend.transcript_store
+        if fault == "native_changed":
+            # Host envelope changes leave the permitted conversation unchanged.
+            with fixture["source"].open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps({"type": "turn_context", "payload": {"new": True}}) + "\n")
+        elif fault == "ledger_changed":
+            source = ledger.get_source(fixture["job"].source_id)
+            ledger.save_source(source.model_copy(update={"source_revision": "sha256:" + "0" * 64}))
+        else:
+            ledger.save_deletion_receipt({
+                "id": "unrelated-receipt", "project_name": "project", "reason": "processed_source_cleanup",
+                "kind": "processed_source_cleanup", "status": "succeeded",
+                "verification": {"passed": True}, "scope": {"job_id_sha256": "wrong-job"},
+            })
+            job = fixture["job"]
+            ledger.record_distill_completion_outcome(
+                job.id, disposition=job.completion_disposition, reason_codes=job.completion_reason_codes,
+                promotion_summary=job.promotion_summary, source_cleanup_status="retained",
+                source_cleanup_receipt_id="unrelated-receipt",
+            )
+        return result
+
+    monkeypatch.setattr(CodexArchiveAdapter, "sync_session", change_after_sync)
+    result = fixture["run"]()
+    assert fixture["source"].is_file()
+    assert result["success"] is False
+    assert result["completed"] == result["verified_completed"] == 0
+
+
+def test_archive_replay_verified_cleanup_preserves_note_identity(completed_archive):
+    fixture = completed_archive
+    result = fixture["run"]()
+    assert result["success"] is True
+    assert not fixture["source"].exists()
+    assert result["verified_completed"] == 1
+    outcome = result["outcomes"][0]
+    note = Path(outcome["note"]["path"]).read_text(encoding="utf-8")
+    assert fixture["job"].session_id in note
+    assert fixture["job"].id in note
+    assert outcome["source_revision"] == fixture["job"].source_revision
+
+
+def test_archive_deleted_receipt_cannot_verify_another_revision(completed_archive):
+    from harness_mem.commands.archive_distill import _verify_archive_distill_run
+    from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+
+    fixture = completed_archive
+    result = fixture["run"]()
+    assert result["success"] is True
+    changed = {**result, "outcomes": [{**result["outcomes"][0], "source_revision": "sha256:another-revision"}]}
+    backend = LocalMemoryBackend(fixture["data"])
+    asyncio.run(backend.init())
+    try:
+        verification = asyncio.run(_verify_archive_distill_run(backend, result=changed))
+    finally:
+        asyncio.run(backend.close())
+    assert verification["status"] == "partial"
+    assert "source_revision_matches" in verification["outcomes"][0]["failed_checks"]
+
+
+@pytest.mark.parametrize("changed_envelope", [False, True])
+def test_archive_deleted_receipt_reintroduced_live_source_is_revalidated(completed_archive, changed_envelope):
+    from harness_mem.commands.archive_distill import _source_revision, _verify_archive_distill_run
+    from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+
+    fixture = completed_archive
+    original_bytes = fixture["source"].read_bytes()
+    result = fixture["run"]()
+    assert result["success"] is True
+    assert not fixture["source"].exists()
+    restored_bytes = original_bytes
+    if changed_envelope:
+        restored_bytes += (json.dumps({"type": "turn_context", "payload": {"restored": True}}) + "\n").encode()
+    fixture["source"].write_bytes(restored_bytes)
+    assert _source_revision(fixture["source"]) == fixture["job"].source_revision
+    backend = LocalMemoryBackend(fixture["data"])
+    asyncio.run(backend.init())
+    try:
+        verification = asyncio.run(_verify_archive_distill_run(backend, result=result))
+    finally:
+        asyncio.run(backend.close())
+    assert verification["status"] == "partial"
+    checks = verification["outcomes"][0]["checks"]
+    assert checks["source_binding_valid"] is False
+    assert checks["source_cleanup_verified"] is False
+    assert fixture["source"].read_bytes() == restored_bytes
+
+
+def test_archive_replay_exception_after_cleanup_uses_frozen_revision(completed_archive, monkeypatch):
+    from harness_mem.mcp import distill_handlers
+
+    fixture = completed_archive
+    original = distill_handlers._cleanup_completed_distill_source
+
+    def cleanup_then_interrupt(*args, **kwargs):
+        original(*args, **kwargs)
+        assert not fixture["source"].exists()
+        raise RuntimeError("interrupted after native cleanup")
+
+    monkeypatch.setattr(distill_handlers, "_cleanup_completed_distill_source", cleanup_then_interrupt)
+    result = fixture["run"]()
+    assert result["success"] is False
+    assert result["completed"] == result["verified_completed"] == 0
+    assert result["deferred"] == 1
+    assert "interrupted after native cleanup" in result["outcomes"][0]["reason"]
+    index = json.loads(Path(result["terminal_index"]).read_text(encoding="utf-8"))
+    assert index["attempts"]["completed-replay"]["source_revision"] == fixture["job"].source_revision
+
+
+@pytest.mark.parametrize("disposition", ["verified_completed", "quarantined"])
+def test_archive_revision_change_has_one_current_lifecycle_state(tmp_path, monkeypatch, disposition):
+    root = tmp_path / "project"
+    root.mkdir()
+    _write_archive(tmp_path / "archives", root, "changed-source")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    monkeypatch.setattr("harness_mem.commands.archive_distill.load_merged_config",
+                        lambda *_: MergedConfig(archive_distill_project_scope="current"))
+    index = tmp_path / "data" / "archive_distill" / "terminal_index.json"
+    index.parent.mkdir(parents=True)
+    index.write_text(json.dumps({"version": 1, "sessions": {"changed-source": {
+        "project_name": root.name, "project_root": str(root),
+        "source_revision": "sha256:old-revision", "disposition": disposition,
+    }}}), encoding="utf-8")
+    before = index.read_bytes()
+    result = asyncio.run(run_archive_distill_batch(
+        control_root=root, apply=False, archive_dir=tmp_path / "archives", data_dir=tmp_path / "data",
+    ))
+    for counts in (result["terminal"], result["lifecycle_terminal"]):
+        assert counts["verified_completed"] == counts["quarantined"] == 0
+        assert counts["pending_eligible"] == counts["total"] == 1
+        assert counts["conserved"] is True
+    assert index.read_bytes() == before
