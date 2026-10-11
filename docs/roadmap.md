@@ -246,6 +246,11 @@ the same three initial knowledge items, separates evaluator answers from both
 execution roots, and preserves native tool calls and pre-close artifacts. Both
 products retain their own verification and storage rules; only source/output
 paths are adapted. It is not a second public runtime or a quality result.
+Public wrapper tests create their own disposable source directories and do not
+depend on ignored experiment files. The two no-model native upstream integration
+tests require `HARNESS_MEM_TEST_UPSTREAM_ROOT` to point to an existing absolute
+clone path below the repository's `.tmp`; without that explicit input they report
+a skip, not an upstream pass. Tests neither download nor modify that clone.
 Answer files are excluded from supplied inputs, but the Agent's terminal is not
 proven to have OS-enforced read isolation; record actual access and possible
 contamination before making a semantic comparison claim. Preflight success

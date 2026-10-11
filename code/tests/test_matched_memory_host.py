@@ -1,4 +1,8 @@
-"""No model calls; exercise the development wrapper in disposable repo fixtures."""
+"""No-model wrapper contracts using disposable, self-contained fixtures.
+
+The two native upstream integration tests require HARNESS_MEM_TEST_UPSTREAM_ROOT
+to name an existing absolute clone path below REPO/.tmp. They never download it.
+"""
 
 from __future__ import annotations
 
@@ -16,7 +20,6 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 SCRIPT = REPO / "code" / "scripts" / "matched_memory_host.py"
-UPSTREAM = REPO / ".tmp" / "quality-compare-20261007" / "upstream"
 spec = importlib.util.spec_from_file_location("matched_memory_host_test", SCRIPT)
 host = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(host)
@@ -29,6 +32,8 @@ def experiment():
     run = Path(tempfile.mkdtemp(prefix="matched-host-fixture-", dir=temp_root)).resolve()
     project = run / "project"
     project.mkdir()
+    upstream = run / "upstream-source"
+    upstream.mkdir()  # Scope/HM contracts do not execute upstream code.
     (project / ".harness-mem.toml").write_text("[distill.autonomous]\nenabled = false\n", encoding="utf-8")
     sid = str(uuid4())
     source = run / "native-codex" / "sessions" / "2026" / "10" / "07" / f"rollout-2026-10-07-{sid}.jsonl"
@@ -45,7 +50,7 @@ def experiment():
         "schema_version": 1, "run_root": str(run), "project_root": str(project),
         "project_name": "project", "native_root": str(run / "native-codex"),
         "data_dir": str(run / "isolateddata"), "notes_dir": str(run / "isolatednotes"),
-        "audit_path": str(run / "audit" / "calls.ndjson"), "upstream_root": str(UPSTREAM),
+        "audit_path": str(run / "audit" / "calls.ndjson"), "upstream_root": str(upstream),
         "upstream_distill": str(run / "upstream-distill"), "kb_file": str(run / "kb.md"),
         "session_ids": [sid],
     }
@@ -54,6 +59,19 @@ def experiment():
     yield payload, manifest_path, source
     assert host.within(run.resolve(), temp_root.resolve()) and run != temp_root
     shutil.rmtree(run)
+
+
+@pytest.fixture
+def native_upstream_experiment(experiment):
+    configured = os.environ.get("HARNESS_MEM_TEST_UPSTREAM_ROOT")
+    if not configured:
+        pytest.skip("native upstream integration requires HARNESS_MEM_TEST_UPSTREAM_ROOT")
+    rewrite(experiment, upstream_root=configured)
+    manifest = host.Manifest(experiment[1])
+    adapter = (manifest.paths["upstream_root"] / "adapters" /
+               "codex-session-distill" / "bin" / "session-distill.py")
+    assert adapter.is_file(), "configured upstream clone is missing its native adapter"
+    return experiment
 
 
 def invoke(experiment, mode="hm", args=(), requests=()):
@@ -81,6 +99,19 @@ def test_manifest_rejects_escape(experiment, field):
     rewrite(experiment, **{field: str(REPO / "outside-experiment")})
     with pytest.raises(host.ScopeError):
         host.Manifest(experiment[1])
+
+
+def test_scope_contracts_need_no_upstream_source(experiment):
+    manifest = host.Manifest(experiment[1])
+    assert list(manifest.paths["upstream_root"].iterdir()) == []
+    assert host.upstream_command(manifest, ["index"]) == ("index", [])
+
+
+def test_manifest_rejects_missing_upstream_directory(experiment):
+    payload, path, _ = experiment
+    rewrite(experiment, upstream_root=str(Path(payload["run_root"]) / "missing-upstream"))
+    with pytest.raises(host.ScopeError, match="upstream_root must exist"):
+        host.Manifest(path)
 
 
 def test_manifest_requires_disabled_background_and_absolute_paths(experiment):
@@ -230,12 +261,15 @@ def test_hm_source_pages_delegate_complete_native_revision(experiment):
     ["deep", "--force-bundle"], ["deep", "--batch-size", "3"],
 ])
 def test_upstream_dangerous_and_unknown_commands_rejected(experiment, args):
+    with pytest.raises(host.ScopeError) as rejection:
+        host.upstream_command(host.Manifest(experiment[1]), args)
     result = invoke(experiment, mode="upstream", args=args)
-    assert result.returncode == 2
+    assert result.returncode == 2 and str(rejection.value) in result.stderr
     assert not Path(experiment[0]["upstream_distill"]).exists()
 
 
-def test_upstream_native_prepare_deep_close_preserves_evidence_and_sources(experiment):
+def test_upstream_native_prepare_deep_close_preserves_evidence_and_sources(native_upstream_experiment):
+    experiment = native_upstream_experiment
     payload, _, source = experiment
     original = source.read_bytes()
     sid = payload["session_ids"][0]
@@ -270,7 +304,8 @@ def test_upstream_native_prepare_deep_close_preserves_evidence_and_sources(exper
     assert source.read_bytes() == original
 
 
-def test_upstream_rejects_poisoned_persisted_path(experiment):
+def test_upstream_rejects_poisoned_persisted_path(native_upstream_experiment):
+    experiment = native_upstream_experiment
     payload, _, _ = experiment
     result = invoke(experiment, mode="upstream", args=["index"])
     assert result.returncode == 0, result.stderr
