@@ -4,7 +4,7 @@
 
 <h1 align="center">harness-mem</h1>
 
-<p align="center"><strong>Local project memory for AI Agents.</strong></p>
+<p align="center"><strong>A local memory engine for AI Agents.</strong></p>
 
 <p align="center"><a href="README.zh-CN.md">简体中文</a></p>
 
@@ -16,8 +16,13 @@
 
 Your Agent can read the repository, but it does not automatically retain what
 mattered in earlier conversations or what still needs attention. `harness-mem`
-keeps reusable project knowledge locally, so it can be found later without
-turning your workflow into a second knowledge application.
+keeps useful knowledge locally so Agents can recall and correct it, without
+asking you to manage projects or directories.
+
+The unreleased working tree supports one selected-device batch across sessions
+with different, missing or absent workspace directories. Directories are optional
+context, not intake prerequisites. Per-point verification, SQLite writes and
+ordinary-search readback remain required. Installation does not process old sessions.
 
 Unreleased working-tree intake improvements retain short sessions by default.
 Cursor supports exported JSONL and read-only native SQLite inspection covered
@@ -25,8 +30,24 @@ by isolated fixtures; this does not establish support for every live database
 format. Blank sources, unreadable files and completed organization are distinct.
 
 In the unreleased working tree, an organization result includes the saved
-knowledge itself, not only its count. Ask `hm` to show what the project remembers
-to read all current knowledge by module; ordinary searches stay compact.
+knowledge itself, not only its count. Ask `hm` to show what it remembers
+to read current knowledge; ordinary searches stay compact. You can optionally
+ask for one project's knowledge grouped by module.
+
+The unreleased reading update returns short facts directly and provides a
+continuation call for larger results. The Agent follows it as needed, or reads
+every page when asked to show all memory. Long entries remain available in full.
+Taskless startup shows memory availability; task-aware recall selects relevant
+facts. Response size uses the existing wake/search settings and counts the
+complete output, including automatic-recall feedback fields.
+
+The approved unreleased default is recall across **all projects**: ordinary
+search, session-start `wake`, and automatic task-aware search use current
+SQLite knowledge without locking recall to the active workspace. Project
+information is optional context or an explicit filter. Raw conversations,
+job material and legacy rows remain excluded. Current source and live MCP
+inventory/search/wake checks passed on 2026-10-12. Published `0.9.28` does
+not include this default change.
 
 ## Start here
 
@@ -53,8 +74,15 @@ After Quickstart confirms the entry is installed, start a new Agent task. If
 harness-mem tools are already available, use `hm`. Otherwise, ask the Agent,
 MCP Router, plugin, or existing setup tool that manages your MCP connection to
 connect harness-mem using [MCP setup](docs/mcp-setup.md). Do not add a second
-connection when a Router or plugin already provides it. Use `hm` in any project;
-the first use in each project prepares that project and its Hooks.
+connection when a Router or plugin already provides it. Search and manual
+session processing need no project setup or Hooks. Request automatic recording
+when you want that workspace's Hooks prepared.
+
+All seven supported hosts remain product targets, not just Codex. Unreleased
+Hook repairs register Claude Code/Cursor events and pass native session IDs
+through Claude Code, Cursor, Grok and OpenCode. See the
+[adapter matrix](docs/ide-hook-adapter-matrix.md) for requirements and the
+separate fixture versus live-application evidence.
 The package is distributed through GitHub Releases, not PyPI.
 
 For optional local vector or hybrid search, install `"harness-mem[hybrid]==0.9.28"`
@@ -84,8 +112,9 @@ model connection, or internal workflow.
 
 Use ordinary language: you do not need to understand internal components or
 supply, copy, or manage memory IDs. Describe a correction or deletion
-by title or content. The Agent finds and verifies the target in the current
-project using references returned by tools; it must not guess IDs. If your words
+by title or content. The Agent finds the target across current memory, then
+verifies its stored context and tool-returned references before changing it;
+it must not guess IDs. If your words
 do not identify one target uniquely, it keeps the existing memory and explains
 what it cannot determine using readable titles or content.
 
@@ -108,9 +137,33 @@ harness-mem reports that instead of silently using a different one.
 
 The unreleased working tree adds read-only session inventory, complete source
 paging and an Agent-proposed theme overview checked against source coverage.
-Explicit manual organization freezes the selected project and source revisions
-in a resumable batch. The current Agent performs the work independently of the
-background CLI; batch completion does not automatically delete sources.
+The Agent derives the caller's workspace from its native task context, not the
+MCP Router's working directory. For automatic discovery, `inspect_sessions {}`
+first returns a metadata-only project summary and session counts across Claude
+Code, Codex, Cursor, Grok, Hermes, OpenCode and Antigravity native adapters.
+The Agent uses returned source information internally to inspect the requested
+scope; users need not supply directories or IDs. Project profiles are optional
+context labels, not an authority over names or directories. Old directories in
+transcript records never reserve a project name or force a rename. Two roots
+with the same basename may use the same label; their selected sessions and
+frozen batches remain separate for file and source validation. Users do not
+manage directory moves, retirement or name reservations. Discovery neither
+imports old sessions nor enables background processing.
+
+Explicit manual organization freezes the selected session scope and source
+revisions in a resumable batch after independently revalidating the selected
+full sources.
+Resume derives scope from the frozen batch, without asking users to re-enter
+directories or IDs or including newly discovered sessions. The current Agent
+performs the work independently of the background CLI; batch completion does
+not automatically delete sources.
+
+The automatic-project probe exercises the actual MCP dispatcher, native formats,
+SQLite, Notes and ordinary search with deterministic Agent decisions. The
+current revision passed 772 focused tests and five isolated outcome checks;
+live MCP inventory, ordinary search and wake were checked separately. Fixture
+results do not prove seven live apps, models or Hooks. The global host entry
+was not synchronized in this run because user directories were out of scope.
 See [MCP setup](docs/mcp-setup.md#session-inspection-and-manual-batches-unreleased)
 for the inspection, preparation and retry contract. These additions are not
 included in the published `0.9.28` artifacts.
@@ -128,6 +181,10 @@ The current development tree exposes 20 MCP tools: the previous 19 plus
 `inspect_sessions`. Automatic Dream scheduling remains internal to Hooks
 and maintenance, not a public MCP tool. Automatic retrieval returns each memory
 once; source checks, recovery tools, and retrieval feedback remain available.
+Existing SQLite `project_name` fields remain for compatibility; this change
+does not migrate or reclassify real memory. Source access still requires
+permission and complete validation within the selected scope, even though
+default memory recall spans projects.
 
 Project memory is local by default. Evidence is checked before durable knowledge
 is changed, and uncertain or unsafe source cleanup remains opt-in. Read the

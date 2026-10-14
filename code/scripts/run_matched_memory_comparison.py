@@ -286,10 +286,13 @@ def instruction_files(product: str, manifest: dict) -> list[Path]:
 def daily_reply_instructions() -> str:
     """Consume the canonical entry even when the Agent cannot start a terminal."""
     text = (REPO_ROOT / "code/plugins/harness-mem/commands/hm/hm.md").read_text(encoding="utf-8")
-    marker = "默认回复只说实际结果："
+    marker = "## 结果与失败"
     if marker not in text:
         raise ValueError("canonical hm reply instructions are missing")
-    return marker + text.split(marker, 1)[1].split("多场处理中", 1)[0]
+    instructions = text.split(marker, 1)[1].split("\n## ", 1)[0].strip()
+    if not instructions:
+        raise ValueError("canonical hm reply instructions are missing")
+    return marker + "\n\n" + instructions
 
 
 def workflow_prompt(product: str, manifest_path: Path, *, preflight: bool) -> str:
@@ -302,6 +305,24 @@ def workflow_prompt(product: str, manifest_path: Path, *, preflight: bool) -> st
                "任一次读取失败就停止，不自动重试、不换入口、不开始整理。\n"
                + "\n".join(str(path) for path in files) + "\n")
     reply_rules = daily_reply_instructions() + "\n" if product == "harness-mem" else ""
+    if manifest.get("device_scope") and product == "harness-mem":
+        if preflight:
+            return (reply_rules + reading + "This is a read-only device-source availability check. Use only matched_hm. "
+                    f"Call inspect_sessions(clients=['codex']) without project_root; verify exactly {len(manifest['session_ids'])} fixed sessions, "
+                    "then fully read each through inspect_sessions(action='source') without a directory. "
+                    "No prepare/govern/finalize/get_project_status or configuration changes. "
+                    "Reply exactly PREFLIGHT_OK only if every mandatory terminal read and complete source read succeeds; otherwise stop and explain in Chinese.")
+        return (reply_rules + reading
+                + f"整理此隔离设备提供的全部 {len(manifest['session_ids'])} 场虚构会话。范围已明确，不需确认。"
+                "使用 matched_hm 唯一隔离 MCP，先 inspect_sessions(clients=['codex'])，不传 project_root。"
+                "使用 scope=all、返回的 batch_sessions 固定同一批次，逐场完整读取、提取独立点、核对原话、"
+                "与全部当前知识对照、通过 govern_memory 和 finalize_session_distill 实际提交，再普通搜索回读。"
+                "后续只传 batch_id 继续。目录缺失或没有目录不是失败；本次不需要任何工程设置。"
+                "明确的未来用户偏好用 user_statement 原话和真实 exchange digest 验证；不要凭模型自报verified。"
+                "未完成工作单独保留，不当作长期记忆。来源不能删除、后台不能开启。"
+                "不得读取真实历史、私有记忆、其他实验、全局配置，不调用网络或其他MCP，不委派。"
+                "不使用终端替代记忆写入；终端只读取上述说明。"
+                "最后用中文直接展示实际保存内容、没记原因和未完成事项，不只报数量；失败停止不重试。")
     if preflight:
         if product == "harness-mem":
             return (reply_rules + reading + "This is a read-only availability check, not distillation. Call the matched_hm "
@@ -406,13 +427,15 @@ def run_cli(product: str, manifest_path: Path, config: dict, *, preflight: bool,
                         and event.get("item", {}).get("type") == "command_execution"
                         and (event["item"].get("status") == "failed"
                              or event["item"].get("exit_code") != 0)]
-    okay = okay and reads_verified and not command_failures
+    product_failures = failed_mcp_results(events)
+    okay = okay and reads_verified and not command_failures and not product_failures
     if preflight:
         okay = okay and preflight_verified(reply, product, manifest_path, events_path=log)
     result = {"status": "passed" if okay else "failed", "phase": phase,
               "return_code": process.returncode, "timed_out": timed_out,
               "instruction_reads_verified": reads_verified,
               "failed_terminal_calls": len(command_failures),
+              "failed_product_calls": len(product_failures),
               "product_completion_verified": False,
               "workflow_seconds": elapsed, "usage": usage, "command": command,
               "configuration": config, "events_path": str(log), "reply_path": str(output),
@@ -424,6 +447,28 @@ def run_cli(product: str, manifest_path: Path, config: dict, *, preflight: bool,
     print(json.dumps({"product": product, "phase": phase, "status": result["status"],
                       "seconds": round(elapsed, 3), "usage": usage}), flush=True)
     return result
+
+
+def failed_mcp_results(events: list[dict]) -> list[dict]:
+    """A successful transport or CLI exit cannot turn a rejected write into success."""
+    failed = []
+    for event in events:
+        item = event.get("item", {})
+        if event.get("type") != "item.completed" or item.get("type") != "mcp_tool_call":
+            continue
+        rejected = bool(item.get("error")) or item.get("status") != "completed"
+        for content in (item.get("result") or {}).get("content", []):
+            if content.get("type") != "text":
+                continue
+            try:
+                value = json.loads(content.get("text", ""))
+            except (ValueError, TypeError):
+                continue
+            if isinstance(value, dict) and value.get("success") is False:
+                rejected = True
+        if rejected:
+            failed.append(item)
+    return failed
 
 
 async def collect_hm(manifest: dict) -> dict:
@@ -501,6 +546,40 @@ def preflight_verified(reply: str, product: str, manifest_path: Path, *, events_
     if not instruction_reads_verified(product, manifest_path, events_path):
         return False
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("device_scope") and product == "harness-mem":
+        audit = Path(manifest["audit_path"])
+        if not audit.is_file():
+            return False
+        calls = [json.loads(line) for line in audit.read_text(encoding="utf-8").splitlines()]
+        observed = []
+        for line in events_path.read_text(encoding="utf-8").splitlines():
+            event = json.loads(line)
+            item = event.get("item", {})
+            if (event.get("type") == "item.completed" and item.get("type") == "mcp_tool_call"
+                    and item.get("server") == "matched_hm" and item.get("tool") == "inspect_sessions"
+                    and item.get("status") == "completed" and not item.get("error")):
+                for content in (item.get("result") or {}).get("content", []):
+                    if content.get("type") == "text":
+                        observed.append(json.loads(content["text"]))
+        ready = set()
+        discovered = False
+        for call in calls:
+            params = call.get("params", {})
+            arguments = params.get("arguments", {})
+            if params.get("name") != "inspect_sessions" or arguments.get("project_root"):
+                return False
+            for content in call.get("response", {}).get("result", {}).get("content", []):
+                if content.get("type") != "text":
+                    continue
+                value = json.loads(content["text"])
+                if value.get("success") is not True or value not in observed:
+                    return False
+                if arguments.get("action", "inventory") == "inventory":
+                    discovered = (value.get("scope") == "all" and
+                                  {row.get("session_id") for row in value.get("sessions", [])} == set(manifest["session_ids"]))
+                elif arguments.get("action") == "source" and value.get("revision_verified") and value.get("complete"):
+                    ready.add(value.get("verified_session", {}).get("session_id"))
+        return discovered and ready == set(manifest["session_ids"])
     if product == "harness-mem":
         inventories = []
         for line in events_path.read_text(encoding="utf-8").splitlines():

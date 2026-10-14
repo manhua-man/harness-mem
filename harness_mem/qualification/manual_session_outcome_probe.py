@@ -14,7 +14,7 @@ from uuid import NAMESPACE_URL, uuid5
 from harness_mem.adapters.cursor.adapter import CursorAdapter
 from harness_mem.autonomous.worker import run_autonomous_distill_batch
 from harness_mem.config.merge import MergedConfig
-from harness_mem.mcp import governance_handlers, tool_handlers
+from harness_mem.mcp import distill_handlers, governance_handlers, tool_handlers
 from harness_mem.mcp.session_handlers import tool_inspect_sessions
 from harness_mem.mcp.distill_projection import render_distill_exchange_windows
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
@@ -28,13 +28,6 @@ def _review(packet: dict, *, promote: bool) -> dict:
         "contradictions": [], "unfinished_work": [], "evidence_status": "answered",
         "promotion_decision": "promote" if promote else "no_promotion",
     }
-    if not promote:
-        template = packet["zero_candidate_challenge_template"]
-        result["zero_candidate_challenge"] = {
-            **template, "evidence_fidelity": "complete", "future_utility": "session_only",
-            "conclusion": "no_durable_candidate", "rationale": "Only greetings, with no reusable decision.",
-            "checks": {key: "absent" for key in template["checks"]},
-        }
     return result
 
 
@@ -166,6 +159,11 @@ def run_manual_session_outcome_probe() -> dict:
                 output_chars += len(json.dumps(suggested))
             final = tool_handlers.tool_finalize_session_distill("project", job.id, semantic)
             assert final["success"], final
+            completed_job = backend.transcript_store.get_distill_job(job.id)
+            assert completed_job is not None
+            promotion = completed_job.promotion_summary
+            answer_packet = promotion["answer_packet"]
+            summary = distill_handlers._session_summary_payload(completed_job)
             if promote:
                 visible_completion = final.get("knowledge_changes") == [{
                     "change": "added", "module": ["cache"],
@@ -178,32 +176,34 @@ def run_manual_session_outcome_probe() -> dict:
             note_hashes_match &= hashlib.sha256(note_path.read_bytes()).hexdigest() == final["note"]["sha256"]
             if job.session_id == "preference":
                 author_derived_preference_saved = (
-                    final["answer_packet"]["answer_status"] == "ANSWERED"
+                    answer_packet["answer_status"] == "ANSWERED"
                     and bool(final["knowledge_changes"])
                     and preference in final["knowledge_changes"][0]["statement"]
                 )
             elif job.session_id == "deferred":
-                deferred_work_visible = bool(final["unfinished_work"]) and any(
+                deferred_work_visible = final.get("organization_status") == "partial" and bool(final["unfinished_work"]) and any(
                     preference in item for item in final["unfinished_work"]
                 )
                 runtime_summary_consistent = (
-                    final["completion"]["disposition"] in {"deferred", "conflict"}
+                    completed_job.completion_disposition in {"deferred", "conflict"}
                     and "已验证并记住全部偏好" not in note_text
                     and "无需长期记忆" not in note_text
-                    and final["session_summary"]["unfinished_work"] == final["unfinished_work"]
+                    and summary["unfinished_work"] == final["unfinished_work"]
                 )
             elif job.session_id == "no-write":
                 no_write_result_consistent = (
-                    final["answer_packet"]["answer_status"] == "ANSWERED"
+                    answer_packet["answer_status"] == "ANSWERED"
                     and not final["knowledge_changes"]
                     and "已验证并记住全部偏好" not in note_text
-                    and final["session_summary"]["final_outcome"] == "本次未新增或替换长期记忆。"
+                    and summary["final_outcome"] == "本次未新增或替换长期记忆。"
                 )
-            assert final["source_cleanup"]["status"] == "retained", final
+            assert completed_job.retain_source
+            assert all(path.read_bytes() == content for path, content in original.items())
             finalize_chars += len(json.dumps(final))
             # Replay the previous response projection on these same results:
             # its nested promotion repeated the top-level Answer Packet.
-            prior_projection = {**final, "promotion": {**final["promotion"], "answer_packet": final["answer_packet"]}}
+            prior_projection = {**final, "promotion": promotion, "answer_packet": answer_packet,
+                                "session_summary": summary}
             prior_projection_chars += len(json.dumps(prior_projection))
             packet = tool_handlers.tool_prepare_session_distill(project_name="project", project_root=str(project), batch_id=batch_id)
             calls += 2
@@ -213,7 +213,7 @@ def run_manual_session_outcome_probe() -> dict:
         backend = LocalMemoryBackend(data)
         asyncio.run(backend.init())
         retrieved = tool_handlers.tool_search_memory(query="verified current cache", project_name="project")
-        current_view = tool_handlers.tool_search_memory(query="", project_name="project")
+        current_view = tool_handlers.tool_search_memory(query="", project_name="project", scope="project")
         preference_readback = tool_handlers.tool_search_memory(query="Audit presentation", project_name="project")
         report = tool_inspect_sessions(str(project), batch_id=batch_id)
         repeated = tool_handlers.tool_prepare_session_distill(
@@ -239,6 +239,10 @@ def run_manual_session_outcome_probe() -> dict:
             ),
             "author_derived_preference_saved": author_derived_preference_saved and preference in json.dumps(preference_readback),
             "deferred_work_visible": deferred_work_visible and bool(report["unfinished_work"]),
+            "unfinished_organization_is_partial": (
+                report.get("organization_status") == "partial"
+                and repeated.get("organization_status") == "partial"
+            ),
             "runtime_summary_consistent": runtime_summary_consistent,
             "no_write_result_consistent": no_write_result_consistent,
             "new_batch_preserves_handoff": (repeated.get("status") == "completed"

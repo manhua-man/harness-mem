@@ -75,6 +75,21 @@ _RUNTIME_SOURCE_FILES = (
     Path(__file__).parents[1] / "adapters" / "snapshot.py",
     Path(__file__).parents[1] / "adapters" / "codex" / "adapter.py",
     Path(__file__).parents[1] / "adapters" / "codex" / "archive_adapter.py",
+    Path(__file__).parents[1] / "adapters" / "source_metadata.py",
+    Path(__file__).parents[1] / "adapters" / "source_inspection.py",
+    Path(__file__).parents[1] / "adapters" / "protocol.py",
+    Path(__file__).parents[1] / "capture_policy.py",
+    Path(__file__).parents[1] / "config" / "merge.py",
+    Path(__file__).parents[1] / "adapters" / "claude_code" / "adapter.py",
+    Path(__file__).parents[1] / "adapters" / "cursor" / "adapter.py",
+    Path(__file__).parents[1] / "adapters" / "cursor" / "sqlite_history.py",
+    Path(__file__).parents[1] / "adapters" / "grok" / "adapter.py",
+    Path(__file__).parents[1] / "adapters" / "hermes" / "adapter.py",
+    Path(__file__).parents[1] / "adapters" / "opencode" / "adapter.py",
+    Path(__file__).parents[1] / "adapters" / "antigravity" / "adapter.py",
+    Path(__file__).parents[1] / "commands" / "session_inventory.py",
+    Path(__file__).parents[1] / "commands" / "session_overview.py",
+    Path(__file__).parents[1] / "mcp" / "session_handlers.py",
     Path(__file__).parents[1] / "rust_core.py",
     Path(__file__).parents[1] / "commands" / "distill_result.py",
     Path(__file__).parents[1] / "commands" / "manual_distill.py",
@@ -94,6 +109,8 @@ _RUNTIME_SOURCE_FILES = (
     Path(__file__).parents[1] / "core" / "schemas" / "knowledge.py",
     Path(__file__).parents[1] / "session_notes.py",
     Path(__file__).parents[2] / "code" / "plugins" / "harness-mem" / "commands" / "hm" / "hm.md",
+    Path(__file__).parents[2] / "code" / "tools" / "hm-distill" / "SKILL.md",
+    Path(__file__).parents[2] / "code" / "tools" / "hm-distill" / "references" / "distillation-rules.md",
 )
 
 
@@ -1738,6 +1755,9 @@ def _assimilate_with_schema_retry(
             if validate_decision is not None:
                 try:
                     validate_decision(result.decision)
+                    _validate_verified_source_clause_grouping(
+                        result.decision, manifest=manifest
+                    )
                 except ValueError as exc:
                     if attempt < 2:
                         current_manifest = {
@@ -1774,6 +1794,9 @@ def _assimilate_with_schema_retry(
                     if repaired is not None:
                         try:
                             validate_decision(repaired)
+                            _validate_verified_source_clause_grouping(
+                                repaired, manifest=manifest
+                            )
                         except ValueError:
                             pass
                         else:
@@ -1792,6 +1815,57 @@ def _assimilate_with_schema_retry(
             kind="unrecoverable",
         )
     raise AssertionError("assimilation retry loop did not return")
+
+
+def _validate_verified_source_clause_grouping(
+    decision: AssimilationDecision, *, manifest: dict[str, Any]
+) -> None:
+    """Catch literal recombination of separate verified obligations.
+
+    Structural prose validation deliberately does not judge atomicity. This
+    bounded check only recognizes copied source clauses with their own modals;
+    it does not infer facts from punctuation or split provider paraphrases.
+    Related alternatives and overlapping clauses stay with the Agent.
+    """
+
+    sources = {
+        str(item.get("candidate_id") or ""): str(item.get("statement") or "")
+        for item in manifest.get("verified_candidates") or []
+        if isinstance(item, dict)
+    }
+    for point in decision.points:
+        if point.disposition not in {"add", "refine", "replace"}:
+            continue
+        clauses = _split_verified_source_clauses(sources.get(point.candidate_id, ""))
+        if len(clauses) < 2 or _source_clauses_have_overlapping_identifiers(clauses):
+            continue
+        subjects = [re.match(r"^(.+?)(?:必须|应当|应该|应|须)", clause) for clause in clauses]
+        if all(subjects) and len({match.group(1).strip() for match in subjects if match}) == 1:
+            # Repeated Chinese subjects may describe one shared contract, just
+            # like overlapping English identifiers. Independence is ambiguous.
+            continue
+        if any(
+            not re.search(r"必须|应当|应该|应|须|\b(?:must|should|required to)\b", clause, re.I)
+            or re.search(
+                r"^(?:如果|否则|若|当)|或者|否则|\b(?:if|when|unless|otherwise|else|either|or)\b",
+                clause,
+                re.I,
+            )
+            for clause in clauses
+        ):
+            continue
+        statements = (
+            [item.statement for item in point.knowledge_items]
+            if point.knowledge_items
+            else [str(point.canonical_statement or "")]
+        )
+        for statement in statements:
+            copied = set(_split_verified_source_clauses(statement)) & set(clauses)
+            if len(copied) > 1:
+                raise ValueError(
+                    "canonical knowledge combines independent obligations copied "
+                    "from the verified candidate; split them into knowledge_items"
+                )
 
 
 def _repair_invalid_writing_with_source_clauses(
@@ -1906,6 +1980,10 @@ def _source_clauses_have_overlapping_identifiers(clauses: list[str]) -> bool:
 def _split_verified_source_clauses(source: str) -> list[str]:
     """Split only explicit source conjunctions while retaining their shared subject."""
 
+    if re.search(r"之一|任选|任一|(?:二|两|三|多)选一|\bone of\b|\bat least one\b", source, re.I):
+        # Alternatives govern the entire checklist. Expanding its conjunctions
+        # could turn an optional branch into an unsupported mandatory fact.
+        return [source.strip(" \t\r\n,，。")] if source.strip() else []
     clauses = [
         clause.strip(" \t\r\n,，。")
         for clause in source.replace("；", ";").split(";")

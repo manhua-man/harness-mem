@@ -1,16 +1,30 @@
 {
   "name": "wake",
-  "description": "Return current project memory and whether maintenance is waiting.",
+  "description": "Return relevant current memory across all projects and whether current-context maintenance is waiting. Without a task, return availability and a reading call rather than the whole library. Larger task results include a search_memory continuation call.",
   "inputSchema": {
     "type": "object",
     "properties": {
       "project_name": {
         "type": "string",
-        "description": "Project name (defaults to active project when omitted)"
+        "description": "Optional current-task context; it does not restrict the default memory search."
       },
       "current_task": {
         "type": "string",
         "description": "Optional current task used to build a task-aware wake packet."
+      },
+      "budget_tokens": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Size of the complete wake response. Omit to use cost_budget.wake_tokens. All remaining facts remain readable through continuation."
+      },
+      "scope": {
+        "type": "string",
+        "enum": [
+          "all",
+          "project"
+        ],
+        "default": "all",
+        "description": "All current memory by default; project is an explicit optional filter."
       }
     }
   }

@@ -77,6 +77,7 @@ class SessionDistillStore:
         pipeline_version: str = "lossless-distill-v1",
         active_limit: int | None = None,
         recent_first: bool = True,
+        manual_recheck: bool = False,
     ) -> SessionDistillJob:
         """Idempotently queue every chunk from one complete current revision."""
 
@@ -90,10 +91,18 @@ class SessionDistillStore:
                 if source_row is None:
                     raise KeyError(source_id)
                 source = TranscriptSource.from_dict(json.loads(source_row["data"]))
-                if source.coverage != "complete" or source.status != "synced":
+                if source.coverage != "complete" or source.status not in (
+                    {"synced", "missing"} if manual_recheck else {"synced"}
+                ):
                     raise ValueError(
                         "only complete synced transcript sources can be queued"
                     )
+                if manual_recheck:
+                    if source.metadata.get("evidence_state") == "source_pruned":
+                        raise ValueError("the retained complete source is unavailable")
+                    # A missing native file does not erase a hash-verified
+                    # immutable capture. Never change its missing status.
+                    self._reconstruct(source.id, source_revision=source.source_revision)
                 chunk_rows = self._conn.execute(
                     """
                     SELECT id, chunk_index FROM transcript_chunks
@@ -116,6 +125,10 @@ class SessionDistillStore:
                     existing = SessionDistillJob.from_dict(
                         json.loads(existing_row["data"])
                     )
+                    if manual_recheck and not (existing.manual_only and existing.retain_source):
+                        existing.manual_only = True
+                        existing.retain_source = True
+                        self._upsert_job_locked(existing)
                     self._mark_older_jobs_stale_locked(source)
                     if active_limit is not None:
                         self._rebalance_locked(
@@ -141,6 +154,8 @@ class SessionDistillStore:
                     source_revision=source.source_revision,
                     pipeline_version=pipeline_version,
                     status="queued",
+                    manual_only=manual_recheck,
+                    retain_source=manual_recheck,
                     phase="chunks",
                     expected_chunk_count=len(chunk_rows),
                     zero_candidate_challenge_version="v1",
@@ -436,6 +451,7 @@ class SessionDistillStore:
         now: datetime | None = None,
         recovery_budget: int | None = None,
         manual_job_ids: set[str] | None = None,
+        job_ids: set[str] | None = None,
     ) -> dict[str, int]:
         """Reconcile job state from durable checkpoints after a restart.
 
@@ -468,6 +484,8 @@ class SessionDistillStore:
                 terminal = {"completed", "failed", "stale"}
                 for row in rows:
                     job = SessionDistillJob.from_dict(json.loads(row["data"]))
+                    if job_ids is not None and job.id not in job_ids:
+                        continue
                     if manual_job_ids is not None and (job.manual_only or job.id in manual_job_ids):
                         continue
                     summary["inspected"] += 1

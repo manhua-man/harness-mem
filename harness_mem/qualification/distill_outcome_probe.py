@@ -149,6 +149,7 @@ def run_distill_outcome_probe() -> dict[str, Any]:
             search = read_search_handlers.tool_search_memory(
                 query="isolated durable decision",
                 project_name="outcome-probe",
+                scope="project",
             )
             stored_handoff = asyncio.run(
                 backend.structured_store.get_task_handoff(handoff["handoff_id"])

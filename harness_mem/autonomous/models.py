@@ -48,19 +48,11 @@ class _CandidateBase(_StrictModel):
 
 
 def _assert_atomic_title(value: str) -> str:
-    """Reject enumerative titles without banning a single relational principle."""
+    """Normalize titles; punctuation cannot establish semantic atomicity."""
 
     normalized = " ".join(value.split())
-    lowered = normalized.casefold()
-    if (
-        normalized.count("、") >= 2
-        or normalized.count(",") >= 2
-        or normalized.count("/") >= 2
-        or lowered.count(" and ") >= 2
-    ):
-        raise ValueError(
-            "knowledge title enumerates multiple facts; split it into atomic items"
-        )
+    if not normalized:
+        raise ValueError("knowledge title must not be empty")
     return normalized
 
 
@@ -91,10 +83,9 @@ class DistillCandidate(_CandidateBase):
 class CanonicalKnowledgeItem(_StrictModel):
     """One proposed knowledge item created by a single point disposition.
 
-    The provider schema validates shape only. Atomicity and specificity depend
-    on the verified candidate and are enforced by the trusted assimilation
-    runtime, where invalid proposals can receive bounded correction or the
-    source-clause fallback.
+    The provider schema validates shape only. The Agent judges semantic scope
+    and specificity against the verified candidate; runtime checks source
+    integrity and the resulting write, not words or punctuation quotas.
     """
 
     title: str = Field(min_length=1)

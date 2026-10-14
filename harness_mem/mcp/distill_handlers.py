@@ -21,21 +21,22 @@ from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
     SUPPORTED_INGEST_CLIENTS,
     normalize_client_name,
-    resolve_project_context,
     resolve_host_source,
     resolve_ingest_client,
 )
 from harness_mem.commands.distill_lifecycle import distill_drainer_metrics
+from harness_mem.commands.distill_result import distill_unfinished_work
 from harness_mem.commands.separated_assimilation import (
     apply_separated_assimilation,
     prepare_interactive_assimilation,
     separated_job_candidate_ids,
+    is_committed_job_replay,
 )
 from harness_mem.commands.evidence_admission import (
     answer_gate_status,
     evidence_summary_key,
 )
-from harness_mem.adapters.projection_repair import repair_source_observation_projection
+from harness_mem.adapters.projection_repair import load_source_observation_projection
 from harness_mem.diagnostic_events import (
     diagnostic_parent_id,
     emit_current_stage,
@@ -54,6 +55,7 @@ from harness_mem.session_notes import delete_session_notes, materialize_session_
 from harness_mem.transcript_chunking import sha256_text
 from harness_mem.mcp.distill_projection import (
     DISTILL_INCREMENTAL_PROJECTION,
+    _parse_exchanges,
     build_append_aware_distill_projection,
     render_distill_exchange_windows,
     split_distill_semantic_content,
@@ -71,6 +73,13 @@ _SIGNAL_GATE_RECHECK_PIPELINE_VERSION = "lossless-distill-v1-signal-gate-v2"
 _CURRENT_KNOWLEDGE_RECHECK_PIPELINE_VERSION = (
     "lossless-distill-v1-current-knowledge-v1"
 )
+_MANUAL_SOURCE_RECHECK_PIPELINE_VERSION = "lossless-distill-v1-manual-source-recheck-v2"
+
+
+def _manual_completion_proven(backend: LocalMemoryBackend, job: SessionDistillJob) -> bool:
+    from harness_mem.commands.session_inventory import completion_proven, current_entries
+
+    return completion_proven(job, current_entries(Path(backend.data_dir), job.project_name))
 
 
 def _session_notes_dir(backend: LocalMemoryBackend) -> Path:
@@ -116,7 +125,7 @@ async def _recent_project_observations(
 
 
 def _with_complete_response_budget(handler):
-    """Measure the complete handler result without clipping any evidence."""
+    """Project compact Agent results; measure explicit/internal diagnostic views."""
 
     handler_signature = signature(handler)
 
@@ -126,6 +135,11 @@ def _with_complete_response_budget(handler):
         if not isinstance(result, dict) or not bool(result.get("success")):
             return result
         bound = handler_signature.bind_partial(*args, **kwargs)
+        if (
+            bound.arguments.get("detail_level", "compact") == "compact"
+            and bound.arguments.get("_distill_source", "agent") == "agent"
+        ):
+            return _compact_prepare_result(result)
         requested_tokens = int(bound.arguments.get("budget_tokens") or 3000)
         evidence_tokens, outcome_hint, reason_hint = distill_response_budget_hints(
             result
@@ -141,6 +155,133 @@ def _with_complete_response_budget(handler):
     return wrapped
 
 
+def _compact_finalize_result(result: dict[str, Any]) -> dict[str, Any]:
+    """Return verified saved results once, leaving failure/recovery detail intact."""
+    if not result.get("success") or result.get("distill_status") != "completed":
+        return result
+    compact = {
+        key: value for key, value in result.items()
+        if key in {
+            "success", "project_name", "distill_job_id", "distill_status",
+            "session_id", "idempotent_replay", "organization_status",
+            "knowledge_changes", "removed_count", "not_written", "unfinished_work",
+            "batch_id", "batch_progress", "next_after_finalize",
+        }
+    }
+    summary = result.get("session_summary") or {}
+    if summary.get("session_id"):
+        compact.setdefault("session_id", summary["session_id"])
+    if isinstance(result.get("note"), dict):
+        compact["note"] = {
+            key: value for key, value in result["note"].items()
+            if key in {"path", "latest_path", "sha256"}
+        }
+    # Cleanup failures are actionable even after knowledge has been saved.
+    cleanup = result.get("source_cleanup") or {}
+    if cleanup.get("status") not in {None, "retained", "deleted"}:
+        compact["source_cleanup"] = cleanup
+    return compact
+
+
+def _compact_prepare_result(result: dict[str, Any]) -> dict[str, Any]:
+    """Remove protocol duplication, never source text or continuation state."""
+    continuation = {
+        key: value for key, value in result.items()
+        if key in {
+            "project_name", "project_root", "distill_job_id", "distill_status",
+            "session_id", "source_id", "source_revision", "batch_id",
+            "batch_progress", "batch_stopped", "next_after_finalize",
+        }
+    }
+    if result.get("distill_status") == "completed":
+        from harness_mem.commands.distill_result import current_distill_result
+
+        backend = _get_backend()
+        job = backend.transcript_store.get_distill_job(result["distill_job_id"])
+        try:
+            if job is None:
+                raise ValueError("completed job is missing")
+            saved = asyncio.run(current_distill_result(backend, job))
+        except ValueError:
+            return {
+                **continuation, "success": False,
+                "error": "current knowledge cannot prove the completion result",
+                "reason_codes": ["promotion_write_unreadable"],
+            }
+        return _compact_finalize_result({**result, **saved})
+    compact = {
+        key: value for key, value in result.items()
+        if key not in {
+            "project_resolution_source", "client", "resolved_client", "host_client",
+            "source_kind", "adapter_available", "scope", "limit", "ingest",
+            "selection_source", "budget_tokens", "structural_checkpoint_summary",
+            "distill_instructions", "semantic_decision_exchange_count",
+            "zero_candidate_exchange_refs", "zero_candidate_challenge_template",
+            "agent_execution", "response_budget", "chunk_count",
+            "semantic_drilldown_exchange_count", "raw_drilldown_chunk_count",
+        }
+    }
+    evidence = result.get("semantic_evidence")
+    if isinstance(evidence, dict):
+        # Use complete indexed windows once, without their budgeted outline.
+        # Earlier assistant messages must also remain readable: the existing
+        # window digest covers the final outcome and remains the evidence ref.
+        backend = _get_backend()
+        observation_id = str(uuid5(NAMESPACE_URL, f"{result['source_id']}:observation"))
+        observation = asyncio.run(backend.verbatim_store.get(observation_id))
+        if observation is None or observation.metadata.get("source_revision") != result["source_revision"]:
+            return {
+                **continuation, "success": False,
+                "error": "complete semantic evidence is unavailable",
+                "reason_codes": ["semantic_evidence_unavailable"],
+            }
+        count = int(evidence.get("output_exchange_count") or 0)
+        windows = _load_distill_exchange_windows(
+            backend, source_id=result["source_id"],
+            source_revision=result["source_revision"],
+            indexes=list(range(1, count + 1)),
+        )
+        if len(windows) != count:
+            return {
+                **continuation, "success": False,
+                "error": "complete exchange references are unavailable",
+                "reason_codes": ["semantic_exchange_refs_incomplete"],
+            }
+        compact["semantic_evidence"] = {
+            key: value for key, value in evidence.items()
+            if key in {
+                "output_exchange_count", "zero_candidate_required_exchange_indexes",
+                "zero_candidate_required_exchange_reasons", "zero_candidate_review_basis",
+            }
+        }
+        _header, exchanges, _summary = _parse_exchanges(observation.raw_content)
+        compact["semantic_decision_exchanges"] = [
+            {key: value for key, value in window.items()
+             if key in {"exchange_index", "content_sha256", "content"}
+             or key in {"risk_flags", "memory_signals"} and value}
+            for window in windows
+        ]
+        for window in compact["semantic_decision_exchanges"]:
+            preceding = exchanges[window["exchange_index"] - 1]["assistant"][:-1]
+            if preceding:
+                window["preceding_assistant_messages"] = list(preceding)
+        if not count:
+            # Parser bodies without exchange boundaries remain fully readable.
+            compact["semantic_evidence"].update({
+                "content": observation.raw_content,
+                "content_sha256": sha256_text(observation.raw_content),
+            })
+    if not compact.get("chunks"):
+        compact.pop("chunks", None)
+    if result.get("distill_mode") == "lossless_chunks":
+        compact["next_step"] = (
+            "submit_distill_chunk" if compact.get("chunks")
+            else "finalize_session_distill" if result.get("distill_status") == "reviewing"
+            else "prepare_session_distill"
+        )
+    return compact
+
+
 def _load_distill_semantic_evidence(
     backend: LocalMemoryBackend,
     *,
@@ -152,16 +293,9 @@ def _load_distill_semantic_evidence(
     """Load the parser-derived user/assistant/tool rendering for a raw revision."""
 
     observation_id = str(uuid5(NAMESPACE_URL, f"{source_id}:observation"))
-    observation = asyncio.run(backend.verbatim_store.get(observation_id))
-    if (
-        observation is None
-        or observation.metadata.get("source_revision") != source_revision
-    ):
-        observation = repair_source_observation_projection(
-            backend,
-            source_id=source_id,
-            source_revision=source_revision,
-        )
+    observation = load_source_observation_projection(
+        backend, source_id=source_id, source_revision=source_revision,
+    )
     if observation is None:
         return None
 
@@ -255,17 +389,9 @@ def _load_distill_exchange_windows(
     source_revision: str,
     indexes: list[int],
 ) -> list[dict[str, Any]]:
-    observation_id = str(uuid5(NAMESPACE_URL, f"{source_id}:observation"))
-    observation = asyncio.run(backend.verbatim_store.get(observation_id))
-    if (
-        observation is None
-        or observation.metadata.get("source_revision") != source_revision
-    ):
-        observation = repair_source_observation_projection(
-            backend,
-            source_id=source_id,
-            source_revision=source_revision,
-        )
+    observation = load_source_observation_projection(
+        backend, source_id=source_id, source_revision=source_revision,
+    )
     if observation is None:
         return []
     return render_distill_exchange_windows(observation.raw_content, indexes)
@@ -497,13 +623,29 @@ def tool_prepare_session_distill(
     govern_memory(action=suggest). The lower-level sync step may call ingest_sessions, but
     The single hm entry is the user-facing flow.
     """
-    if batch_id is not None or batch_sessions is not None or retry_failures:
+    if batch_id is not None or batch_sessions is not None or (retry_failures and not session_id and not distill_job_id):
         from harness_mem.commands.manual_distill import prepare_manual_batch
-        if not project_root or scope != "project" or session_id or distill_job_id or _distill_source != "agent":
-            return {"success": False, "error": "manual batch requires project_root and project scope without another session selector"}
+        from harness_mem.commands.session_inventory import resolve_session_scope
+        if scope not in {"project", "all"} or session_id or distill_job_id or _distill_source != "agent":
+            return {"success": False, "error": "manual batch requires a selected-source scope without another session selector"}
+        backend = _get_backend()
+        try:
+            device_selection = batch_id is None and (scope == "all" or (
+                not project_root and not project_name and batch_sessions
+                and all(item.get("scope") == "all" for item in batch_sessions)
+            ))
+            resolved = ("global", None) if device_selection else resolve_session_scope(
+                Path(backend.data_dir), project_root=project_root,
+                project_name=project_name, sessions=batch_sessions, batch_id=batch_id,
+            )
+            if resolved is None:
+                return {"success": False, "error": "the selected source has no project binding"}
+        except (OSError, ValueError, KeyError) as exc:
+            return {"success": False, "error": str(exc)}
+        resolved_name, resolved_root = resolved
         return prepare_manual_batch(
-            _get_backend(), project_name=project_name or Path(project_root).name,
-            project_root=Path(project_root), batch_id=batch_id, sessions=batch_sessions,
+            backend, project_name=resolved_name,
+            project_root=resolved_root, batch_id=batch_id, sessions=batch_sessions,
             retry_failures=retry_failures,
             prepare=tool_prepare_session_distill,
             prepare_options={"evidence_mode": evidence_mode, "detail_level": detail_level,
@@ -512,6 +654,13 @@ def tool_prepare_session_distill(
                              "drilldown_chunk_indexes": drilldown_chunk_indexes,
                              "drilldown_query": drilldown_query},
         )
+    if not project_root and not project_name and not (distill_job_id or session_id):
+        # A shared MCP server's cwd or active project is not the caller's
+        # workspace. Discovery lets the Agent carry native bindings internally.
+        from harness_mem.commands.session_inventory import collect_session_inventory
+        discovered = collect_session_inventory(Path(_core._observer_data_dir()), lightweight=True).payload()
+        return {**discovered, "prepared": False,
+                "next_step": "Select the returned native sessions for processing; no project or directory setup is required."}
     normalized_client = normalize_client_name(client)
     if normalized_client not in SUPPORTED_INGEST_CLIENTS:
         return {
@@ -541,26 +690,56 @@ def tool_prepare_session_distill(
     requested_session_id = str(session_id or "").strip() or None
     requested_job_id = str(distill_job_id or "").strip() or None
     host_source = resolve_host_source(normalized_client)
-    project_context = resolve_project_context(
-        project_name,
-        project_root=project_root,
-        required=True,
-        action_label="MCP prepare_session_distill",
-    )
-    if project_context is None:
-        return {
-            "success": False,
-            "error": (
-                "project_name could not be resolved. Pass project_name, pass "
-                "project_root, run from a workspace directory, or set an active project."
-            ),
-        }
-    resolved_project_name = project_context.project_name
-    resolved_project_root = (
-        str(project_context.project_root)
-        if project_context.project_root is not None
-        else project_root
-    )
+    from harness_mem.commands.session_inventory import discover_session_projects, resolve_session_scope
+    backend = _get_backend()
+    project_scope: tuple[str, Path | None] | None
+    try:
+        selected_source_job = backend.transcript_store.get_distill_job(requested_job_id) if requested_job_id else None
+        if requested_job_id and selected_source_job is None:
+            raise ValueError("selected session task is unavailable")
+        if selected_source_job is not None and (not project_root or _batch_selected):
+            if project_name and project_name != selected_source_job.project_name:
+                raise ValueError("selected job does not match the supplied context")
+            project_scope = (selected_source_job.project_name,
+                             Path(selected_source_job.project_root) if selected_source_job.project_root else None)
+        else:
+            project_scope = resolve_session_scope(Path(backend.data_dir), project_name=project_name,
+                                                  project_root=project_root)
+    except (OSError, ValueError, KeyError) as exc:
+        return {"success": False, "error": str(exc)}
+    if project_scope is None:
+        discovered = discover_session_projects(Path(backend.data_dir))
+        discovered["projects"] = [{key: value for key, value in project.items() if key != "sessions"}
+                                  for project in discovered["projects"]]
+        return {**discovered, "prepared": False,
+                "next_step": "Use native project bindings to select sessions; do not ask the user for directories."}
+    resolved_project_name, resolved_root = project_scope
+    resolved_project_root = str(resolved_root) if resolved_root is not None else ""
+    project_resolution_source = "project_root" if project_root else "native_binding"
+
+    from harness_mem.adapters.source_inspection import normalized_root
+
+    def job_in_scope(job: SessionDistillJob | None) -> bool:
+        if job is None or job.project_name != resolved_project_name:
+            return False
+        if normalized_root(job.project_root) != normalized_root(resolved_root or ""):
+            return False
+        revision = backend.transcript_store.get_revision(job.source_id, job.source_revision)
+        if revision is None:
+            return False
+        # Completed source pruning is independently verified by the replay gate.
+        if revision.metadata.get("evidence_state") == "source_pruned" and job.status == "completed":
+            return True
+        return bool(
+            revision.project_name == job.project_name
+            and revision.client == job.client and revision.session_id == job.session_id
+            and normalized_root(revision.project_root) == normalized_root(resolved_root or "")
+        )
+
+    # Reject explicit out-of-scope selectors before ingest, leases or recovery.
+    for selected_id in (requested_job_id, defer_job_id):
+        if selected_id and not job_in_scope(backend.transcript_store.get_distill_job(selected_id)):
+            return {"success": False, "error": "selected job does not belong to this source workspace"}
 
     effective_limit = None if limit is None else max(1, int(limit))
     effective_observation_limit = (
@@ -572,7 +751,7 @@ def tool_prepare_session_distill(
         "skipped": True,
         "reason": "run_ingest=false",
     }
-    if run_ingest:
+    if run_ingest and requested_job_id is None:
         ingest_payload = _ingest_sessions(
             project_name=resolved_project_name,
             client=normalized_client,
@@ -583,10 +762,10 @@ def tool_prepare_session_distill(
             session_id=requested_session_id,
         )
 
-    backend = _get_backend()
     if requested_job_id:
         selected_job = backend.transcript_store.get_distill_job(requested_job_id)
-        if selected_job is not None and selected_job.project_name == resolved_project_name:
+        if job_in_scope(selected_job):
+            assert selected_job is not None
             if _distill_source == "autonomous_worker":
                 from harness_mem.commands.manual_distill import is_manual_distill_job
 
@@ -596,12 +775,13 @@ def tool_prepare_session_distill(
             elif _distill_source == "agent" and selected_job.status != "completed":
                 try:
                     backend.transcript_store.reserve_manual_distill_job(selected_job.id)
+                    backend.transcript_store.retain_distill_source(selected_job.id)
                 except ValueError as exc:
                     return {"success": False, "error": str(exc), "reason_codes": ["review_already_owned"]}
     deferred_id: str | None = None
     if defer_job_id:
         deferred = backend.transcript_store.get_distill_job(defer_job_id)
-        if deferred is None or deferred.project_name != resolved_project_name:
+        if not job_in_scope(deferred):
             return {
                 "success": False,
                 "error": "defer_job_id does not belong to this project",
@@ -622,9 +802,16 @@ def tool_prepare_session_distill(
     # between calls a healthy interactive job has completed checkpoints but no
     # active chunk lease, which is not evidence that its worker crashed.
     if (requested_session_id or requested_job_id) and not _batch_selected:
+        recovery_ids = {
+            job.id for job in backend.transcript_store.list_distill_jobs(project_name=resolved_project_name)
+            if job_in_scope(job)
+            and (not requested_job_id or job.id == requested_job_id)
+            and (not requested_session_id or job.session_id == requested_session_id)
+        }
         backend.transcript_store.reconcile_distill_jobs(
             project_name=resolved_project_name,
             recovery_budget=3,
+            job_ids=recovery_ids,
         )
     if requested_session_id:
         matching_jobs = [
@@ -633,7 +820,7 @@ def tool_prepare_session_distill(
                 project_name=resolved_project_name,
                 limit=100_000,
             )
-            if job.session_id == requested_session_id
+            if job.session_id == requested_session_id and job_in_scope(job)
         ]
         if not matching_jobs:
             return {
@@ -642,12 +829,20 @@ def tool_prepare_session_distill(
                 "session_id": requested_session_id,
             }
         session_job = max(
-            matching_jobs,
+            [job for job in matching_jobs if job.id == requested_job_id]
+            if requested_job_id else matching_jobs,
             key=lambda item: (item.created_at, item.updated_at),
         )
         recheck_pipeline: str | None = None
         if requested_job_id is None:
-            if _completed_job_requires_signal_gate_recheck(session_job):
+            if (
+                retry_failures and _distill_source == "agent" and session_job.status == "completed"
+                and session_job.pipeline_version != _MANUAL_SOURCE_RECHECK_PIPELINE_VERSION
+                and (session_job.promotion_summary.get("unfinished_work")
+                     or session_job.semantic_review.get("unfinished_work"))
+            ):
+                recheck_pipeline = _MANUAL_SOURCE_RECHECK_PIPELINE_VERSION
+            elif _completed_job_requires_signal_gate_recheck(session_job):
                 recheck_pipeline = _SIGNAL_GATE_RECHECK_PIPELINE_VERSION
             elif (
                 session_job.pipeline_version
@@ -662,7 +857,11 @@ def tool_prepare_session_distill(
             session_job = backend.transcript_store.enqueue_distill_job(
                 session_job.source_id,
                 pipeline_version=recheck_pipeline,
+                manual_recheck=_distill_source == "agent",
             )
+            if _distill_source == "agent":
+                # A manual evidence retry must not newly authorize source cleanup.
+                session_job = backend.transcript_store.retain_distill_source(session_job.id)
         if requested_job_id and requested_job_id != session_job.id:
             return {
                 "success": False,
@@ -677,7 +876,7 @@ def tool_prepare_session_distill(
         else None
     )
     if requested_job_id and (
-        requested_job is None or requested_job.project_name != resolved_project_name
+        not job_in_scope(requested_job)
     ):
         return {
             "success": False,
@@ -690,6 +889,34 @@ def tool_prepare_session_distill(
         if is_manual_distill_job(backend, requested_job):
             return {"success": False, "error": "session belongs to manual processing",
                     "reason_codes": ["manual_session_owned"]}
+    if (requested_job and requested_job.status == "completed" and retry_failures
+            and _distill_source == "agent" and not _batch_selected
+            and requested_job.pipeline_version != _MANUAL_SOURCE_RECHECK_PIPELINE_VERSION
+            and (distill_unfinished_work(requested_job)
+                 or _completed_job_requires_signal_gate_recheck(requested_job)
+                 or asyncio.run(_completed_promotion_result_error(backend, job=requested_job)) is not None
+                 or not _manual_completion_proven(backend, requested_job)
+                 or (requested_job.semantic_review.get("last_turn_status") == "unknown"
+                     and requested_job.semantic_review.get("promotion_decision") in {"promote", "partial"}
+                     and "semantic_review_blocked" in requested_job.completion_reason_codes
+                     and requested_job.promotion_summary.get("answer_gate", {}).get("ANSWERED", 0)))):
+        # Retry the selected immutable source, not the newest job sharing its
+        # session id. Keep the old receipt and all of its decisions intact.
+        selected_source = backend.transcript_store.get_source(requested_job.source_id)
+        if selected_source is None or selected_source.source_revision != requested_job.source_revision:
+            return {"success": False, "error": "selected source revision is no longer current",
+                    "reason_codes": ["source_revision_changed"]}
+        try:
+            requested_job = backend.transcript_store.enqueue_distill_job(
+                requested_job.source_id,
+                pipeline_version=_MANUAL_SOURCE_RECHECK_PIPELINE_VERSION,
+                manual_recheck=True,
+            )
+        except (KeyError, ValueError) as exc:
+            return {"success": False, "error": str(exc), "reason_codes": ["manual_source_unavailable"]}
+        requested_job = backend.transcript_store.reserve_manual_distill_job(requested_job.id)
+        requested_job = backend.transcript_store.retain_distill_source(requested_job.id)
+        requested_job_id = requested_job.id
     if requested_job and requested_job.status == "completed":
         current_result_error = asyncio.run(
             _completed_promotion_result_error(backend, job=requested_job)
@@ -708,9 +935,10 @@ def tool_prepare_session_distill(
                 "error": "completed result is not present in current knowledge",
                 "reason_codes": [current_result_error],
             }
-        source_cleanup = _replay_completed_source_cleanup(
-            backend,
-            job=requested_job,
+        source_cleanup = (
+            {"configured": False, "status": "retained", "receipt_id": requested_job.source_cleanup_receipt_id,
+             "reason_codes": ["manual_source_retained"]}
+            if _distill_source == "agent" else _replay_completed_source_cleanup(backend, job=requested_job)
         )
         return {
             "success": True,
@@ -759,6 +987,7 @@ def tool_prepare_session_distill(
         )
     if deferred_id:
         lossless_jobs = [job for job in lossless_jobs if job.id != deferred_id]
+    lossless_jobs = [job for job in lossless_jobs if job_in_scope(job)]
     now = datetime.now(timezone.utc)
     lossless_jobs = [
         job
@@ -797,6 +1026,7 @@ def tool_prepare_session_distill(
         if _distill_source == "agent":
             try:
                 lossless_job = backend.transcript_store.reserve_manual_distill_job(lossless_job.id)
+                lossless_job = backend.transcript_store.retain_distill_source(lossless_job.id)
             except ValueError as exc:
                 return {"success": False, "error": str(exc), "reason_codes": ["review_already_owned"]}
         elif _distill_source == "autonomous_worker":
@@ -809,7 +1039,7 @@ def tool_prepare_session_distill(
             "success": True,
             "project_name": resolved_project_name,
             "project_root": resolved_project_root,
-            "project_resolution_source": project_context.source,
+            "project_resolution_source": project_resolution_source,
             "client": normalized_client,
             "resolved_client": resolve_ingest_client(normalized_client),
             "host_client": host_source.host_client,
@@ -1144,6 +1374,9 @@ def tool_prepare_session_distill(
     )
     packet_observations = []
     for observation in observations:
+        observation_root = observation.metadata.get("project_root")
+        if not observation_root or normalized_root(observation_root) != normalized_root(resolved_root or ""):
+            continue
         packet_observations.append(
             {
                 "source": f"observation:{observation.id}",
@@ -1169,7 +1402,7 @@ def tool_prepare_session_distill(
         "success": bool(packet_observations) or bool(ingest_payload.get("success")),
         "project_name": resolved_project_name,
         "project_root": resolved_project_root,
-        "project_resolution_source": project_context.source,
+        "project_resolution_source": project_resolution_source,
         "client": normalized_client,
         "resolved_client": resolve_ingest_client(normalized_client),
         "host_client": host_source.host_client,
@@ -1797,7 +2030,7 @@ def tool_finalize_session_distill(
             key: value for key, value in result["promotion"].items()
             if key not in {"answer_packet", "readback"}
         }}
-    return result
+    return result if _review_lease_owner is not None else _compact_finalize_result(result)
 
 
 def _tool_finalize_session_distill_core(
@@ -1921,7 +2154,11 @@ def _tool_finalize_session_distill_core(
             "error": "legacy assimilation does not write current project knowledge",
             "reason_codes": ["legacy_assimilation_retired"],
         }
-    if isinstance(supplied_assimilation, dict) and not _review_lease_owner and not recovering_completion:
+    if (isinstance(supplied_assimilation, dict) and not _review_lease_owner
+            and not recovering_completion and not asyncio.run(is_committed_job_replay(
+                backend, project_name=project_name, distill_job_id=job_id,
+                plan=supplied_assimilation,
+            ))):
         return {
             "success": False,
             "project_name": project_name,
@@ -1983,6 +2220,26 @@ def _tool_finalize_session_distill_core(
                 distill_job_id=job_id,
             )
         )
+        if not isinstance(supplied_assimilation, dict):
+            reviewed_ids = asyncio.run(separated_job_candidate_ids(
+                backend, project_name=project_name, distill_job_id=job_id,
+                include_reviewed=True,
+            ))
+            if set(reviewed_ids) - set(candidate_ids):
+                return {
+                    "success": False, "project_name": project_name,
+                    "distill_job_id": job.id, "distill_status": job.status,
+                    "error": "prior_review_requires_assimilation_replay",
+                    "reason_codes": ["reviewed_candidate_plan_required"],
+                    "candidate_ids": reviewed_ids,
+                    "next_step": (
+                        "Retry with semantic_review.assimilation (separated-v1) "
+                        "replaying the exact prior Review points, including original "
+                        "reason, knowledge items and matched_truth_ids. The runtime "
+                        "must verify the committed change, current knowledge, sources "
+                        "and ordinary search; do not create replacement candidates."
+                    ),
+                }
         challenge_error = _validate_zero_candidate_challenge(
             backend,
             job=job,
@@ -2644,6 +2901,11 @@ def _validate_zero_candidate_challenge(
 
     raw_challenge = semantic_review.get("zero_candidate_challenge")
     if not isinstance(raw_challenge, dict):
+        # A complete source and explicit no-write review already settle the
+        # ordinary case. Do not require another eight-way questionnaire just
+        # to finish a session that contributes no durable knowledge.
+        if semantic_review.get("promotion_decision") == "no_promotion":
+            return None
         return {
             "error": "zero_candidate_challenge_required",
             "reason_codes": ["zero_candidate_challenge_missing"],
@@ -2796,16 +3058,16 @@ def _semantic_review_allows_candidate_review(review: dict[str, Any]) -> bool:
     """Review answered candidates even when unrelated handoff work remains."""
 
     decision = review.get("promotion_decision")
-    if decision == "promote":
-        return _semantic_review_allows_promotion(review)
     # A partial session may describe replaced plans or other historical
     # contradictions while still containing an independently ANSWERED
     # candidate. The candidate's own evidence envelope decides admission;
     # session-level contradictions continue to block Dream/full promotion.
     return bool(
-        decision == "partial"
+        decision in {"promote", "partial"}
         and review.get("evidence_status") in {"answered", "partial"}
-        and review.get("last_turn_status") in {"answered", "unfinished"}
+        # An unknown final reply does not invalidate an independently verified
+        # user decision earlier in a complete source. Dream remains stricter.
+        and review.get("last_turn_status") in {"answered", "unfinished", "unknown"}
     )
 
 

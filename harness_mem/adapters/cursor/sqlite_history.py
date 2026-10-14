@@ -19,7 +19,8 @@ from pathlib import Path
 from urllib.parse import quote, unquote, urlsplit
 from typing import Any, Iterator
 
-from harness_mem.adapters.protocol import Issue
+from harness_mem.adapters.protocol import Issue, SessionRecord
+from harness_mem.adapters.source_metadata import metadata_record
 
 PREFIX_SQL = (
     'SELECT key, value FROM cursorDiskKV '
@@ -30,6 +31,63 @@ PREFIX_SQL = (
 
 class CursorHistoryError(ValueError):
     """Explicit unsupported, unreadable, or incomplete native source."""
+
+
+def cursor_export_messages(raw: bytes, session_id: str) -> list[dict[str, str]]:
+    """Decode one pinned export with header order and explicit native authors.
+
+    Unlisted bubbles are retained. Missing/unknown authors are never inferred
+    from prose; conflicting native author fields fail closed.
+    """
+    from harness_mem.adapters.parser import _render_cursor_content_items
+
+    document = json.loads(raw.decode("utf-8-sig"))
+    if not isinstance(document, dict) or document.get("format") != "cursorDiskKV-v1":
+        raise CursorHistoryError("cursor_sqlite_unsupported_export")
+    records = document.get("records")
+    if not isinstance(records, list):
+        raise CursorHistoryError("cursor_sqlite_unsupported_export")
+    values: dict[str, dict] = {}
+    for record in records:
+        if (not isinstance(record, list) or len(record) != 2
+                or not isinstance(record[0], str) or not isinstance(record[1], str)
+                or record[0] in values):
+            raise CursorHistoryError("cursor_sqlite_unsupported_export")
+        values[record[0]] = _object(record[1])
+    composer = values.pop(f"composerData:{session_id}", None)
+    if not isinstance(composer, dict) or composer.get("composerId") != session_id:
+        raise CursorHistoryError("cursor_sqlite_bubble_identity_mismatch")
+    headers = composer.get("fullConversationHeadersOnly")
+    if not isinstance(headers, list):
+        raise CursorHistoryError("cursor_sqlite_unsupported_headers")
+    order = [row.get("bubbleId") if isinstance(row, dict) else None for row in headers]
+    if (any(not isinstance(value, str) or not value or ":" in value for value in order)
+            or len(set(order)) != len(order)):
+        raise CursorHistoryError("cursor_sqlite_unsupported_headers")
+    prefix = f"bubbleId:{session_id}:"
+    if any(not key.startswith(prefix) for key in values):
+        raise CursorHistoryError("cursor_sqlite_bubble_identity_mismatch")
+    keys = [prefix + str(value) for value in order]
+    if not set(keys).issubset(values):
+        raise CursorHistoryError("cursor_sqlite_incomplete_bubbles")
+    keys.extend(sorted(set(values) - set(keys)))
+    messages = []
+    for key in keys:
+        bubble = values[key]
+        if bubble.get("bubbleId") != key[len(prefix):]:
+            raise CursorHistoryError("cursor_sqlite_bubble_identity_mismatch")
+        native_type, role = bubble.get("type"), bubble.get("role")
+        native_role = {1: "user", 2: "assistant"}.get(native_type) if type(native_type) is int else None
+        if (role is not None and role not in {"user", "assistant", "tool", "system"}
+                or native_role and role is not None and role != native_role
+                or role is not None and native_type is not None and native_role is None):
+            raise CursorHistoryError("cursor_sqlite_author_conflict")
+        text = bubble.get("text", bubble.get("content", ""))
+        if not isinstance(text, str):
+            text = _render_cursor_content_items(text)
+        if text.strip():
+            messages.append({"role": native_role or role or "unknown", "content": text.strip()})
+    return messages
 
 
 def cursor_user_root() -> Path:
@@ -44,8 +102,11 @@ def cursor_user_root() -> Path:
 def discover_sqlite_databases(user_root: Path | None = None) -> tuple[Path, ...]:
     """Discover only known native filenames, with a fully isolated root override."""
     root = user_root if user_root is not None else cursor_user_root()
-    candidates = [root / "globalStorage/state.vscdb"]
-    candidates.extend(sorted((root / "workspaceStorage").glob("*/state.vscdb")))
+    roots = [root, *sorted(path for path in (root / "profiles").glob("*") if path.is_dir())]
+    candidates: list[Path] = []
+    for profile in roots:
+        candidates.append(profile / "globalStorage/state.vscdb")
+        candidates.extend(sorted((profile / "workspaceStorage").glob("*/state.vscdb")))
     return tuple(p.absolute() for p in candidates if p.is_file())
 
 
@@ -104,6 +165,9 @@ def workspace_memberships(databases: tuple[Path, ...]) -> dict[Path, dict[str, P
             try:
                 with _read_db(path) as db:
                     tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                    views = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='view'")}
+                    if views & {"composerHeaders", "ItemTable"}:
+                        raise CursorHistoryError("cursor_sqlite_unsupported_metadata_schema")
                     if "composerHeaders" in tables:
                         for cid, wid in db.execute("SELECT composerId, workspaceId FROM composerHeaders"):
                             if isinstance(cid, str) and cid:
@@ -123,8 +187,12 @@ def workspace_memberships(databases: tuple[Path, ...]) -> dict[Path, dict[str, P
                 result[root] = {}
                 break
         else:
-            result[root] = {cid: next(iter(values)) if len(values) == 1 else None
-                            for cid, values in claims.items()}
+            if any(workspace_owner(p.parent / "workspace.json") != owners[p.parent.name]
+                   for p in paths if p.parent.parent.name == "workspaceStorage"):
+                result[root] = {}
+            else:
+                result[root] = {cid: next(iter(values)) if len(values) == 1 else None
+                                for cid, values in claims.items()}
     return result
 
 
@@ -154,6 +222,31 @@ def workspace_owner(workspace_json: Path) -> Path | None:
         return owner.resolve() if owner.is_absolute() else None
     except (OSError, ValueError, TypeError, UnicodeError):
         return None
+
+
+def metadata_dependency_paths(database: Path, databases: tuple[Path, ...] = ()) -> list[Path]:
+    """Cache dependencies for this container's native owner and SQLite snapshot.
+
+    Global membership is scoped to one User/profile. WAL commits need their
+    own stamp; directories track appearance of currently absent sidecars.
+    """
+    database = database.absolute()
+    paths = [database]
+    dependencies: list[Path] = []
+    if database.parent.name == "globalStorage":
+        root = database.parent.parent
+        paths.extend(path for path in databases if (
+            path.parent.name == "globalStorage" and path.parent.parent == root
+        ) or (
+            path.parent.parent.name == "workspaceStorage" and path.parent.parent.parent == root
+        ))
+        storage = root / "workspaceStorage"
+        dependencies.append(storage if storage.is_dir() else root)
+    for path in dict.fromkeys(paths):
+        dependencies.append(path)
+        for sidecar in (path.parent / "workspace.json", Path(str(path) + "-wal")):
+            dependencies.append(sidecar if sidecar.is_file() else path.parent)
+    return list(dict.fromkeys(dependencies))
 
 
 @dataclass(frozen=True)
@@ -189,13 +282,79 @@ def _object(value: object) -> dict:
     return parsed
 
 
+def _validate_disk_schema(connection: sqlite3.Connection) -> None:
+    columns = connection.execute('PRAGMA table_info("cursorDiskKV")').fetchall()
+    table = connection.execute(
+        "SELECT type FROM sqlite_master WHERE name='cursorDiskKV'"
+    ).fetchone()
+    if table != ("table",) or {row[1] for row in columns} != {"key", "value"}:
+        raise CursorHistoryError("cursor_sqlite_unsupported_schema")
+    # Unknown layouts must not silently turn indexed lookups into body scans.
+    for index in connection.execute('PRAGMA index_list("cursorDiskKV")'):
+        if not index[2] or index[4]:
+            continue
+        quoted = index[1].replace('"', '""')
+        fields = [row for row in connection.execute(
+            f'PRAGMA index_xinfo("{quoted}")'
+        ) if row[5]]
+        if len(fields) == 1 and fields[0][2] == "key" and fields[0][4] == "BINARY":
+            return
+    raise CursorHistoryError("cursor_sqlite_unsupported_key_index")
+
+
+def enumerate_session_metadata(
+    database: Path, *, memberships: dict[str, Path | None] | None = None,
+    issues: list[Issue] | None = None,
+) -> list[SessionRecord]:
+    """Discover composer keys and exact native owners, never composer values.
+
+    Size/mtime describe the session container, not a rendered conversation.
+    Membership conflicts stay unknown and never fall back to adjacent metadata.
+    """
+    database = database.absolute()
+    owner = workspace_owner(database.parent / "workspace.json")
+    if database.parent.name == "globalStorage" and memberships is None:
+        memberships = {}
+    records: list[SessionRecord] = []
+    try:
+        with _read_db(database) as db:
+            _validate_disk_schema(db)
+            keys = db.execute(
+                "SELECT key FROM cursorDiskKV WHERE key COLLATE BINARY >= ? "
+                "AND key COLLATE BINARY < ? ORDER BY key COLLATE BINARY",
+                ("composerData:", "composerData;"),
+            )
+            for (key,) in keys:
+                session_id = key[len("composerData:"):]
+                if not session_id or ":" in session_id:
+                    continue
+                session_owner = owner if memberships is None else memberships.get(session_id)
+                records.append(metadata_record(
+                    database, session_id,
+                    project_roots=[str(session_owner)] if session_owner is not None else [],
+                    source_kind="cursor_sqlite",
+                    metadata_paths=metadata_dependency_paths(database),
+                ))
+            if workspace_owner(database.parent / "workspace.json") != owner:
+                raise CursorHistoryError("cursor_sqlite_ownership_changed")
+        return records
+    except (sqlite3.Error, OSError, UnicodeError, CursorHistoryError) as exc:
+        code = str(exc) if isinstance(exc, CursorHistoryError) else "cursor_sqlite_unreadable"
+        if issues is not None:
+            issues.append({"level": "warning", "code": code, "message": code,
+                           "path": str(database)})
+        return []
+
+
 def enumerate_source_records(
     database: Path, *, project_root: Path | None = None,
     issues: list[Issue] | None = None,
     memberships: dict[str, Path | None] | None = None,
+    session_id: str | None = None,
 ) -> list[CursorSQLiteSource]:
-    """Pin all supported sessions in one read transaction, without DB writes.
+    """Pin supported sessions in one read transaction, without DB writes.
 
+    With session_id, fetch only that exact composer and its complete bubbles.
     Ownership requires adjacent workspace.json. Global stores without such
     evidence remain unknown (enumerable only without a project filter).
     A bad session does not hide other valid sessions.
@@ -220,27 +379,16 @@ def enumerate_source_records(
         connection = sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=0.1)
         connection.execute("PRAGMA query_only=ON")
         connection.execute("BEGIN")
-        columns = connection.execute('PRAGMA table_info("cursorDiskKV")').fetchall()
-        table = connection.execute(
-            "SELECT type FROM sqlite_master WHERE name='cursorDiskKV'"
-        ).fetchone()
-        if table != ("table",) or {row[1] for row in columns} != {"key", "value"}:
-            raise CursorHistoryError("cursor_sqlite_unsupported_schema")
-        # A unique binary key index is part of this supported layout; do not
-        # silently turn the prefix lookup into a full scan on another schema.
-        indexed = False
-        for index in connection.execute('PRAGMA index_list("cursorDiskKV")'):
-            if not index[2] or index[4]:
-                continue
-            quoted = index[1].replace('"', '""')
-            fields = [row for row in connection.execute(
-                f'PRAGMA index_xinfo("{quoted}")'
-            ) if row[5]]
-            if len(fields) == 1 and fields[0][2] == "key" and fields[0][4] == "BINARY":
-                indexed = True
-        if not indexed:
-            raise CursorHistoryError("cursor_sqlite_unsupported_key_index")
-        composers = prefix_rows(connection, "composerData:")
+        _validate_disk_schema(connection)
+        if session_id is None:
+            composers = prefix_rows(connection, "composerData:")
+        else:
+            if not session_id or ":" in session_id:
+                raise CursorHistoryError("cursor_sqlite_unsupported_composer")
+            composers = connection.execute(
+                "SELECT key, value FROM cursorDiskKV WHERE key COLLATE BINARY = ?",
+                (f"composerData:{session_id}",),
+            ).fetchall()
         if not composers:
             issue("cursor_sqlite_unsupported_or_empty")
         mtime_ns = database.stat().st_mtime_ns

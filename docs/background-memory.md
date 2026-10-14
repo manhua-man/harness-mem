@@ -73,8 +73,9 @@ Codex 会话。最终仍须零退出码与 JSON 校验通过，提前生成输�
 
 ## `hm` 与 Doctor
 
-`hm` 每次执行用户请求前会调用 `get_project_status(project_root, host_client)`。
-它只在首次使用时准备当前项目与 Hook，平时只返回简短的可用或失败消息。
+用户要求自动记录时，`hm` 才调用 `get_project_status(project_root, host_client)`
+准备当前工作区与对应宿主的 Hook。普通检索与人工整理不以项目或 Hook
+准备为前提。该工具只返回简短的可用或失败消息，不证明自然 Hook 已运行。
 检索统计、处理进度、费用、版本、队列、后台 CLI 状态和修复证据不进入日常回复。
 
 需要查看这些详情或排查问题时，在项目根目录运行 `harness-mem doctor`。

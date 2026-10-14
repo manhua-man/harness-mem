@@ -60,6 +60,12 @@ _VALID_CLIENTS = (
     "antigravity",
 )
 _VALID_ADAPTERS = (
+    "claude-code-start",
+    "claude-code-stop",
+    "cursor-start",
+    "cursor-stop",
+    "grok-start",
+    "grok-stop",
     "antigravity-pre",
     "antigravity-stop",
     "codex-start",
@@ -346,6 +352,15 @@ def _adapter_payload() -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _stdin_session_identity(adapter: str, payload: dict[str, Any]) -> Any:
+    if adapter.startswith("grok-"):
+        return (
+            payload.get("sessionId") or payload.get("session_id")
+            or payload.get("conversation_id") or os.environ.get("GROK_SESSION_ID")
+        )
+    return payload.get("session_id") or payload.get("conversation_id")
+
+
 def _adapter_request(
     args: argparse.Namespace, payload: dict[str, Any]
 ) -> argparse.Namespace:
@@ -353,7 +368,7 @@ def _adapter_request(
 
     adapter = args.adapter
     assert adapter is not None
-    workspace_paths = payload.get("workspacePaths")
+    workspace_paths = payload.get("workspacePaths") or payload.get("workspace_roots")
     roots = workspace_paths if isinstance(workspace_paths, list) else []
     extra = payload.get("extra")
     extra_dict = extra if isinstance(extra, dict) else {}
@@ -370,7 +385,9 @@ def _adapter_request(
         args.project_root,
         os.getcwd(),
     ]
-    project_root = next(
+    # Project registrations are bound to one root. Only a global adapter with
+    # no explicit root (Hermes) derives its scope from the native payload.
+    project_root = args.project_root or next(
         (
             str(Path(str(value)).expanduser().resolve())
             for value in root_candidates
@@ -379,7 +396,11 @@ def _adapter_request(
         args.project_root,
     )
 
-    if adapter == "antigravity-pre":
+    if adapter in {"claude-code-start", "claude-code-stop", "cursor-start", "cursor-stop", "grok-start", "grok-stop"}:
+        client, phase = adapter.rsplit("-", 1)
+        action = "wake-start" if phase == "start" else "post-turn-maintenance"
+        trigger_id = _stdin_session_identity(adapter, payload)
+    elif adapter == "antigravity-pre":
         action, client, default_trigger = (
             "wake-start",
             "antigravity",
@@ -458,6 +479,10 @@ def _run_adapter(args: argparse.Namespace) -> int:
     """Run a passive Hook adapter and emit only its host-specific response."""
 
     payload = _adapter_payload()
+    if args.adapter in {"claude-code-stop", "cursor-stop", "grok-stop"} and not _stdin_session_identity(args.adapter, payload):
+        logger.error("hook adapter requires a native session identity: %s", args.adapter)
+        sys.stdout.write("{}\n")
+        return int(ExitCode.ARG_VALIDATION_ERROR)
     if getattr(args, "wait", False) and args.adapter == "codex-stop" and not (
         payload.get("session_id") or payload.get("turn_id")
     ):
@@ -491,7 +516,7 @@ def _run_adapter(args: argparse.Namespace) -> int:
     assert adapter is not None
     if getattr(args, "wait", False):
         sys.stdout.write((stdout_payload or "{}") + "\n")
-    elif adapter == "codex-start":
+    elif adapter in {"codex-start", "claude-code-start", "grok-start"}:
         context = (
             stdout_payload.rstrip("\n")
             if exit_code == ExitCode.SUCCESS and stdout_payload
@@ -513,17 +538,21 @@ def _run_adapter(args: argparse.Namespace) -> int:
     elif adapter == "antigravity-stop":
         sys.stdout.write(
             json.dumps(
-                {"decision": "stop", "reason": "memory evidence staging finished"}
+                {"decision": "stop", "reason": (
+                    "memory evidence staging finished" if exit_code == ExitCode.SUCCESS
+                    else "memory evidence staging failed; inspect Hook diagnostics"
+                )}
             )
             + "\n"
         )
-    elif adapter == "hermes-pre":
+    elif adapter in {"hermes-pre", "cursor-start"}:
         context = (
             stdout_payload.rstrip("\n")
             if exit_code == ExitCode.SUCCESS and stdout_payload
             else ""
         )
-        sys.stdout.write(json.dumps({"context": context}) + "\n" if context else "{}\n")
+        key = "additional_context" if adapter == "cursor-start" else "context"
+        sys.stdout.write(json.dumps({key: context}) + "\n" if context else "{}\n")
     else:
         sys.stdout.write("{}\n")
     if getattr(args, "wait", False) or (
@@ -991,6 +1020,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.wait:
         if args.adapter and args.adapter not in {
+            "claude-code-stop",
+            "cursor-stop",
+            "grok-stop",
             "antigravity-stop",
             "codex-stop",
             "hermes-post",

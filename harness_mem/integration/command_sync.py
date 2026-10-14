@@ -39,12 +39,12 @@ COMMAND_HOSTS: tuple[CommandHost, ...] = (
 _SKILL_HOSTS = frozenset({"codex", "cursor", "grok", "hermes"})
 
 
-def default_hermes_skills_dir() -> Path:
-    """Return Hermes' platform-native active-profile skill directory."""
+def default_hermes_home() -> Path:
+    """Return Hermes' platform-native active profile for commands and Hooks."""
 
     configured_home = os.environ.get("HERMES_HOME", "").strip()
     if configured_home:
-        return Path(configured_home).expanduser() / "skills"
+        return Path(configured_home).expanduser()
     if sys.platform == "win32":
         local_appdata = os.environ.get("LOCALAPPDATA", "").strip()
         base = (
@@ -52,8 +52,14 @@ def default_hermes_skills_dir() -> Path:
             if local_appdata
             else Path.home() / "AppData" / "Local"
         )
-        return base / "hermes" / "skills"
-    return Path.home() / ".hermes" / "skills"
+        return base / "hermes"
+    return Path.home() / ".hermes"
+
+
+def default_hermes_skills_dir() -> Path:
+    """Return Hermes' platform-native active-profile skill directory."""
+
+    return default_hermes_home() / "skills"
 
 
 def command_hint(client: CommandHost) -> str:

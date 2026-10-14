@@ -142,9 +142,10 @@ def test_cross_host_transcript_distill_fact_wake_contract(
                 backend,
                 "demo",
                 apply_surface_side_effects=False,
+                current_task=fact,
             )
             assert fact in wake
-            assert "# demo 会话蒸馏知识库" in wake
+            assert "# Current memory" in wake
             assert "Shared lossless contract" in wake
             assert "recent transcript evidence (not facts)" not in wake
             assert "⟨src:" not in wake

@@ -18,18 +18,69 @@ invent the adapter schema at runtime.
 
 ## Current `harness-mem` support
 
-The first `hm` use supports seven clients and installs the matching Hook
-adapter for that project:
+Automatic recording supports seven clients. When the user requests it, setup
+installs the matching Hook adapter for the workspace. Ordinary recall and
+manual session organization do not require Hook installation:
 
 | Client flag | Generated files | Runtime action mapping | ID source |
 |---|---|---|---|
-| `cursor` | `.cursor/hooks/session-start.sh`, `.cursor/hooks/after-agent.sh` | `wake-start`, `post-turn-maintenance` | `CURSOR_TURN_ID` |
-| `claude-code` | `.claude/hooks/session-start.sh`, `.claude/hooks/after-turn.sh` | `wake-start`, `post-turn-maintenance` | `CLAUDE_CODE_TURN_ID` |
-| `grok` | `.grok/hooks/harness-mem.json` | `SessionStart` -> `wake-start`; `Stop` -> maintenance | static trigger ids in manifest |
+| `cursor` | `.cursor/hooks.json` plus `.cursor/hooks/session-start.sh`, `.cursor/hooks/after-agent.sh` | `sessionStart` -> `wake-start`; `stop` -> maintenance | stdin `conversation_id` / `session_id` |
+| `claude-code` | `.claude/settings.json` plus `.claude/hooks/session-start.sh`, `.claude/hooks/after-turn.sh` | `SessionStart` -> `wake-start`; `Stop` -> maintenance | stdin `session_id` |
+| `grok` | `.grok/hooks/harness-mem.json` | `SessionStart` -> `wake-start`; `Stop` -> maintenance | native stdin `sessionId`, legacy `session_id` / `conversation_id`, or `GROK_SESSION_ID`; no static per-host session label |
 | `codex` | `.codex/hooks.json` | `SessionStart` -> `wake-start`; `Stop` -> maintenance; one-time native Hook trust required | `harness-mem-hook --adapter codex-stop` reads hook stdin JSON |
-| `hermes` | `~/.hermes/config.yaml` | `pre_llm_call` -> `wake-start`; `post_llm_call` -> maintenance | `harness-mem-hook` Hermes adapters read hook stdin JSON |
-| `opencode` | `.opencode/plugins/harness-mem.ts` | `session.created` -> `wake-start`; `session.idle` -> maintenance | plugin event payload |
+| `hermes` | `<active Hermes profile>/config.yaml` (resolution below) | `pre_llm_call` -> `wake-start`; `post_llm_call` -> maintenance | `harness-mem-hook` Hermes adapters read hook stdin JSON |
+| `opencode` | `.opencode/plugins/harness-mem.ts` | `session.created` -> `wake-start`; `session.idle` -> maintenance | `properties.info.id` / `properties.sessionID` |
 | `antigravity` | `.agents/hooks.json` | `PreInvocation` -> wake injection; `Stop` -> evidence staging | `harness-mem-hook` adapters read camelCase hook stdin JSON |
+
+Live-host exercise (2026-10-15, unreleased): native application execution and
+adapter code validation are separate results. Codex created a real conversation,
+organized it through MCP, recalled it in another native session, and replaced
+eleven days with twelve days. A new native CLI invocation completed the original
+correction job by replaying its exact committed Review plan through all runtime
+checks; fresh MCP/SQLite/Note readback agreed. Details are in `docs/roadmap.md`;
+successful storage alone was not counted as successful session completion.
+Antigravity read the dedicated MCP store in a real model session, then its
+organizing attempt exposed a native-log classification defect. Native
+`GENERIC` records are now recognized without treating metadata
+alone as conversation content; a new stdio process reopened the original failed
+source and prepared the same frozen batch without changing the source file.
+Its model retry hit account quota, so full native organization remains unverified.
+Claude connected MCP and ran SessionStart but its configured model routes failed.
+Grok was not signed in; its workspace also lacked native Hook trust, so an empty
+native Hook list was not evidence of a registration defect. Hermes reached
+session startup but timed out without a completed answer. OpenCode's task-local
+official executable launched, but provider model discovery returned HTTP 401;
+chat inference was not attempted. Cursor GUI interaction was stopped by the
+operator before a model request. Per operator scope, unavailable native runs are
+not mandatory after adapter checks. None of these partial/untested rows is a
+seven-host natural-Hook acceptance claim. Raw case evidence is retained under
+`.tmp/seven-host-live-20261015/`. The temporary Antigravity test-MCP permission
+was removed and its original settings restored byte-for-byte.
+
+Unreleased repair (2026-10-14): Claude Code and Cursor now register the scripts
+with their native event configuration, rather than reporting success for two
+unregistered shell files. Their JSON merge retains unrelated settings/events;
+malformed JSON and conflicting managed entries stop before scripts are written.
+Changed generated files still require explicit review and `--force`. A forced
+Claude update retains unrelated commands even inside a mixed Hook group.
+These two hosts require Bash for the installed shell wrappers. Their Stop
+wrappers preserve the runner's failing exit status; missing native identity
+does not dispatch maintenance. Cursor startup returns `additional_context`.
+
+The declarations follow [Claude Code Hooks](https://code.claude.com/docs/en/hooks)
+and [Cursor Hooks](https://cursor.com/docs/hooks). OpenCode uses its
+[plugin events](https://opencode.ai/docs/plugins/) and
+[SDK prompt body](https://opencode.ai/docs/sdk/#tui), not a bare text argument.
+Node replays the generated plugin with fictional native events and a stub
+shell/SDK, while Git Bash exercises generated Stop wrappers with a fake runner.
+These checks do not prove live application discovery, approvals, natural events
+or real model execution. Grok's stdin identity is covered by a contract fixture,
+not a new live Grok run. Antigravity failure output no longer says staging
+finished when the runtime failed. Codex and Antigravity keep their explicitly
+bound project root even if a payload names another workspace. Global Hermes
+still resolves the workspace dynamically. Hermes config merging rejects
+unsupported event indentation before writes rather than corrupting valid YAML;
+arbitrary indentation support remains open.
 
 Daily command discovery is a separate, user-level install. Quickstart installs
 one entry for the current Agent app, so a fresh unrelated project can invoke it
@@ -42,18 +93,27 @@ apps, but that is not the normal setup path:
 | Codex | `~/.codex/skills/hm/SKILL.md` | `$hm` |
 | Cursor | `~/.cursor/skills/hm/SKILL.md` | `/hm` |
 | Grok | `~/.grok/skills/hm/SKILL.md` | `/hm` |
-| Hermes | `$HERMES_HOME/skills/hm/SKILL.md` | `/hm` |
+| Hermes | `<active Hermes profile>/skills/hm/SKILL.md` | `/hm` |
 | OpenCode | `~/.config/opencode/commands/hm.md` | `/hm` |
 | Antigravity | `~/.gemini/antigravity/global_workflows/hm.md` | `/hm` |
 
-The entry contains no project path. The first `hm` use in each workspace adopts
-that project and installs only its native Hook adapter. MCP initialization
-does not adopt a project or write Hook files. Codex still requires its native
-trust approval for each new or changed project Hook manifest.
+The entry contains no project path. Requested automatic recording prepares
+only the intended workspace and its native Hook adapter. Ordinary `hm` recall,
+manual organization and MCP initialization do not adopt a project or write
+Hook files. Codex still requires its native trust approval for each new or
+changed project Hook manifest.
+
+Hermes command discovery and Hook installation share the existing active-profile
+rules: a nonempty `HERMES_HOME` wins; otherwise Windows uses
+`%LOCALAPPDATA%/hermes`, or `~/AppData/Local/hermes` if that variable is absent;
+macOS/Linux uses `~/.hermes`. Use the same profile environment for Quickstart
+and Hook sync. No other profile is changed. The installer API's explicit
+`home_dir` compatibility argument still targets `home_dir/.hermes/config.yaml`;
+it is not a new CLI setting.
 
 The checked-in templates live in `harness_mem/integration/templates/` and are
-wired by `_suite_specs()` plus the Hermes config installer in
-`harness_mem/commands/integration_cmds.py`.
+wired by `_suite_specs()` in `harness_mem/integration/repair.py`, with the
+Hermes config merge owned by `harness_mem/integration/installer.py`.
 
 Native transcript capture is now adapter-backed for Claude Code, Cursor, Codex,
 Grok, Hermes, OpenCode, and Antigravity. OpenCode is read from its verified
@@ -91,6 +151,38 @@ immutable transcript ledger or governed truth layer, and recent work does not
 need a manual “remember this session” request before it becomes visible.
 
 ## Transcript adapter contract
+
+### Automatic discovery (unreleased)
+
+The Agent derives the caller workspace from native task context, not the MCP
+Router's working directory. `inspect_sessions {}` first returns a metadata-only
+project summary with counts. The Agent uses returned bindings internally for
+narrowed inventory and selected-source paging; users do not supply directories
+or IDs. Different roots remain isolated even when project names match.
+
+| Native adapter | Formats exercised by the isolated automatic-project probe |
+|---|---|
+| Claude Code | Project-bucket conversation JSONL |
+| Codex | Rollout JSONL in current and archived session directories |
+| Cursor | Exported JSONL; native SQLite composer/bubble records with workspace metadata |
+| Grok | Project-bucket `chat_history.jsonl` |
+| Hermes | `session_*.json`; archived sessions/messages in `state.db` |
+| OpenCode | SQLite `session`/`message`/`part` records |
+| Antigravity | Brain transcript JSONL; CLI history with conversation transcripts |
+
+Inventory does not import, create jobs, write memory or start background work.
+Metadata references are not verified source revisions. Before freezing a manual
+batch, preparation independently reads and revalidates each selected full source
+and its ownership. Resume derives project/root from the frozen batch; newly
+discovered sessions stay outside it. Manual batches retain sources.
+
+`harness_mem/qualification/automatic_projects_outcome_probe.py` exercises two
+isolated variants (`files` and `containers_and_archives`) through the actual MCP
+dispatcher, native adapters, verification gates, SQLite, Note digest readback and
+ordinary search after reopening storage. Agent semantic decisions and filesystem
+locations are deterministic fixtures. This does not validate seven live apps,
+models or Hooks, every native schema, or an older installed MCP server. These
+working-tree additions are absent from published `0.9.28` artifacts.
 
 Every shipped transcript adapter implements the same evidence boundary:
 
@@ -157,6 +249,39 @@ IDE's `PATH`. For Cursor and Claude Code shell hooks, set
 `HARNESS_MEM_HOOK_DEBUG=1` before launching the IDE to surface a fail-open
 Hook action failure.
 
+### Upgrade conflicts and explicit recovery
+
+For generated project Hook files, matching content is `unchanged` (shell
+generation timestamps are informational). A changed runner, package header,
+template, project binding or user edit is a conflict by default; legacy Python
+Hooks are also preserved. Hermes reports a conflict when an existing marked
+managed section differs from the expected runner or adapter declaration.
+Hook sync returns a failure with `error_kind: conflict`; it does not silently
+replace the conflicting content.
+
+Use `harness-mem doctor` and
+`harness-mem integration hooks sync --client <host> --project-root .` to locate
+the problem. Check ownership, the project binding and the installed differences
+against the packaged template and verified runner before explicitly adding
+`--force` for that host. Hermes users must verify the active profile and the
+config path reported by sync: Doctor's existing global artifact inventory still
+uses `~/.hermes/config.yaml`, so it may not inspect a custom or Windows default
+profile. The installer fix does not extend that diagnostic inventory.
+
+Force replaces generated project files, including any user modifications.
+For Hermes it replaces marked managed sections, retaining unrelated YAML and
+Hook entries; inline content that cannot be safely merged or incomplete markers
+still fail without writing. Keep needed custom content before authorizing an
+overwrite. Antigravity retains its separate existing manifest merge behavior;
+changed managed entries require force, and unrelated entries remain.
+
+After a reviewed update, repeat sync without force and rerun Doctor. An
+`unchanged` result proves the installed content matches; a live Hook receipt is
+still needed to prove execution. Review changed Codex Hooks in **Settings >
+Hooks**. See [Quickstart conflict recovery](quickstart.md#recover-a-hook-upgrade-conflict)
+for the command sequence. None of these commands automatically changes MCP
+connections or enables unattended memory processing.
+
 Run `harness-mem integration transcript-evidence` to inspect local transcript
 evidence separately from hook-install support. Grok's project-scoped
 `chat_history.jsonl` layout and Hermes' JSON sessions plus `sessions/messages`
@@ -173,7 +298,7 @@ local-machine state; adapter availability is installed-code state.
 | Claude Code | Shell hook files | `<project>/.claude/hooks/*.sh` | `session-start` -> `wake-start`; `after-turn` -> maintenance | Checked-in shell templates | Shipped |
 | Grok | JSON hook manifests plus plugin hooks | `<project>/.grok/hooks/*.json`, `~/.grok/hooks/*.json`, plugin `hooks/hooks.json` | `SessionStart`, `Stop` | Generate a `.grok/hooks/harness-mem.json` manifest | Shipped |
 | Codex | `hooks.json`, inline config, or plugin hooks | `<project>/.codex/hooks.json`, `~/.codex/hooks.json`, or inline `.codex/config.toml`; plugins can ship `hooks/hooks.json` | `SessionStart`, `Stop` | Generate `.codex/hooks.json` bound to `harness-mem-hook` | Shipped; user must trust new/changed command hooks once in Codex Settings |
-| Hermes | Shell hooks in YAML, plugin hooks in Python, gateway hooks in `HOOK.yaml` dirs | Shell hooks live in `~/.hermes/config.yaml`; gateway hooks live under `~/.hermes/hooks/<name>/` | `pre_llm_call`, `post_llm_call` | Installer patches user-global YAML with `harness-mem-hook` adapters | Shipped |
+| Hermes | Shell hooks in YAML, plugin hooks in Python, gateway hooks in `HOOK.yaml` dirs | Shell hooks live in `<active Hermes profile>/config.yaml`; gateway hooks live under that profile's `hooks/<name>/` | `pre_llm_call`, `post_llm_call` | Installer patches profile-global YAML with `harness-mem-hook` adapters | Shipped; shared command/Hook profile resolution in unreleased tree |
 | OpenCode | JS/TS plugin event handlers, not shell hook files | `<project>/.opencode/plugins/`, `~/.config/opencode/plugins/`, or plugin objects in config | `session.created`, `session.idle` | Generate a plugin file such as `.opencode/plugins/harness-mem.ts` | Shipped; SQLite ingest verified |
 | Antigravity (`agy`) | Workspace JSON command hooks | `<project>/.agents/hooks.json` | `PreInvocation`, `Stop` | Console adapter JSON stdin/stdout bridge plus JSONL transcript adapter | Shipped |
 

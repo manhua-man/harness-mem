@@ -150,7 +150,8 @@ def test_identity_only_dedup_and_jsonl_overlap(tmp_path):
     assert len(adapter.list_sessions()) == 3
 
 
-def test_revision_pipeline_exact_roundtrip(tmp_path, monkeypatch):
+@pytest.mark.parametrize("listing", ["list_sessions", "list_session_metadata"])
+def test_revision_pipeline_exact_roundtrip(tmp_path, monkeypatch, listing):
     from harness_mem.config.merge import MergedConfig
     import harness_mem.adapters.snapshot as snapshot
     monkeypatch.setattr(snapshot, "load_merged_config", lambda _: MergedConfig())
@@ -163,7 +164,7 @@ def test_revision_pipeline_exact_roundtrip(tmp_path, monkeypatch):
         try:
             adapter = CursorAdapter(backend, projects_dir=tmp_path / "absent",
                                     project_root=tmp_path, sqlite_databases=(database,))
-            record, = adapter.list_sessions()
+            record, = getattr(adapter, listing)()
             result = await adapter.sync_session(record["path"], record["session_id"], "synthetic")
             assert backend.transcript_store.reconstruct_raw(result.source.id) == source.raw_bytes
             assert backend.transcript_store.reconstruct(result.source.id) == source.raw_bytes.decode()
@@ -315,3 +316,58 @@ def test_environment_root_and_no_membership_guess(tmp_path, monkeypatch):
     record, = adapter.list_sessions()
     assert "cwd" not in record
     assert adapter.read_session_source(database, "s")["project_roots"] == []
+
+
+def test_selected_session_wal_snapshot_and_readonly_transaction(tmp_path, monkeypatch):
+    import harness_mem.adapters.cursor.sqlite_history as history
+    database = native(tmp_path)
+    writer = sqlite3.connect(database)
+    writer.execute("PRAGMA journal_mode=WAL")
+    original = history.prefix_rows
+    prefixes = []
+
+    def racing(connection, prefix):
+        assert connection.execute("PRAGMA query_only").fetchone() == (1,)
+        assert connection.in_transaction
+        prefixes.append(prefix)
+        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+            connection.execute("DELETE FROM cursorDiskKV")
+        writer.execute("DELETE FROM cursorDiskKV WHERE key='bubbleId:s:b'")
+        writer.commit()
+        return original(connection, prefix)
+
+    monkeypatch.setattr(history, "prefix_rows", racing)
+    try:
+        source, = enumerate_source_records(database, session_id="s")
+        assert b"hello" in source.raw_bytes
+        assert source.record_count == 3
+        assert prefixes == ["bubbleId:s:"]
+    finally:
+        writer.close()
+
+
+def test_selected_session_keeps_existing_completeness_gate(tmp_path):
+    database = native(tmp_path)
+    with sqlite3.connect(database) as db:
+        db.execute("DELETE FROM cursorDiskKV WHERE key='bubbleId:s:b'")
+    issues = []
+    assert enumerate_source_records(database, session_id="s", issues=issues) == []
+    assert any(issue["code"] == "cursor_sqlite_incomplete_bubbles" for issue in issues)
+
+
+def test_selected_session_rejects_owner_change_inside_transaction(tmp_path, monkeypatch):
+    import harness_mem.adapters.cursor.sqlite_history as history
+    database = native(tmp_path)
+    original = history.prefix_rows
+
+    def change_owner(connection, prefix):
+        result = original(connection, prefix)
+        (database.parent / "workspace.json").write_text(json.dumps({
+            "folder": (tmp_path / "different").as_uri(),
+        }))
+        return result
+
+    monkeypatch.setattr(history, "prefix_rows", change_owner)
+    issues = []
+    assert enumerate_source_records(database, session_id="s", issues=issues) == []
+    assert any(issue["code"] == "cursor_sqlite_ownership_changed" for issue in issues)

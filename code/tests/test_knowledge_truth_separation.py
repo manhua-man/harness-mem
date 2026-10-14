@@ -111,12 +111,12 @@ def test_assimilation_specificity_rejects_dropped_technical_identifiers() -> Non
     )
 
 
-def test_atomic_statement_rejects_mixed_qualification_obligations() -> None:
-    with pytest.raises(ValueError, match="independent actions"):
-        validate_atomic_knowledge_statement(
-            "每个支持的平台适配器必须声明 hook 与 transcript 支持，"
-            "并具备真实路径、真实样本、项目匹配规则、增长测试和零丢失重建测试。"
-        )
+def test_atomic_statement_allows_qualification_terms_without_word_gate() -> None:
+    statement = (
+        "每个支持的平台适配器必须声明 hook 与 transcript 支持，"
+        "并具备真实路径、真实样本、项目匹配规则、增长测试和零丢失重建测试。"
+    )
+    assert validate_atomic_knowledge_statement(statement) == statement
 
 
 def test_atomic_statement_allows_one_completeness_obligation() -> None:
@@ -124,12 +124,24 @@ def test_atomic_statement_allows_one_completeness_obligation() -> None:
     assert validate_atomic_knowledge_statement(statement) == statement
 
 
-def test_atomic_statement_splits_chunk_state_from_resume_behavior() -> None:
-    with pytest.raises(ValueError, match="independent actions"):
-        validate_atomic_knowledge_statement(
-            "每个 chunk 必须持久化状态、attempt、lease 和结果，"
-            "并从未完成的 chunk 继续处理。"
-        )
+def test_atomic_statement_allows_chunk_state_and_resume_terms() -> None:
+    statement = (
+        "每个 chunk 必须持久化状态、attempt、lease 和结果，"
+        "并从未完成的 chunk 继续处理。"
+    )
+    assert validate_atomic_knowledge_statement(statement) == statement
+
+
+@pytest.mark.parametrize("statement", ["", " \t\n "])
+def test_atomic_statement_rejects_empty_text(statement: str) -> None:
+    with pytest.raises(ValueError, match="must not be empty"):
+        validate_atomic_knowledge_statement(statement)
+
+
+def test_atomic_statement_normalizes_whitespace_without_rewriting_words() -> None:
+    assert validate_atomic_knowledge_statement(
+        "  Reuse\tfixture contracts,\nparameterize host checks, and split quick and release validation.  "
+    ) == "Reuse fixture contracts, parameterize host checks, and split quick and release validation."
 
 
 def test_assimilation_rejects_reusing_a_truth_target_after_mutation() -> None:
@@ -452,11 +464,9 @@ def test_source_recheck_refreshes_verification_without_rewriting_knowledge(tmp_p
         _run(backend.close())
 
 
-def test_atomic_statement_rejects_duplicated_bilingual_condition_prefix() -> None:
-    with pytest.raises(ValueError, match="same condition in two languages"):
-        validate_atomic_knowledge_statement(
-            "When 当判断 Codex Stop Hook 是否可靠时，必须运行真实挑战。"
-        )
+def test_atomic_statement_allows_bilingual_condition_words() -> None:
+    statement = "When 当判断 Codex Stop Hook 是否可靠时，必须运行真实挑战。"
+    assert validate_atomic_knowledge_statement(statement) == statement
 
 
 def test_rule_candidate_statement_does_not_add_an_english_prefix() -> None:

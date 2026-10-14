@@ -620,6 +620,7 @@ def inspect_retrieval_outcome(data_dir: Path, project_name: str) -> dict[str, An
                 payload = read_search_handlers.tool_search_memory(
                     query=query,
                     project_name=project_name,
+                    scope="project",
                 )
                 hit = {
                     "title": entry.title,

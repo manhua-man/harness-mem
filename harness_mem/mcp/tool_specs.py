@@ -23,6 +23,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, TypedDict
 
+from harness_mem.core.schemas.evidence import EvidenceRef
+
 _CURRENT_CANDIDATE_STATUSES = (
     "pending",
     "deferred",
@@ -77,18 +79,20 @@ PUBLIC_MCP_TOOL_NAMES = frozenset(
 # ingest / review / suggest) to keep the registry scannable.
 _SESSION_REFERENCE_SCHEMA: dict[str, Any] = {
     "type": "object",
-    "properties": {name: {"type": "string"} for name in ("client", "session_id", "source_id", "source_revision", "reference_id")},
+    "properties": {**{name: {"type": "string"} for name in ("client", "session_id", "source_id", "source_revision", "reference_id", "project_root", "project_name")},
+                   "scope": {"type": "string", "enum": ["all", "project"]}},
     "required": ["client", "session_id", "source_id", "source_revision", "reference_id"],
 }
 
 _SCHEMAS: dict[str, _SchemaOnly] = {
     "inspect_sessions": {
-        "description": "Read-only project session inventory, frozen batch progress, or complete revision source pages. Never imports, creates jobs, writes memory or triggers background work.",
+        "description": "Inspect native sessions on this device, read frozen batch progress, or page a selected complete source. Default inventory includes sessions with missing, absent or multiple workspace directories. A directory is optional context, never a requirement. Discovery references are not immutable revisions; prepare captures and binds one complete selected source at a time. Never imports, creates jobs, writes memory or triggers background work.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "project_root": {"type": "string", "description": "Absolute current project directory"},
-                "project_name": {"type": "string"},
+                "scope": {"type": "string", "enum": ["all", "project"], "description": "All device sessions by default; project is an explicitly requested optional source filter."},
+                "project_root": {"type": "string", "description": "Optional source filter, including a historical missing directory. Omit for all device sessions. Do not ask users to fill this field."},
+                "project_name": {"type": "string", "description": "Optional context label; historical source roots never reserve this name. Selected sources are independently validated within their root."},
                 "action": {"type": "string", "enum": ["inventory", "source", "overview"], "default": "inventory"},
                 "clients": {"type": "array", "items": {"type": "string", "enum": ["claude-code", "codex", "cursor", "grok", "hermes", "opencode", "antigravity"]}},
                 "session": _SESSION_REFERENCE_SCHEMA,
@@ -106,14 +110,21 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     }, "required": ["reference_id", "start", "end"]}},
                 }, "required": ["name", "evidence"]}, "description": "Agent-proposed themes with source locations; multiple themes per session are allowed"},
             },
-            "required": ["project_root"],
+            "required": [],
         },
     },
     "search_memory": {
         "description": (
-            "Search current long-term memory for a project. The output contains "
-            "only readable titles and statements. An empty project query lists "
-            "all current knowledge with natural modules for on-demand viewing. "
+            "Search all current long-term memory by default, including global user decisions. "
+            "A task about a named project still uses scope=all; do not infer a project filter from the task or workspace. "
+            "Use scope=project only when the user explicitly asks to exclude other projects' memory. "
+            "Reuse a returned fact for every question it already answers; searching its other keywords "
+            "does not independently verify it. Search again for a still-unanswered question or new conflict, "
+            "and check current applicability against the relevant sources. "
+            "Use focused topic keywords rather than a list of every file, tool and task detail. The output contains "
+            "readable titles and whole statements. Large results include a continuation call; "
+            "follow it to read the rest. Empty queries browse current knowledge with natural modules. "
+            "A long entry may first return its title and a detail=full call for its complete text. "
             "Use search_raw when exact "
             "conversation evidence is needed."
         ),
@@ -122,13 +133,23 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "properties": {
                 "project_name": {
                     "type": "string",
-                    "description": "Project name (required when scope=project)",
+                    "description": "Optional task context, ignored as a filter with scope=all. Required only for a user-requested project-only filter; relevant decisions may be stored under global or other labels.",
                 },
-                "query": {"type": "string", "description": "Search query"},
+                "query": {"type": "string", "description": "The specific topic or missing decision to recover; avoid concatenating unrelated task keywords."},
+                "budget_tokens": {
+                    "type": "integer", "minimum": 1,
+                    "description": "Size of the complete returned page, using cl100k_base when available or conservative UTF-8 byte counting. Omit to use cost_budget.search_tokens.",
+                },
+                "cursor": {"type": "string", "description": "Reading position from the returned continuation call; the Agent follows it automatically."},
+                "detail": {
+                    "type": "string", "enum": ["auto", "full"], "default": "auto",
+                    "description": "auto returns whole facts fitting the page. full explicitly reads one complete entry, even when it exceeds the page size.",
+                },
                 "scope": {
                     "type": "string",
                     "enum": ["project", "all"],
-                    "description": "Search scope: project or all (default: project)",
+                    "description": "Keep all for ordinary tasks, even tasks about one project. project excludes global and other labels: use only when the user explicitly requests that restriction.",
+                    "default": "all",
                 },
             },
             "required": ["query"],
@@ -153,7 +174,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 },
                 "project_name": {
                     "type": "string",
-                    "description": "Project name (defaults to active project when omitted).",
+                    "description": "Optional current-task context; automatic search still searches all memory by default.",
                 },
                 "current_task": {
                     "type": "string",
@@ -201,7 +222,8 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 },
                 "budget_tokens": {
                     "type": "integer",
-                    "description": "Advisory budget for the bounded search tick.",
+                    "description": "Size of the complete tick response, including feedback fields. Additional knowledge remains accessible through continuation.",
+                    "minimum": 1,
                     "default": 1600,
                 },
             },
@@ -368,18 +390,28 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     },
     "wake": {
         "description": (
-            "Return current project memory and whether maintenance is waiting."
+            "Return relevant current memory across all projects and whether current-context maintenance is waiting. "
+            "Without a task, return availability and a reading call rather than the whole library. "
+            "Larger task results include a search_memory continuation call."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "project_name": {
                     "type": "string",
-                    "description": "Project name (defaults to active project when omitted)",
+                    "description": "Optional current-task context; it does not restrict the default memory search.",
                 },
                 "current_task": {
                     "type": "string",
                     "description": "Optional current task used to build a task-aware wake packet.",
+                },
+                "budget_tokens": {
+                    "type": "integer", "minimum": 1,
+                    "description": "Size of the complete wake response. Omit to use cost_budget.wake_tokens. All remaining facts remain readable through continuation.",
+                },
+                "scope": {
+                    "type": "string", "enum": ["all", "project"], "default": "all",
+                    "description": "All current memory by default; project is an explicit optional filter.",
                 },
             },
         },
@@ -394,7 +426,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
         "input_schema": {
             "type": "object",
             "properties": {
-                "project_name": {"type": "string", "description": "Project name"},
+                "project_name": {"type": "string", "description": "Optional context label for selected-session processing; it is not a globally unique directory identity."},
                 "client": {
                     "type": "string",
                     "enum": [
@@ -424,12 +456,12 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 "scope": {
                     "type": "string",
                     "enum": ["project", "all"],
-                    "description": "Session scope for global stores (default: project)",
+                    "description": "Use all for device-wide selected-session processing without directory setup; project preserves explicit legacy source filters.",
                     "default": "project",
                 },
                 "project_root": {
                     "type": "string",
-                    "description": "Project root for directory-first project resolution",
+                    "description": "Optional source context for repository evidence; not required for selected device sessions or verified user statements.",
                 },
                 "observation_limit": {
                     "type": "integer",
@@ -441,9 +473,9 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "default": True,
                 },
                 "batch_sessions": {"type": "array", "items": _SESSION_REFERENCE_SCHEMA, "minItems": 1,
-                                   "description": "Freeze explicit project session references from inspection for continuous manual processing; sources are retained"},
+                                   "description": "Freeze selected native references from inspection for continuous manual processing. Device sources are fully read and bound one at a time; no directory setup, background CLI or source deletion."},
                 "batch_id": {"type": "string", "description": "Resume the next unresolved item in an existing manual batch"},
-                "retry_failures": {"type": "boolean", "default": False, "description": "Explicitly retry failed sources in an active batch; never resets a stopped batch"},
+                "retry_failures": {"type": "boolean", "default": False, "description": "Explicitly retry failed sources in an active batch, or recheck unfinished points in a directly selected completed session; never resets a stopped batch"},
                 "distill_job_id": {
                     "type": "string",
                     "description": (
@@ -484,8 +516,8 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "type": "string",
                     "enum": ["compact", "full"],
                     "description": (
-                        "Semantic evidence detail. compact returns a budgeted exchange "
-                        "outline; full returns the complete v1 semantic rendering."
+                        "compact returns complete readable exchanges and necessary "
+                        "references without duplicated diagnostics; full includes diagnostic details."
                     ),
                     "default": "compact",
                 },
@@ -493,9 +525,8 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "type": "integer",
                     "minimum": 256,
                     "description": (
-                        "Advisory target for the complete serialized response. "
-                        "Compact evidence adapts to the remaining space; complete "
-                        "coverage or explicit drilldown may expand with a receipt."
+                        "Advisory diagnostic-response budget, never a source-reading limit. "
+                        "Complete conversation is retained in the normal response."
                     ),
                     "default": 3000,
                 },
@@ -608,7 +639,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                         "zero_candidate_challenge": {
                             "type": "object",
                             "description": (
-                                "Required for v1 jobs that produced no candidates. "
+                                "Optional detailed review for compatibility; an explicit no_promotion review needs no extra questionnaire. "
                                 "Use the content hashes returned by semantic exchange drilldown."
                             ),
                             "properties": {
@@ -775,7 +806,8 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "runtime derives the Answer Gate status; only ANSWERED candidates "
             "may enter the truth layer. Distill suggestions must include an "
             "assimilation_disposition and assimilation_reason; add/refine/"
-            "replace also require canonical_title and topic_path, while "
+            "replace also require canonical_title and topic_path (a JSON array of "
+            "whole category names, never a slash-separated string), while "
             "confirm/refine/replace require an unambiguous current-memory selection. "
             "Use target_knowledge=[{title, statement, module}] copied from ordinary "
             "search; title or statement is required, module is optional. The runtime "
@@ -784,7 +816,10 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "remain compatible for existing callers but must not be requested from users. "
             "An unresolved selection retains old memory and appears as unfinished work; "
             "unrelated verified points can still be saved. For kind=memory, category, "
-            "content and source are required. EvidenceRef accepts kind, locator, "
+            "content and source are required. EvidenceRef.kind is exactly repository, "
+            "user_statement or transcript, never session_exchange. A user_statement "
+            "ref uses exchange_index and the returned exchange content_sha256; "
+            "do not add a transcript locator. EvidenceRef accepts kind, locator, "
             "content_sha256, exchange_index, chunk_index and role, not source/job IDs. "
             "Use evidence_basis=repository|user_statement|transcript. Handoff requires "
             "project_name, task_id, summary, status and, for distill work, distill_job_id."
@@ -805,12 +840,17 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "description": "Action-specific arguments; project_name is required for project writes.",
                     "additionalProperties": True,
                     "properties": {
+                        "evidence_basis": {"type": "string", "enum": ["repository", "user_statement", "transcript"]},
+                        "verification_outcome": {"type": "string", "enum": ["verified", "unverified", "contradicted", "not_applicable"]},
+                        "verification_refs": {"type": "array", "items": EvidenceRef.model_json_schema(),
+                                              "description": "Exact typed source references; user statements use kind=user_statement, exchange_index and the returned exchange digest."},
                         "target_knowledge": {
                             "type": "array",
                             "description": "Exact old memory text from ordinary search; no user-managed identifiers.",
                             "items": {
                                 "type": "object",
                                 "properties": {"title": {"type": "string"}, "statement": {"type": "string"},
+                                               "project_name": {"type": "string", "description": "Optional unchanged context label returned by ordinary search."},
                                                "module": {"type": "array", "items": {"type": "string"}}},
                                 "anyOf": [{"required": ["title"]}, {"required": ["statement"]}],
                                 "additionalProperties": False,

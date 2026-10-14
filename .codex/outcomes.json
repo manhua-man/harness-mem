@@ -3,6 +3,94 @@
   "project": "harness-mem",
   "claims": [
     {
+      "id": "bounded_current_memory_reading",
+      "description": "Current memory is relevant and concise, while complete facts remain readable through continuation and explicit full reading.",
+      "required": true,
+      "checks": [{
+        "id": "isolated_stdio_and_hook_reading",
+        "description": "Read fictional durable SQLite knowledge through a separate MCP stdio process and exercise taskless/task-aware Hook rendering.",
+        "evidence_tier": "direct",
+        "timeout_seconds": 90,
+        "command": ["{python}", "-m", "harness_mem.qualification.bounded_reading_outcome_probe"],
+        "expect": {"exit_code": 0, "json": {
+          "verified": {"equals": true},
+          "all_facts_read_once_after_reopen": {"equals": true},
+          "normal_pages_within_requested_size": {"equals": true},
+          "long_fact_complete": {"equals": true},
+          "quickstart_excludes_product_only_noise": {"equals": true},
+          "blank_wake_is_availability_only": {"equals": true},
+          "automatic_complete_response_within_requested_size": {"equals": true},
+          "automatic_full_fact_accessible": {"equals": true},
+          "hook_task_output_within_requested_size": {"equals": true}
+        }}
+      }]
+    },
+    {
+      "id": "device_memory_flow",
+      "description": "One selected device batch processes complete native sessions without requiring workspace directories, persists verified current memory, and retrieves it after reopening storage.",
+      "required": true,
+      "checks": [{
+        "id": "isolated_device_memory_runtime",
+        "description": "Seven fictional native-host file and container/archive flows through public MCP, SQLite, Note and global search; no live app, Hook or model verdict.",
+        "evidence_tier": "direct",
+        "timeout_seconds": 120,
+        "command": ["{python}", "-m", "harness_mem.qualification.device_memory_outcome_probe"],
+        "expect": {"exit_code": 0, "json": {
+          "verified": {"equals": true},
+          "native_variant_count": {"equals": 2},
+          "default_device_inventory": {"equals": true},
+          "historical_directories_absent": {"equals": true},
+          "inventory_read_only": {"equals": true},
+          "one_session_at_a_time": {"equals": true},
+          "fixed_batch_completed": {"equals": true},
+          "seven_host_complete_flow": {"equals": true},
+          "sqlite_durable_after_reopen": {"equals": true},
+          "default_global_retrieval": {"equals": true},
+          "notes_durable_after_reopen": {"equals": true},
+          "native_sources_retained": {"equals": true},
+          "frozen_sources_retained": {"equals": true},
+          "manual_retain_source": {"equals": true},
+          "no_profiles": {"equals": true},
+          "no_background_cli": {"equals": true},
+          "public_twenty_tools": {"equals": true},
+          "semantic_mode": {"equals": "deterministic_fixture_agent"},
+          "native_apps_or_hooks": {"equals": "not_run"}
+        }}
+      }]
+    },
+    {
+      "id": "automatic_project_multihost_flow",
+      "description": "Seven native host formats discover contexts without old-directory name reservations, then selected sessions complete verified processing and global default retrieval without human directory input.",
+      "required": true,
+      "checks": [{
+        "id": "isolated_automatic_projects_runtime",
+        "description": "Real native metadata and complete exporters plus JSON-RPC dispatcher and reopened SQLite; fixture Agent decisions, no live app, Hook or model claims.",
+        "evidence_tier": "direct",
+        "timeout_seconds": 120,
+        "command": ["{python}", "-m", "harness_mem.qualification.automatic_projects_outcome_probe"],
+        "expect": {"exit_code": 0, "json": {
+          "verified": {"equals": true},
+          "native_variant_count": {"equals": 2},
+          "no_directory_input": {"equals": true},
+          "context_labels_not_renamed": {"equals": true},
+          "historical_roots_do_not_reserve_names": {"equals": true},
+          "seven_native_hosts_discovered": {"equals": true},
+          "discovery_has_no_verified_revision": {"equals": true},
+          "seven_host_complete_flow": {"equals": true},
+          "batch_resumes_same_job": {"equals": true},
+          "truth_retrievable_after_reopen": {"equals": true},
+          "global_retrieval_default": {"equals": true},
+          "source_scopes_preserved": {"equals": true},
+          "historical_source_preserved": {"equals": true},
+          "native_sources_preserved": {"equals": true},
+          "paged_reads_target_only": {"equals": true},
+          "seven_host_registration_retained": {"equals": true},
+          "semantic_mode": {"equals": "deterministic_fixture_agent"},
+          "native_apps_or_hooks": {"equals": "not_run"}
+        }}
+      }]
+    },
+    {
       "id": "manual_session_batch",
       "description": "An isolated current-Agent manual batch resumes, persists verified knowledge, reports changes, and retains selected sources without a background model.",
       "required": true,
@@ -21,6 +109,7 @@
           "current_knowledge_view": {"equals": true},
           "author_derived_preference_saved": {"equals": true},
           "deferred_work_visible": {"equals": true},
+          "unfinished_organization_is_partial": {"equals": true},
           "runtime_summary_consistent": {"equals": true},
           "no_write_result_consistent": {"equals": true},
           "new_batch_preserves_handoff": {"equals": true},

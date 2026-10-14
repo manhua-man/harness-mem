@@ -629,12 +629,14 @@ class TranscriptStore:
         pipeline_version: str = "lossless-distill-v1",
         active_limit: int | None = None,
         recent_first: bool = True,
+        manual_recheck: bool = False,
     ) -> SessionDistillJob:
         return self._distill.enqueue(
             source_id,
             pipeline_version=pipeline_version,
             active_limit=active_limit,
             recent_first=recent_first,
+            manual_recheck=manual_recheck,
         )
 
     def get_distill_job(self, job_id: str) -> SessionDistillJob | None:
@@ -736,6 +738,7 @@ class TranscriptStore:
         now: datetime | None = None,
         recovery_budget: int | None = None,
         manual_job_ids: set[str] | None = None,
+        job_ids: set[str] | None = None,
     ) -> dict[str, int]:
         """Recompute job state from durable checkpoints after a restart."""
 
@@ -744,6 +747,7 @@ class TranscriptStore:
             now=now,
             recovery_budget=recovery_budget,
             manual_job_ids=manual_job_ids,
+            job_ids=job_ids,
         )
 
     def mark_distill_jobs_agent_offered(

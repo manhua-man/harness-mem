@@ -663,6 +663,24 @@ CODEX_DELEGATION_INPUT_REGEX = re.compile(
 )
 
 
+def is_codex_user_content_item(item: Any) -> bool:
+    """Accept native text and image blocks without granting images text authorship."""
+    if not isinstance(item, dict):
+        return False
+    if "role" in item and item["role"] != "user":
+        return False
+    if item.get("type") in {"text", "input_text"}:
+        return isinstance(item.get("text"), str)
+    if item.get("type") == "input_image":
+        return (
+            set(item) <= {"type", "image_url", "detail"}
+            and isinstance(item.get("image_url"), str)
+            and bool(item["image_url"].strip())
+            and ("detail" not in item or item["detail"] in ("auto", "low", "high", "original"))
+        )
+    return False
+
+
 def extract_archived_text(content: Any) -> str:
     """Extract and normalize text from various Codex content formats."""
     if isinstance(content, str):
@@ -673,8 +691,12 @@ def extract_archived_text(content: Any) -> str:
     for item in content:
         if not isinstance(item, dict):
             continue
+        if item.get("type") not in {"text", "input_text", "output_text"}:
+            continue
         text = item.get("text")
         if isinstance(text, str):
+            if re.fullmatch(r"</?image\b[^>]*>", text.strip(), re.IGNORECASE):
+                continue
             parts.append(text)
     return "\n\n".join(parts).strip()
 
@@ -694,6 +716,8 @@ def sanitize_archived_user_text(text: str) -> str:
         cleaned = delegation.group(1).strip()
     elif cleaned.startswith("<recommended_plugins>") or AGENTS_CONTEXT_PREFIX in cleaned:
         return ""
+    if cleaned.startswith("# Files mentioned by the user:") and IDE_REQUEST_MARKER in cleaned:
+        cleaned = cleaned.split(IDE_REQUEST_MARKER, 1)[1].strip()
     if cleaned.startswith(AGENTS_CONTEXT_PREFIX) and IDE_REQUEST_MARKER not in cleaned:
         return ""
     if any(cleaned.startswith(prefix) for prefix in BOILERPLATE_USER_PREFIXES):
@@ -724,8 +748,14 @@ def parse_codex_archive_jsonl_session(
     # Intermediary turn lookup to handle multi-line tool/message events
     turn_lookup: dict[str, Turn] = {}
 
-    def _ensure_turn(turn_id: str | None) -> Turn:
-        actual_id = turn_id or f"turn-{len(turns) + 1}"
+    def _ensure_turn(turn_id: str | None, *, boundary: bool = False) -> Turn:
+        # Native response/event records can omit IDs. They still belong to the
+        # preceding user/context until the next explicit conversational boundary.
+        if not turn_id and turns and not boundary:
+            return turns[-1]
+        actual_id = turn_id or f"implicit-{len(turns) + 1}"
+        while not turn_id and actual_id in turn_lookup:
+            actual_id += "-next"
         if actual_id not in turn_lookup:
             new_turn: Turn = {
                 "turn_id": actual_id,
@@ -778,7 +808,7 @@ def parse_codex_archive_jsonl_session(
                 content_items = payload.get("content")
                 if isinstance(content_items, list):
                     invalid_author |= any(
-                        not isinstance(item, dict) or item.get("type") not in {"text", "input_text"}
+                        not is_codex_user_content_item(item)
                         for item in content_items
                     )
                 if top_level_type == "event_msg":
@@ -788,9 +818,16 @@ def parse_codex_archive_jsonl_session(
                               message="Conflicting or malformed native message authorship", path=session_path)
                 continue
 
-            # Every event-carrying record should have a turn_id
             turn_id = payload.get("turn_id")
-            turn = _ensure_turn(turn_id)
+            is_user = (top_level_type == "event_msg" and payload.get("type") == "user_message"
+                       or top_level_type == "response_item" and payload.get("type") == "message"
+                       and payload.get("role") == "user")
+            # An excluded host-authored user message must also start a new
+            # boundary, so its response cannot attach to a prior real request.
+            boundary = top_level_type == "turn_context" or is_user and bool(
+                turns and (turns[-1]["user"] or turns[-1]["assistant"] or turns[-1]["tools"])
+            )
+            turn = _ensure_turn(turn_id, boundary=boundary)
 
             if top_level_type == "turn_context":
                 turn["timestamp"] = payload.get("current_date") or turn["timestamp"]

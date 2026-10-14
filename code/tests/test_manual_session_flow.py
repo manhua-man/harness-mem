@@ -8,6 +8,7 @@ import pytest
 
 from harness_mem.adapters.cursor.adapter import CursorAdapter
 from harness_mem.commands import manual_distill, session_inventory
+from harness_mem.commands.distill_result import distill_display_review
 from harness_mem.config.merge import MergedConfig
 from harness_mem.mcp import governance_handlers, tool_handlers
 from harness_mem.mcp.session_handlers import tool_inspect_sessions
@@ -55,13 +56,6 @@ def review(packet):
         "final_user_request": "greeting", "final_outcome": "greeting answered",
         "last_turn_status": "answered", "contradictions": [], "unfinished_work": [],
         "evidence_status": "answered", "promotion_decision": "no_promotion",
-        "zero_candidate_challenge": {
-            **packet["zero_candidate_challenge_template"],
-            "evidence_fidelity": "complete", "future_utility": "session_only",
-            "conclusion": "no_durable_candidate",
-            "rationale": "The complete source contains only greetings and no reusable decision.",
-            "checks": {key: "absent" for key in packet["zero_candidate_challenge_template"]["checks"]},
-        },
     }
 
 
@@ -169,6 +163,7 @@ def test_explicit_manual_session_is_reserved_without_batch(manual_fixture):
     )
     assert packet["success"]
     assert backend.transcript_store.get_distill_job(captured.distill_job_id).manual_only
+    assert backend.transcript_store.get_distill_job(captured.distill_job_id).retain_source
 
 
 def test_manual_cannot_steal_active_background_review(manual_fixture):
@@ -343,8 +338,7 @@ def _suggest_readable_memory(backend, root, packet, *, title, statement, disposi
 
 
 def _memory_review(packet):
-    semantic = {key: value for key, value in review(packet).items() if key != "zero_candidate_challenge"}
-    return {**semantic, "promotion_decision": "promote", "final_outcome": "已记住全部内容。"}
+    return {**review(packet), "promotion_decision": "promote", "final_outcome": "已记住全部内容。"}
 
 
 @pytest.mark.parametrize("disposition", ["add", "no_write"])
@@ -367,6 +361,56 @@ def test_invalid_review_preserves_candidates_before_any_assimilation(manual_fixt
     assert backend.transcript_store.get_distill_job(packet["distill_job_id"]).status == "reviewing"
 
 
+@pytest.mark.parametrize("decision", ["promote", "partial"])
+@pytest.mark.parametrize("last_turn_status", ["answered", "unfinished", "unknown"])
+def test_promote_with_unrelated_contradictions_saves_independent_verified_point(manual_fixture, decision, last_turn_status):
+    from pathlib import Path
+
+    backend, root, write = manual_fixture
+    source = write("independent-policy", "Adopt the result policy; the old deployment plan was superseded.")
+    source_before = source.read_bytes()
+    packet = start(root, tool_inspect_sessions(str(root), clients=["cursor"])["sessions"])
+    assert packet["success"], packet
+    assert "zero_candidate_challenge_template" not in packet
+    statement = "The service stores a separate result for each task."
+    suggestion = _suggest_readable_memory(backend, root, packet, title="Task results", statement=statement)
+    assert suggestion["success"], suggestion
+    semantic = {
+        **_memory_review(packet), "promotion_decision": decision,
+        "last_turn_status": last_turn_status,
+        "contradictions": ["The old deployment plan was superseded by a later plan."],
+    }
+    job_id = packet["distill_job_id"]
+    final = tool_handlers.tool_finalize_session_distill("project", job_id, semantic)
+    assert final["success"], final
+    assert not {"promotion", "answer_packet", "session_summary", "source_cleanup"}.intersection(final)
+    expected = [{"change": "added", "module": ["Progress"], "title": "Task results", "statement": statement}]
+    assert final["knowledge_changes"] == expected
+    assert final["not_written"] == []
+    job = backend.transcript_store.get_distill_job(job_id)
+    assert job.semantic_review["contradictions"] == semantic["contradictions"]
+    assert job.promotion_summary["promoted"] == 1
+    assert job.promotion_summary["readback"]["verified"]
+    entries = asyncio.run(backend.structured_store.knowledge_store.list_entries("project"))
+    assert [entry.statement for entry in entries] == [statement]
+    assert job.promotion_summary["points"][0]["canonical_truth_ids"] == [entries[0].id]
+    note_path = Path(final["note"]["path"])
+    assert statement in note_path.read_text(encoding="utf-8")
+    assert hashlib.sha256(note_path.read_bytes()).hexdigest() == final["note"]["sha256"]
+    assert Path(final["note"]["latest_path"]).read_bytes() == note_path.read_bytes()
+    assert source.read_bytes() == source_before
+    asyncio.run(backend.close())
+    asyncio.run(backend.init())
+    assert [entry.statement for entry in asyncio.run(backend.structured_store.knowledge_store.list_entries("project"))] == [statement]
+    found = tool_handlers.tool_search_memory(query="Task results", project_name="project")
+    assert found["memories"] == [{"title": "Task results", "statement": statement, "project_name": "project"}]
+    replay = tool_handlers.tool_finalize_session_distill("project", job_id, semantic)
+    assert replay["success"] and replay["idempotent_replay"]
+    assert replay["knowledge_changes"] == expected
+    assert backend.transcript_store.get_distill_job(job_id).promotion_summary["promoted"] == 1
+    assert resume(root, packet["batch_id"])["status"] == "completed"
+
+
 def test_manual_replaces_by_old_text_and_saves_unrelated_memory(manual_fixture):
     backend, root, write = manual_fixture
     old = _seed_readable_memory(backend, root, title="Saved progress", statement="The service saves progress once per day.")
@@ -374,6 +418,7 @@ def test_manual_replaces_by_old_text_and_saves_unrelated_memory(manual_fixture):
     packet = start(root, tool_inspect_sessions(str(root), clients=["cursor"])["sessions"])
     search = tool_handlers.tool_search_memory(project_name="project", query="")
     selection = next(item for item in search["memories"] if item["title"] == old.title)
+    selection = {key: value for key, value in selection.items() if key in {"title", "statement", "module"}}
     assert "id" not in selection
     changed = "The service saves progress before finishing a task."
     added = "The service stores a separate result for each task."
@@ -383,7 +428,7 @@ def test_manual_replaces_by_old_text_and_saves_unrelated_memory(manual_fixture):
     final = tool_handlers.tool_finalize_session_distill("project", packet["distill_job_id"], _memory_review(packet))
     assert final["success"], final
     assert final["organization_status"] == "completed"
-    assert final["promotion"]["promoted"] == 2
+    assert len(final["knowledge_changes"]) == 2
     persisted = asyncio.run(backend.structured_store.knowledge_store.list_entries("project"))
     assert {item.statement for item in persisted} == {changed, added}
     assert old.id not in {item.id for item in persisted}
@@ -409,8 +454,8 @@ def test_manual_confirmation_is_not_shown_as_newly_written(manual_fixture, monke
                                        statement="Each task retains its result.")["success"]
     final = tool_handlers.tool_finalize_session_distill("project", packet["distill_job_id"], _memory_review(packet))
     assert final["success"], final
-    assert final["promotion"]["confirmed"] == 1
-    written = final["answer_packet"]["promoted_items"]
+    assert backend.transcript_store.get_distill_job(packet["distill_job_id"]).promotion_summary["confirmed"] == 1
+    written = final["knowledge_changes"]
     assert len(written) == int(add_new)
     assert all(item["title"] != old.title for item in written)
     note = Path(final["note"]["path"]).read_text(encoding="utf-8")
@@ -444,14 +489,15 @@ def test_unresolved_manual_point_does_not_block_valid_add(manual_fixture, monkey
         if problem == "missing_decision":
             candidate.assimilation_disposition = None
         else:
-            candidate.topic_path = ["candidate promotion"]
+            candidate.topic_path = ["   "]
         asyncio.run(backend.structured_store.knowledge_store.save_candidate(candidate))
     added = "The service stores a separate result for each task."
     assert _suggest_readable_memory(backend, root, packet, title="Task results", statement=added)["success"]
     final = tool_handlers.tool_finalize_session_distill("project", packet["distill_job_id"], _memory_review(packet))
     assert final["success"], final
     assert final["organization_status"] == "partial"
-    assert final["promotion"]["promoted"] == 1 and final["promotion"]["deferred"] == 1
+    promotion = backend.transcript_store.get_distill_job(packet["distill_job_id"]).promotion_summary
+    assert promotion["promoted"] == 1 and promotion["deferred"] == 1
     assert [item["statement"] for item in final["knowledge_changes"]] == [added]
     assert final["unfinished_work"] and any("还没保存" in item for item in final["unfinished_work"])
     entries = asyncio.run(backend.structured_store.knowledge_store.list_entries("project"))
@@ -461,7 +507,8 @@ def test_unresolved_manual_point_does_not_block_valid_add(manual_fixture, monkey
     pending = asyncio.run(backend.structured_store.knowledge_store.get_candidate(broken["entry_id"]))
     assert pending is not None and pending.status == "deferred"
     assert source.read_bytes() == before
-    assert "已记住全部内容" not in final["session_summary"]["final_outcome"]
+    job = backend.transcript_store.get_distill_job(packet["distill_job_id"])
+    assert "已记住全部内容" not in distill_display_review(job)["final_outcome"]
     note = __import__("pathlib").Path(final["note"]["path"]).read_text(encoding="utf-8")
     assert added in note and "已记住全部内容" not in note
     batch = tool_inspect_sessions(str(root), batch_id=packet["batch_id"])
@@ -497,6 +544,149 @@ def test_unfinished_batch_shows_saved_handoff_before_finalize(manual_fixture):
     assert batch["knowledge_changes"] == []
 
 
+def test_explicit_manual_retry_rechecks_partial_result_without_rewriting_receipt(manual_fixture):
+    from harness_mem.commands.distill_lifecycle import pending_distill_jobs
+
+    backend, root, write = manual_fixture
+    path = write("manual-recheck")
+    raw = path.read_bytes()
+    packet = start(root, tool_inspect_sessions(str(root), clients=["cursor"])["sessions"])
+    reviewed = review(packet)
+    reviewed["unfinished_work"] = ["Recheck an independently deferred point."]
+    first = tool_handlers.tool_finalize_session_distill("project", packet["distill_job_id"], reviewed)
+    assert first["organization_status"] == "partial"
+    old = backend.transcript_store.get_distill_job(packet["distill_job_id"]).to_dict()
+    ordinary = tool_handlers.tool_prepare_session_distill(
+        project_name="project", project_root=str(root), client="cursor",
+        session_id="manual-recheck", run_ingest=False,
+    )
+    assert ordinary["distill_status"] == "completed"
+    retried = tool_handlers.tool_prepare_session_distill(
+        project_name="project", project_root=str(root), client="cursor",
+        session_id="manual-recheck", run_ingest=False, retry_failures=True,
+    )
+    assert retried["success"] and retried["distill_status"] == "reviewing", retried
+    assert retried["distill_job_id"] != packet["distill_job_id"]
+    assert retried["source_revision"] == packet["source_revision"]
+    assert backend.transcript_store.get_distill_job(retried["distill_job_id"]).retain_source
+    assert backend.transcript_store.get_distill_job(packet["distill_job_id"]).to_dict() == old
+    assert pending_distill_jobs(backend, project_name="project", background_only=True) == []
+    repeated = tool_handlers.tool_prepare_session_distill(
+        project_name="project", project_root=str(root), client="cursor",
+        session_id="manual-recheck", run_ingest=False, retry_failures=True,
+    )
+    assert repeated["distill_job_id"] == retried["distill_job_id"]
+    assert path.read_bytes() == raw
+
+
+@pytest.mark.parametrize("with_session", [False, True])
+def test_explicit_job_retry_keeps_exact_source_and_old_receipt(manual_fixture, with_session):
+    backend, root, write = manual_fixture
+    path = write("exact-retry")
+    raw = path.read_bytes()
+    packet = start(root, tool_inspect_sessions(str(root), clients=["cursor"])["sessions"])
+    reviewed = {**review(packet), "unfinished_work": ["Read the unresolved point again."]}
+    assert tool_handlers.tool_finalize_session_distill("project", packet["distill_job_id"], reviewed)["success"]
+    old = backend.transcript_store.get_distill_job(packet["distill_job_id"]).to_dict()
+    # A later job with the same session must not replace the explicit selector.
+    sibling = backend.transcript_store.enqueue_distill_job(packet["source_id"], pipeline_version="other-review")
+    sibling_before = sibling.to_dict()
+    retried = tool_handlers.tool_prepare_session_distill(
+        project_name="project", project_root=str(root), client="cursor", run_ingest=False,
+        distill_job_id=packet["distill_job_id"], retry_failures=True,
+        **({"session_id": "exact-retry"} if with_session else {}),
+    )
+    assert retried["success"] and retried["distill_status"] == "reviewing", retried
+    assert retried["distill_job_id"] not in {packet["distill_job_id"], sibling.id}
+    assert retried["source_id"] == packet["source_id"]
+    assert retried["source_revision"] == packet["source_revision"]
+    assert backend.transcript_store.get_distill_job(retried["distill_job_id"]).retain_source
+    assert backend.transcript_store.get_distill_job(packet["distill_job_id"]).to_dict() == old
+    assert backend.transcript_store.get_distill_job(sibling.id).to_dict() == sibling_before
+    assert path.read_bytes() == raw
+
+
+def test_explicit_job_retry_rejects_other_project_without_mutation(manual_fixture):
+    backend, root, write = manual_fixture
+    write("retry-isolation")
+    packet = start(root, tool_inspect_sessions(str(root), clients=["cursor"])["sessions"])
+    before = backend.transcript_store.get_distill_job(packet["distill_job_id"]).to_dict()
+    result = tool_handlers.tool_prepare_session_distill(
+        project_name="elsewhere", project_root=str(root), client="cursor", run_ingest=False,
+        distill_job_id=packet["distill_job_id"], retry_failures=True,
+    )
+    assert not result["success"]
+    assert backend.transcript_store.get_distill_job(packet["distill_job_id"]).to_dict() == before
+
+
+def test_manual_retry_reads_retained_capture_when_native_missing(manual_fixture):
+    backend, root, write = manual_fixture
+    path = write("missing-native-retry")
+    raw = path.read_bytes()
+    packet = start(root, tool_inspect_sessions(str(root), clients=["cursor"])["sessions"])
+    assert tool_handlers.tool_finalize_session_distill("project", packet["distill_job_id"], review(packet))["success"]
+    job = backend.transcript_store.get_distill_job(packet["distill_job_id"])
+    job.promotion_summary.pop("readback")  # Isolated legacy receipt fixture.
+    ledger = backend.transcript_store
+    with ledger._lock, ledger._conn:
+        ledger._distill._upsert_job_locked(job)
+    ledger.mark_sources_missing_from_inventory(
+        project_name="project", client="cursor", observed_session_ids=set(),
+    )
+    source_before = ledger.get_source(packet["source_id"]).to_dict()
+    job_before = ledger.get_distill_job(job.id).to_dict()
+    with pytest.raises(ValueError, match="only complete synced"):
+        ledger.enqueue_distill_job(packet["source_id"], pipeline_version="background-retry")
+    retried = tool_handlers.tool_prepare_session_distill(
+        project_name="project", project_root=str(root), client="cursor", run_ingest=False,
+        distill_job_id=job.id, retry_failures=True, evidence_mode="semantic", detail_level="full",
+    )
+    assert retried["success"] and retried["distill_status"] == "reviewing", retried
+    assert retried["source_revision"] == packet["source_revision"]
+    assert ledger.get_source(packet["source_id"]).to_dict() == source_before
+    assert ledger.get_distill_job(job.id).to_dict() == job_before
+    retried_job = ledger.get_distill_job(retried["distill_job_id"])
+    assert retried_job.manual_only and retried_job.retain_source
+    assert path.read_bytes() == raw
+
+
+def test_manual_recheck_rejects_corrupt_retained_capture_without_job(manual_fixture):
+    backend, root, write = manual_fixture
+    write("corrupt-retry")
+    packet = start(root, tool_inspect_sessions(str(root), clients=["cursor"])["sessions"])
+    ledger = backend.transcript_store
+    jobs_before = [job.to_dict() for job in ledger.list_distill_jobs()]
+    ledger._distill._reconstruct = lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("hash mismatch"))
+    with pytest.raises(ValueError, match="hash mismatch"):
+        ledger.enqueue_distill_job(packet["source_id"], pipeline_version="manual-retry", manual_recheck=True)
+    assert [job.to_dict() for job in ledger.list_distill_jobs()] == jobs_before
+
+
+def test_closed_handoff_removes_batch_todo_without_rewriting_receipt(manual_fixture):
+    backend, root, write = manual_fixture
+    write("closed-follow-up")
+    packet = start(root, tool_inspect_sessions(str(root), clients=["cursor"])["sessions"])
+    assert governance_handlers.tool_govern_memory(action="handoff", arguments={
+        "project_name": "project", "distill_job_id": packet["distill_job_id"],
+        "task_id": "source-follow-up", "status": "in_progress",
+        "summary": "Recheck the deferred source.", "next_steps": ["Recheck the deferred source."],
+    })["success"]
+    semantic = {**review(packet), "promotion_decision": "partial",
+                "unfinished_work": ["Recheck the deferred source."]}
+    final = tool_handlers.tool_finalize_session_distill("project", packet["distill_job_id"], semantic)
+    assert final["organization_status"] == "partial"
+    old = backend.transcript_store.get_distill_job(packet["distill_job_id"]).to_dict()
+    handoff, = asyncio.run(backend.structured_store.get_latest_handoffs("project", limit=None))
+    assert governance_handlers.tool_govern_memory(action="handoff", arguments={
+        "project_name": "project", "task_id": handoff.task_id, "status": "done",
+        "summary": "The retained source was checked; no new knowledge is needed.",
+    })["success"]
+    batch = tool_inspect_sessions(str(root), batch_id=packet["batch_id"])
+    assert batch["unfinished_work"] == []
+    assert batch["knowledge_changes"] == []
+    assert backend.transcript_store.get_distill_job(packet["distill_job_id"]).to_dict() == old
+
+
 def test_review_delete_uses_current_prose_without_identifier(manual_fixture):
     backend, root, _write = manual_fixture
     old = _seed_readable_memory(backend, root, title="Saved progress", statement="The service saves progress once per day.")
@@ -522,7 +712,8 @@ def test_manual_batch_runs_without_background_and_retains_sources(manual_fixture
         assert packet["distill_status"] == "reviewing", packet
         finalized = tool_handlers.tool_finalize_session_distill("project", packet["distill_job_id"], review(packet))
         assert finalized["success"], finalized
-        assert finalized["source_cleanup"]["status"] == "retained"
+        job = backend.transcript_store.get_distill_job(packet["distill_job_id"])
+        assert job.retain_source and job.source_cleanup_status == "retained"
         assert finalized["knowledge_changes"] == []
         assert finalized["not_written"] == [{"reason": "没有需要长期记住的内容", "count": 1}]
         packet = resume(root, batch_id)
@@ -586,7 +777,7 @@ def test_batch_write_has_readback_and_readable_report(manual_fixture):
         "canonical_title": "Verified current cache", "topic_path": ["cache"],
     })
     assert candidate["success"], candidate
-    semantic_review = {key: value for key, value in review(packet).items() if key != "zero_candidate_challenge"}
+    semantic_review = review(packet)
     semantic_review.update(promotion_decision="promote", final_outcome="Verified the cache rule against current policy.")
     result = tool_handlers.tool_finalize_session_distill("project", packet["distill_job_id"], semantic_review)
     assert result["success"], result
@@ -599,10 +790,10 @@ def test_batch_write_has_readback_and_readable_report(manual_fixture):
     replay = tool_handlers.tool_finalize_session_distill("project", packet["distill_job_id"], {})
     assert replay["success"] and replay["idempotent_replay"]
     assert replay["knowledge_changes"] == expected_changes
-    current = tool_handlers.tool_search_memory(query="", project_name="project")
+    current = tool_handlers.tool_search_memory(query="", project_name="project", scope="project")
     assert current["memories"] == [{"module": ["cache"], "title": "Verified current cache",
                                     "statement": statement}]
-    ordinary = tool_handlers.tool_search_memory(query="verified current cache", project_name="project")
+    ordinary = tool_handlers.tool_search_memory(query="verified current cache", project_name="project", scope="project")
     assert ordinary["memories"] == [{"title": "Verified current cache", "statement": statement}]
     assert backend.transcript_store.get_distill_job(packet["distill_job_id"]).promotion_summary["readback"]["verified"]
     final = resume(root, packet["batch_id"])
@@ -615,16 +806,16 @@ def test_batch_write_has_readback_and_readable_report(manual_fixture):
     assert again["knowledge_changes"] == []
 
 
-def test_runtime_drift_stops_before_finalization(manual_fixture, monkeypatch):
+def test_runtime_update_does_not_block_unchanged_manual_source(manual_fixture, monkeypatch):
     backend, root, write = manual_fixture
     write("a")
     packet = start(root, tool_inspect_sessions(str(root), clients=["cursor"])["sessions"])
     monkeypatch.setattr(manual_distill, "runtime_fingerprint", lambda: "changed-runtime")
-    assert resume(root, packet["batch_id"])["success"] is False
+    assert resume(root, packet["batch_id"])["success"] is True
     final = tool_handlers.tool_finalize_session_distill("project", packet["distill_job_id"], review(packet))
-    assert final["success"] is False
-    assert final["reason_codes"] == ["runtime_version_changed"]
-    assert backend.transcript_store.get_distill_job(packet["distill_job_id"]).status != "completed"
+    assert final["success"], final
+    assert backend.transcript_store.get_distill_job(packet["distill_job_id"]).status == "completed"
+    assert resume(root, packet["batch_id"])["status"] == "completed"
 
 
 def test_native_digest_does_not_override_revision_ownership(manual_fixture):
@@ -658,11 +849,12 @@ def test_explicit_retry_and_stopped_batch_cannot_be_bypassed(manual_fixture):
     refs = tool_inspect_sessions(str(root), clients=["cursor"])["sessions"]
     packet = start(root, refs)
     store = ManualBatchStore(backend.data_dir)
-    store.record_failure(packet["batch_id"], "project", str(root), refs[0]["reference_id"], "selected_source_processing_failed")
+    frozen = store.load(packet["batch_id"], "project", str(root))["sessions"]
+    store.record_failure(packet["batch_id"], "project", str(root), frozen[0]["reference_id"], "selected_source_processing_failed")
     assert resume(root, packet["batch_id"])["progress"]["states"] == {"blocked": 1}
     retried = resume(root, packet["batch_id"], retry_failures=True)
     assert retried["distill_job_id"] == packet["distill_job_id"]
-    store.record_failure(packet["batch_id"], "project", str(root), refs[0]["reference_id"], "unsafe", stop_batch=True)
+    store.record_failure(packet["batch_id"], "project", str(root), frozen[0]["reference_id"], "unsafe", stop_batch=True)
     assert not resume(root, packet["batch_id"], retry_failures=True)["success"]
     new_batch = start(root, refs)
     assert new_batch["status"] == "stopped"
@@ -696,13 +888,14 @@ def test_failed_readback_escalates_preexisting_failure(manual_fixture):
     refs = tool_inspect_sessions(str(root), clients=["cursor"])["sessions"]
     packet = start(root, refs)
     store = ManualBatchStore(backend.data_dir)
-    store.record_failure(packet["batch_id"], "project", str(root), refs[0]["reference_id"], "selected_source_processing_failed")
+    frozen = store.load(packet["batch_id"], "project", str(root))["sessions"]
+    store.record_failure(packet["batch_id"], "project", str(root), frozen[0]["reference_id"], "selected_source_processing_failed")
     manual_distill.record_manual_finalize_failure(backend, packet["distill_job_id"], {
         "success": False, "reason_codes": ["promotion_write_unreadable"],
     })
     manifest = store.load(packet["batch_id"], "project", str(root))
     assert manifest["state"] == "stopped"
-    assert manifest["failures"][refs[0]["reference_id"]] == "selected_source_processing_failed"
+    assert manifest["failures"][frozen[0]["reference_id"]] == "selected_source_processing_failed"
 
 
 def test_later_verified_replacement_does_not_reopen_earlier_session(manual_fixture):
@@ -726,7 +919,7 @@ def test_later_verified_replacement_does_not_reopen_earlier_session(manual_fixtu
             "canonical_title": "Cache retention", "topic_path": ["cache"],
         })
         assert suggestion["success"], suggestion
-        semantic_review = {key: value for key, value in review(packet).items() if key != "zero_candidate_challenge"}
+        semantic_review = review(packet)
         semantic_review.update(promotion_decision="promote", final_outcome="Verified current policy.")
         finalized = tool_handlers.tool_finalize_session_distill("project", packet["distill_job_id"], semantic_review)
         assert finalized["success"], finalized
@@ -740,7 +933,9 @@ def test_later_verified_replacement_does_not_reopen_earlier_session(manual_fixtu
     assert packet["removed_count"] == 1
     search = tool_handlers.tool_search_memory(query="cache retention", project_name="project")
     assert statements[1] in json.dumps(search) and statements[0] not in json.dumps(search)
-    assert all(row["processing"] == "completed" for row in tool_inspect_sessions(str(root), clients=["cursor"])["sessions"])
+    # A lightweight metadata read must not certify the current content digest.
+    rows = tool_inspect_sessions(str(root), clients=["cursor"])["sessions"]
+    assert all(row["processing"] == "needs_verification" and row["imported"] for row in rows)
     assert resume(root, batch_id)["status"] == "completed"
     old_only = [row for row in tool_inspect_sessions(str(root), clients=["cursor"])["sessions"] if row["session_id"] == "a"]
     prior = start(root, old_only)
@@ -766,7 +961,7 @@ def test_interruption_after_sqlite_write_recovers_without_duplicate(manual_fixtu
         "canonical_title": "Verified cache", "topic_path": ["cache"],
     })
     assert suggested["success"], suggested
-    semantic_review = {key: value for key, value in review(packet).items() if key != "zero_candidate_challenge"}
+    semantic_review = review(packet)
     semantic_review.update(promotion_decision="promote", final_outcome="Verified policy.")
 
     async def interrupted(*args, **kwargs):
@@ -819,13 +1014,12 @@ def test_batch_preserves_unfinished_handoff_without_calling_it_knowledge(manual_
     semantic = review(packet)
     semantic.update(last_turn_status="unfinished", evidence_status="partial", promotion_decision="partial",
                     unfinished_work=["Complete the follow-up."])
-    semantic["zero_candidate_challenge"].update(future_utility="durable", conclusion="candidate_required",
-                    rationale="unfinished_handoff is preserved by the job-bound handoff.")
-    semantic["zero_candidate_challenge"]["checks"]["unfinished_handoff"] = "candidate_required"
     finalized = tool_handlers.tool_finalize_session_distill("project", packet["distill_job_id"], semantic)
     assert finalized["success"], finalized
+    assert finalized["organization_status"] == "partial"
     result = resume(root, packet["batch_id"])
     assert result.get("status") == "completed", result
+    assert result["organization_status"] == "partial"
     assert result["knowledge_changes"] == []
     assert result["not_written"] == [{"reason": "保留为未完成事项", "count": 1}]
     stored = asyncio.run(backend.structured_store.get_task_handoff(handoff["handoff_id"]))
@@ -833,6 +1027,7 @@ def test_batch_preserves_unfinished_handoff_without_calling_it_knowledge(manual_
 
     repeated = start(root, tool_inspect_sessions(str(root), clients=["cursor"])["sessions"])
     assert repeated["status"] == "completed", repeated
+    assert repeated["organization_status"] == "partial"
     assert repeated["knowledge_changes"] == []
     assert repeated["not_written"] == []
     assert "Complete the follow-up." in repeated["unfinished_work"]
@@ -881,38 +1076,43 @@ def test_user_preference_result_matches_runtime_gate_after_reopen(manual_fixture
             "assimilation_disposition": "add", "assimilation_reason": "Verified current cache policy.",
         })
         assert other["success"], other
-    semantic = {key: value for key, value in review(packet).items() if key != "zero_candidate_challenge"}
+    semantic = review(packet)
     semantic.update(session_summary="Organized the future audit preference.", final_user_request=statement,
                     final_outcome="已验证并记住全部偏好。", evidence_status="answered", promotion_decision="promote")
     final = tool_handlers.tool_finalize_session_distill("project", job_id, semantic)
     assert final["success"], final
+    assert not {"promotion", "answer_packet", "session_summary", "source_cleanup"}.intersection(final)
+    job = backend.transcript_store.get_distill_job(job_id)
+    promotion = job.promotion_summary
+    answer_packet = promotion["answer_packet"]
+    summary = distill_handlers._session_summary_payload(job)
     note_path = Path(final["note"]["path"])
     note = note_path.read_text(encoding="utf-8")
     assert hashlib.sha256(note_path.read_bytes()).hexdigest() == final["note"]["sha256"]
     assert Path(final["note"]["latest_path"]).read_bytes() == note_path.read_bytes()
     assert source.read_bytes() == original_source
     if mode == "missing_role":
-        assert final["answer_packet"]["answer_status"] == "ANSWERED"
+        assert answer_packet["answer_status"] == "ANSWERED"
         assert statement in final["knowledge_changes"][0]["statement"]
         assert final["unfinished_work"] == []
     elif mode == "no_write":
-        assert final["answer_packet"]["answer_status"] == "ANSWERED"
+        assert answer_packet["answer_status"] == "ANSWERED"
         assert final["knowledge_changes"] == []
         assert final["unfinished_work"] == []
-        assert "已验证并记住全部偏好" not in final["session_summary"]["final_outcome"]
+        assert "已验证并记住全部偏好" not in summary["final_outcome"]
         assert "已验证并记住全部偏好" not in note
         assert "本次未新增或替换长期记忆。" in note
     elif mode == "bad_digest":
-        assert final["answer_packet"]["answer_status"] == "STALE"
+        assert answer_packet["answer_status"] == "STALE"
         assert final["knowledge_changes"] == []
         assert "已验证并记住全部偏好" not in note
         assert "无需长期记忆" not in note
     else:
-        assert final["promotion"]["deferred"] + final["promotion"]["conflict"] == 1
-        assert final["completion"]["disposition"] != "no_candidate"
+        assert promotion["deferred"] + promotion["conflict"] == 1
+        assert job.completion_disposition != "no_candidate"
         assert any(statement in item for item in final["unfinished_work"])
-        assert final["session_summary"]["unfinished_work"] == final["unfinished_work"]
-        assert "已验证并记住全部偏好" not in final["session_summary"]["final_outcome"]
+        assert summary["unfinished_work"] == final["unfinished_work"]
+        assert "已验证并记住全部偏好" not in summary["final_outcome"]
         assert "已验证并记住全部偏好" not in note
         assert "无需长期记忆" not in note
         assert "## 未完成工作\n\n- 无。" not in note
@@ -927,3 +1127,103 @@ def test_user_preference_result_matches_runtime_gate_after_reopen(manual_fixture
     assert report["knowledge_changes"] == final["knowledge_changes"]
     found = tool_handlers.tool_search_memory(query="Audit presentation", project_name="project")
     assert (statement in json.dumps(found)) == (mode == "missing_role")
+
+
+@pytest.mark.parametrize("drift", ["none", "missing_current", "changed_source", "wrong_plan", "wrong_reason", "wrong_job", "normalization_drift"])
+def test_reviewed_job_requires_exact_plan_and_revalidates_before_note(manual_fixture, drift):
+    from harness_mem.commands.separated_assimilation import prepare_interactive_assimilation
+
+    backend, root, write = manual_fixture
+    write("reviewed", "Remember the verified cache policy.")
+    packet = start(root, tool_inspect_sessions(str(root), clients=["cursor"])["sessions"])
+    statement = "The cache retains only verified entries."
+    policy = root / "policy.txt"
+    policy.write_text(statement, encoding="utf-8")
+    reason = "Verified current cache policy from its repository source."
+    suggested = governance_handlers.tool_govern_memory("suggest", {
+        "kind": "memory", "project_name": "project", "category": "decision",
+        "content": statement, "source": "policy.txt", "distill_job_id": packet["distill_job_id"],
+        "evidence_basis": "repository", "verification_outcome": "verified",
+        "verification_refs": [{"kind": "repository", "locator": "policy.txt",
+                               "content_sha256": hashlib.sha256(policy.read_bytes()).hexdigest()}],
+        "assimilation_disposition": "add", "assimilation_reason": reason,
+        "canonical_title": "Verified cache", "topic_path": ["cache"],
+    })
+    assert suggested["success"], suggested
+    candidate_id = suggested["entry_id"]
+    plan = asyncio.run(prepare_interactive_assimilation(
+        backend, project_name="project", project_root=str(root), candidate_ids=[candidate_id],
+    ))
+    items = [{"title": "Verified cache", "statement": statement,
+              "topic_path": ["cache"], "claim_kind": "implementation_fact"}]
+    if drift == "normalization_drift":
+        items[0]["title"] = "Verified  cache"
+        plan["points"][0]["knowledge_items"][0]["title"] = "Verified  cache"
+    committed = governance_handlers.tool_govern_memory("decide", {
+        "kind": "knowledge", "decision": "confirm", "project_name": "project",
+        "candidate_id": candidate_id, "disposition": "add", "reason": reason,
+        "knowledge_items": items,
+    })
+    assert committed["success"], committed
+    semantic = {**review(packet), "promotion_decision": "promote"}
+    blocked = tool_handlers.tool_finalize_session_distill("project", packet["distill_job_id"], semantic)
+    assert blocked["error"] == "prior_review_requires_assimilation_replay", blocked
+    assert backend.transcript_store.get_distill_job(packet["distill_job_id"]).status == "reviewing"
+    if drift == "missing_current":
+        deleted = governance_handlers.tool_govern_memory("decide", {
+            "kind": "knowledge", "decision": "delete", "project_name": "project",
+            "target_knowledge": [{"title": "Verified cache", "statement": statement}],
+        })
+        assert deleted["success"], deleted
+    elif drift == "changed_source":
+        policy.write_text("Changed policy", encoding="utf-8")
+    elif drift == "wrong_plan":
+        plan["points"][0]["knowledge_items"][0]["statement"] = "An uncommitted alternative cache policy."
+    elif drift == "wrong_reason":
+        plan["points"][0]["reason"] = "A different uncommitted processing decision."
+    elif drift == "wrong_job":
+        evidence = asyncio.run(backend.structured_store.knowledge_store.list_evidence(candidate_id))[0]
+        evidence.distill_job_id = "another-job"
+        asyncio.run(backend.structured_store.knowledge_store.save_evidence(evidence))
+    before = [item.to_dict() for item in asyncio.run(backend.structured_store.knowledge_store.list_entries("project"))]
+    result = tool_handlers.tool_finalize_session_distill(
+        "project", packet["distill_job_id"], {**semantic, "assimilation": plan},
+    )
+    if drift == "none":
+        assert result["success"], result
+        assert result["knowledge_changes"]
+        assert len(asyncio.run(backend.structured_store.knowledge_store.list_entries("project"))) == 1
+    else:
+        assert not result["success"], result
+        assert backend.transcript_store.get_distill_job(packet["distill_job_id"]).status != "completed"
+        assert [item.to_dict() for item in asyncio.run(backend.structured_store.knowledge_store.list_entries("project"))] == before
+        assert not list((backend.data_dir / "session_notes").rglob("*.md"))
+
+
+def test_trusted_no_write_point_remains_retryable_after_an_earlier_commit(manual_fixture):
+    from harness_mem.commands.separated_assimilation import (
+        apply_separated_assimilation, prepare_interactive_assimilation,
+    )
+
+    backend, root, write = manual_fixture
+    write("no-write", "Check the cache policy without saving it.")
+    packet = start(root, tool_inspect_sessions(str(root), clients=["cursor"])["sessions"])
+    policy = root / "policy.txt"
+    policy.write_text("The cache retains verified entries.", encoding="utf-8")
+    suggested = governance_handlers.tool_govern_memory("suggest", {
+        "kind": "memory", "project_name": "project", "category": "decision",
+        "content": policy.read_text(encoding="utf-8"), "source": "policy.txt",
+        "distill_job_id": packet["distill_job_id"], "evidence_basis": "repository",
+        "verification_outcome": "verified",
+        "verification_refs": [{"kind": "repository", "locator": "policy.txt",
+                               "content_sha256": hashlib.sha256(policy.read_bytes()).hexdigest()}],
+        "assimilation_disposition": "no_write",
+        "assimilation_reason": "Verified but deliberately not selected for durable storage.",
+    })
+    assert suggested["success"], suggested
+    arguments = {"project_name": "project", "project_root": str(root), "candidate_ids": [suggested["entry_id"]]}
+    plan = asyncio.run(prepare_interactive_assimilation(backend, **arguments))
+    first = asyncio.run(apply_separated_assimilation(backend, **arguments, plan=plan))
+    replay = asyncio.run(apply_separated_assimilation(backend, **arguments, plan=plan))
+    assert first["no_write"] == replay["no_write"] == 1
+    assert not asyncio.run(backend.structured_store.knowledge_store.list_entries("project"))

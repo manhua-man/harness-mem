@@ -16,27 +16,26 @@ def test_hm_default_summary_is_concise() -> None:
     assert "自动拒绝：" not in text
     assert "保留待定：" not in text
     assert "需要你确认：" not in text
-    assert "不要默认展示内部任务、临时草稿、运行回执、服务名称、编号或处理阶段" in text
-    assert "记住了：" in text
-    assert "没记：" in text
-    assert "还没完成：" in text
-    assert "不补一套产品术语" in text
-    assert "任务进行中也要按需要实时查当前记忆" in text
+    assert "不让用户学习内部命令、填写目录或管理编号" in text
+    assert "knowledge_changes" in text and "unfinished_work" in text
+    assert "实际保存的标题和正文" in text
+    assert "任务切换、规则不确定、报错或冲突" in text
     assert "autopilot_search_tick" in text
-    assert "普通聊天不查" in text
-    assert "不自行增加批次、每日数量或单条长度限制" in text
-    assert "多场处理中可简短说明已完成和剩余数量" in text
-    assert "最终默认只报实际知识变化与未写入原因" in text
-    assert "批次保留原文与摘要，不附带清理" in text
+    assert "普通闲聊无需查" in text
+    assert "不要自设每日或批次数量上限" in text
+    assert "多场只用同一" in text
     assert "batch_id" in text and "inspect_sessions" in text
-    assert "会话 → 结论 → 证据" in text
-    assert (
-        "get_project_status(project_root=<当前工作区的绝对路径>, "
-        "host_client=<当前 Agent 宿主>)"
-    ) in text
-    assert "跟随最新一句" in text
-    assert "请在当前 Agent 或 Router 中连接 harness-mem，再重试" in text
-    assert len(text.splitlines()) <= 70
+    assert "逐点决定新增、确认、替换或不写" in text
+    assert "项目、目录和 Hook 安装都不是检索或人工整理的前提" in text
+    assert "任务所属项目不等于记忆所属项目" in text
+    assert "先取消误加的项目筛选" in text
+    assert "一个结果可以同时回答多个问题" in text
+    assert "同一事实换词重查不算核验" in text
+    assert "新冲突或来源变化可以重新核对" in text
+    assert "输出被截断或文件变化时才重新读取" in text
+    assert "continuation" in text and 'detail="full"' in text
+    assert "用户要查看全部时读完所有页" in text
+    assert "不创建第二份记忆库" in text
     assert "budget_tokens" not in text
     assert "detail_level" not in text
     assert "evidence_mode" not in text
@@ -54,14 +53,12 @@ def test_all_hm_mirrors_keep_the_same_daily_contract() -> None:
 
     for path in paths:
         text = path.read_text(encoding="utf-8")
-        assert "project_root=<当前工作区的绝对路径>" in text, path
-        assert "host_client=<当前 Agent 宿主>" in text, path
-        assert "跟随最新一句" in text, path
-        assert "请在当前 Agent 或 Router 中连接 harness-mem，再重试" in text, path
-        assert "任务进行中也要按需要实时查当前记忆" in text, path
+        assert "项目、目录和 Hook 安装都不是检索或人工整理的前提" in text, path
         assert "autopilot_search_tick" in text, path
-        assert "普通聊天不查" in text, path
-        assert "不自行增加批次、每日数量或单条长度限制" in text, path
+        assert "普通闲聊无需查" in text, path
+        assert "continuation" in text, path
+        assert 'detail="full"' in text, path
+        assert "用户要查看全部时读完所有页" in text, path
 
 
 def test_hm_mirrors_are_rendered_from_the_plugin_command() -> None:
@@ -91,10 +88,9 @@ def test_canonical_distill_skill_hides_internal_ids_from_readable_memory() -> No
         encoding="utf-8"
     )
 
-    assert "只把一个独立、可复用的结论写成一条清楚的事实" in skill
-    assert "这些是内部数据，不要原样展示给用户" in skill
-    assert "可读结果不要附加会话、任务、来源或内部编号" in skill
-    assert len(skill.splitlines()) <= 80
+    assert "每个独立知识点" in skill and "一个独立事实" in skill
+    assert "日常输出不展开编号、摘要、回执和内部阶段" in skill
+    assert "不猜编号" in skill
     assert "每天 20" not in skill
     assert "每批 3" not in skill
     assert "title + one verifiable fact + verification date/status" in rules

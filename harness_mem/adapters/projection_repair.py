@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from tempfile import TemporaryDirectory
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
 from harness_mem.adapters import AdapterRegistry
+from harness_mem.adapters.parser import parse_codex_archive_jsonl_session, render_codex_conversation
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.native_source_cleanup import path_from_local_file_uri
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
@@ -16,8 +18,30 @@ _SHARED_SOURCE_KINDS = frozenset(
     {"sqlite-session-export", "antigravity-cli-session-export"}
 )
 _CODEX_CONVERSATION_PARSERS = frozenset(
-    {"codex-conversation-v2", "codex-archive-conversation-v2"}
+    {"codex-conversation-v2", "codex-conversation-v3", "codex-archive-conversation-v2"}
 )
+
+
+def load_source_observation_projection(
+    backend: LocalMemoryBackend, *, source_id: str, source_revision: str,
+) -> Observation | None:
+    """Use the current parser for legacy native Codex bytes, without a rewrite."""
+    revision = backend.transcript_store.get_revision(source_id, source_revision)
+    if revision is None:
+        return None
+    if revision.client in {"codex", "codex-archive"} and "jsonl" in revision.parser_version:
+        repaired = repair_source_observation_projection(
+            backend, source_id=source_id, source_revision=source_revision,
+        )
+        if repaired is not None and repaired.raw_content:
+            return repaired
+    observation_id = str(uuid5(NAMESPACE_URL, f"{source_id}:observation"))
+    observation = asyncio.run(backend.verbatim_store.get(observation_id))
+    if observation is not None and observation.metadata.get("source_revision") == source_revision:
+        return observation
+    return repair_source_observation_projection(
+        backend, source_id=source_id, source_revision=source_revision,
+    )
 
 
 def repair_source_observation_projection(
@@ -62,6 +86,17 @@ def repair_source_observation_projection(
             client=revision.client,
             raw_content=stored_bytes.decode("utf-8", errors="replace"),
             content_type="transcript",
+        )
+    elif revision.client in {"codex", "codex-archive"} and "jsonl" in revision.parser_version:
+        try:
+            _, turns = parse_codex_archive_jsonl_session(
+                Path("frozen.jsonl"), content=stored_bytes.decode("utf-8-sig", errors="strict"),
+            )
+        except (UnicodeError, ValueError):
+            return None
+        observation = Observation(
+            session_id=revision.session_id, client=revision.client,
+            raw_content=render_codex_conversation(turns), content_type="transcript",
         )
     else:
         locator = str(revision.metadata.get("native_source_uri") or revision.source_uri)

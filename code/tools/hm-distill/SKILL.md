@@ -1,59 +1,38 @@
 ---
 name: hm-distill
-description: Process project sessions into readable current memory. Use when the user asks to remember, process, or continue sessions.
+description: Process selected device sessions into readable current memory. Use when the user asks to remember, process, or continue sessions.
 ---
 
-# HM Distill
+# 会话整理
 
-这是 `hm` 背后的整理规则，不是用户要学习的命令清单。读完整会话，留下以后有用的项目知识；没有价值的内容不写入。
+完整读选中的会话，逐条留下以后有用的知识。目录不是前提；无需后台 CLI、项目初始化或 Hook 验收。
 
-## 处理
+## 正常路径
 
-1. 多场整理先用 `inspect_sessions(project_root=...)` 只读盘点，按用户已给范围选择引用，通过 `prepare_session_distill(batch_sessions=...)` 固定本次范围。返回 `batch_id` 后用它持续推进与恢复，不重新盘点后扩大批次，也不重复确认已明确范围。单场直接用 `prepare_session_distill` 取得材料，无需全局盘点。不要读取其他项目，也不要人为加入每场、每批或每天的数量限制。
-2. 完整阅读来源。把一场会话拆成彼此独立的知识点；一场会话可以产生多条记忆，也可以一条都不产生。必要时用语义或原文读取补足证据；原文不完整就不要假装完整。
-3. 每个知识点分别核对：来源是否真的支持、当前代码或用户决定是否仍有效、当前记忆是否已有同一事实。然后分别决定新增、替换、删除或不写；未完成的工作单独交接，不当作记忆。
-   替换、纠正或删除目标由 Agent 根据用户的自然文字在当前项目中普通搜索，通过 `govern_memory` 的 `arguments.target_knowledge=[{title, statement, module}]` 传入搜索返回的旧标题、旧正文和分类；标题或正文至少一项，分类可选且为文字数组。由运行时在当前项目中精确唯一匹配，不用新说法匹配旧条目。兼容编号但默认无需使用，不寻找隐藏编号，不要求用户填写、复制或管理编号，也不猜测或拼造编号。目标缺失或匹配有歧义时，保留旧内容，用可读标题或内容说明无法确定，将该点列为还没完成。
-   `confirm` 可直接使用普通搜索中原封不动的旧正文作为候选正文，由运行时自动匹配，无需显式 `target_knowledge` 或编号；匹配仍须唯一。
-   单个点失败、证据不足或目标不明确，不妨碍其他独立、已核实且有长期价值的点通过既有提交和回读检查后保存。共同安全问题仍按整批停止规则处理。
-4. 通过现有 `govern_memory` 写入决定，通过 `finalize_session_distill` 收尾。不要创建第二套写入流程。写入前必须带证据；运行时会再次检查证据和目标。没有明确决定时保持未完成。
-5. `finalize_session_distill` 完成后，用普通 `search_memory` 读回新增或替换内容；新说法找不到，或旧说法仍能找到，就不能报告成功。
-6. 多场用相同 `batch_id` 再次准备下一场，直至实际完成或停止。来源无法读取时保留并继续其他已选来源，显式重试用 `retry_failures=true`；版本变化、项目绑定冲突、写后回读失败立即停止整批。旧完成记录缺少检索凭证时仍需验证，不能用历史状态证明完成，也不能新建批次绕过停止状态。
+需要选择来源时用 `inspect_sessions()`。把选择交给 `prepare_session_distill(scope="all", batch_sessions=...)`，运行时完整读取并固定来源。直接读准备结果里的正文，不必再调用只读来源接口重复阅读。证据不足时才按返回的 exchange 或 chunk 位置补读。
 
-收尾时提交完整的 `semantic_review`（至少包括 `session_summary`、`final_user_request`、`final_outcome`、`last_turn_status`、`contradictions`、`unfinished_work`、`evidence_status` 和 `promotion_decision`），再读取运行结果里的已保存内容。这些是内部数据，不要原样展示给用户，也不要把 Agent 自报的状态当成事实。
+对每个独立知识点，与当前 `search_memory` 结果比较，决定新增、确认、替换或不写。分类自然产生，不用固定模块表。一场会话可以保存多条知识；一次性请求、未经确认的猜测和未完成任务不要混入当前记忆。
 
-## 最低可靠性要求
+用 `govern_memory(action="suggest", arguments=...)` 提交。正常字段为：
 
-写入前只问五件事：以后是否还会用、范围是否清楚、内容是否足够窄、证据是否完整、是否与当前记忆重复或冲突。先补齐证据再决定；通过后才写，否则不写或留待处理。只有本机核对通过的内容才能写入。
+- `kind="memory"`，`project_name` 和 `distill_job_id` 使用准备结果，不要求用户提供。
+- `content` 写一个独立事实；`canonical_title` 写具体标题，`topic_path` 为自然分类数组。
+- 用户原话使用 `evidence_basis="user_statement"`、`verification_outcome="verified"`，引用为 `{"kind":"user_statement","exchange_index":<返回的序号>,"content_sha256":<返回的摘要>,"role":"user"}`。不要另造 `session_exchange` 类型。
+- 文件证据用 `kind="repository"` 与真实文件路径、当前摘要；分块证据用 `kind="transcript"` 与返回的 `chunk_index`、摘要。
+- `assimilation_disposition` 为 `add`、`confirm`、`refine`、`replace` 或 `no_write`，`assimilation_reason` 简述依据。其他未解决处置按工具支持的字段提交。
 
-- 需要分块读取时，按 `prepare_session_distill` 返回的顺序逐块调用 `submit_distill_chunk`，直到进入可收尾状态。
-- 每个候选都要有 `evidence_basis`、`verification_outcome` 和 `verification_refs`；`ANSWERED` 只表示证据问题已回答，不等于一定要写入。
-- 只把一个独立、可复用的结论写成一条清楚的事实。运行结果只是内部提交结果，不要复制 Agent 自报的状态。
-- `add`、`refine`、`replace` 只写一条清楚的当前事实；替换会删除旧当前条目。不要把来源、候选、回执或 Note 当作当前记忆。
-- 只有当前项目的 `knowledge_entries` 是长期记忆；旧兼容行、临时材料和原始会话不能进入普通记忆搜索。
-- 失败、证据不足或来源不完整时保留会话并说明原因；不要把排队、接口返回或测试通过说成用户结果。
+替换旧记忆用普通搜索原样返回的 `target_knowledge=[{title,statement,module,project_name}]`；只带已有的可用字段，不猜编号。`confirm` 可用旧正文精确匹配。单个点有问题时继续其他独立有效点，未完成工作交接保存。
 
-## 结果
+用 `finalize_session_distill` 收尾；`semantic_review` 包括 `session_summary`、`final_user_request`、`final_outcome`、`last_turn_status`、`contradictions`、`unfinished_work`、`evidence_status`、`promotion_decision`，准确描述会话，不把原会话的助手承诺当成已经保存。
 
-默认只报告实际知识变化：
+然后普通搜索回读新增或替换的知识，确认新说法存在、旧说法消失。多场用同一 `batch_id` 继续，失败先定位原因再恢复，不另建批次丢失进度或重复写入。
 
-直接使用收尾返回的 `knowledge_changes` 标题与正文、`not_written` 和 `unfinished_work`，
-不只给数量、验收状态或报告链接。批次使用同一组结果字段，替换后只展示当前说法。
-按用户语言忠实表达；需要时按自然模块分组。原会话的任务结果与本次整理写入结果是两回事，
-不要用原会话里“未证明保存”的说法否定已通过写入和检索回读的当前结果。
+完整读完但没有长期价值内容时，以 `promotion_decision="no_promotion"` 明确收尾即可，不再要求填写额外的零候选问卷。
 
-```text
-记住了：<实际新增或替换的内容；没有则省略>
-已删除：<实际删除的内容；没有则省略>
-没记：<没有写入的普通原因；没有则省略>
-还没完成：<未完成事项；没有则省略>
-```
+## 回复
 
-部分保存也要展示实际保存内容，并单独列出仍未完成的点，不能说全部完成。默认回复用普通话说明失败，不出现 worker 等内部名称或编号要求。没有变化时可说“本次没有记忆变化”；只有完整核对后确实没有长期价值内容，才说“没有需要长期记住的内容”，不能用它代替失败或未完成。
+从收尾结果的 `knowledge_changes` 直接展示实际保存的标题和正文；`not_written` 说明没有写的普通原因，`unfinished_work` 单独列出。没有变化就说没有变化，不拿测试、排队或 Agent 自报状态当成果。
 
-多场处理中可以简短报告已完成和剩余数量；最终默认不列任务状态、费用、内部编号或对应表。写入、修改和交接由现有工具在内部完成。只有用户明确要完整审查时，才展开“会话 → 主题 → 知识 → 实际证据”。主题概览必须先用 `inspect_sessions(action="source")` 连续读取到末尾，提交覆盖页的范围与 digest，再用 `action="overview"` 校验；一场允许多主题，未完整覆盖或证据不足保留未分类。`Session Note` 是可读摘要，不是另一份记忆。可读结果不要附加会话、任务、来源或内部编号。
+日常输出不展开编号、摘要、回执和内部阶段。只有用户需要证据或详细审查时才展开。当前知识在 SQLite `knowledge_entries`，Note 和原始会话不是另一份知识库。
 
-固定批次默认保留会话原文、宿主历史和摘要，清理需要另行明确要求。单场主动整理按运行时成功结果和安全边界清理，不制作备份、不清空宿主全部历史。Dream 自动整理只归档，失败或未完成的来源保留。人工整理由当前 Agent 执行，不依赖后台 CLI 可用，也不进入后台队列。
-
-如果 MCP 不可用，直接说明当前入口无法使用和最短恢复动作；不要改走终端或另一套记忆库。
-
-详细的分类和证据取舍见 [references/distillation-rules.md](references/distillation-rules.md)。不要把这些内部规则复述给用户，除非用户明确要求查看处理方法。
+更细的取舍只在需要时读 [references/distillation-rules.md](references/distillation-rules.md)，不将整套材料当作每次必读内容。

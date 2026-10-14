@@ -26,6 +26,7 @@ from importlib import resources
 from pathlib import Path
 from string import Template
 
+from harness_mem.integration.command_sync import default_hermes_home
 from harness_mem.integration.hook_runner import probe_hook_runner, resolve_hook_runner
 
 __all__ = [
@@ -37,13 +38,13 @@ __all__ = [
     "install_hermes_hook_suite",
     "install_hook",
     "install_hook_suite",
+    "install_shell_host_hook_suite",
 ]
 
 # Default documentation pointer baked into generated hook headers.
 DEFAULT_DOC_POINTER = "docs/quickstart.md"
 
 _TEMPLATES_PACKAGE = "harness_mem.integration.templates"
-_LEGACY_HOST_ENTRY = "harness_mem.host_entry"
 _FORBIDDEN_PYTHON_HOST_ENTRY = re.compile(r"^[^#]*\bpython(?:3)?\s+-m\s+harness_mem\.host_entry")
 _HERMES_CONFIG_DIRNAME = ".hermes"
 _HERMES_CONFIG_FILENAME = "config.yaml"
@@ -117,14 +118,6 @@ def verified_hook_runner() -> Path:
     if not probe.ok:
         raise RuntimeError(f"harness-mem-hook is unavailable: {probe.error or 'unknown error'}")
     return path
-
-
-def _is_legacy_hook(path: Path) -> bool:
-    try:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return False
-    return _LEGACY_HOST_ENTRY in text
 
 
 def _render_hook_body(
@@ -206,7 +199,7 @@ def install_hook(
         KeyError: the template references an undefined substitution variable.
         OSError: the file or its parent directory cannot be written.
     """
-    if target_path.exists() and not force and not _is_legacy_hook(target_path):
+    if target_path.exists() and not force:
         raise FileExistsError(str(target_path))
 
     resolved_runner = Path(hook_runner).resolve() if hook_runner is not None else verified_hook_runner()
@@ -264,23 +257,25 @@ def install_hook_suite(
 
     resolved_runner = Path(hook_runner).resolve() if hook_runner is not None else verified_hook_runner()
     results: list[HookInstallResult] = []
+    # Validate the whole suite before changing any artifact.
+    for spec in specs:
+        expected = _render_hook_body(
+            template_name=spec.template_name, project_root=project_root,
+            harness_mem_version=harness_mem_version, generated_at=generated_at,
+            doc_pointer=doc_pointer, template_vars=spec.template_vars,
+            hook_runner=resolved_runner,
+        )
+        if spec.target_path.exists() and not force and not _same_managed_hook(
+            spec.target_path.read_text(encoding="utf-8"), expected,
+        ):
+            raise FileExistsError(
+                f"existing Hook conflicts with the current project, runner, or template: "
+                f"{spec.target_path.resolve()}; file preserved. Review ownership and "
+                "differences before explicitly updating with --force."
+            )
     for spec in specs:
         target_existed = spec.target_path.exists()
         if target_existed and not force:
-            if _is_legacy_hook(spec.target_path):
-                written = install_hook(
-                    template_name=spec.template_name,
-                    target_path=spec.target_path,
-                    project_root=project_root,
-                    force=True,
-                    harness_mem_version=harness_mem_version,
-                    generated_at=generated_at,
-                    doc_pointer=doc_pointer,
-                    template_vars=spec.template_vars,
-                    hook_runner=resolved_runner,
-                )
-                results.append(HookInstallResult(target_path=written, status="updated"))
-                continue
             expected = _render_hook_body(
                 template_name=spec.template_name,
                 project_root=project_root,
@@ -293,8 +288,9 @@ def install_hook_suite(
             existing = spec.target_path.read_text(encoding="utf-8")
             if not _same_managed_hook(existing, expected):
                 raise FileExistsError(
-                    f"existing Hook was not installed by this harness-mem setup: "
-                    f"{spec.target_path.resolve()}"
+                    f"existing Hook conflicts with the current project, runner, or template: "
+                    f"{spec.target_path.resolve()}; file preserved. Review ownership and "
+                    "differences before explicitly updating with --force."
                 )
             results.append(
                 HookInstallResult(
@@ -320,6 +316,85 @@ def install_hook_suite(
                 status="updated" if target_existed else "installed",
             )
         )
+    return results
+
+
+def install_shell_host_hook_suite(
+    *, client: str, specs: tuple[HookSpec, ...], project_root: Path,
+    force: bool, harness_mem_version: str, generated_at: datetime,
+    hook_runner: Path,
+) -> list[HookInstallResult]:
+    """Register native events and retain unrelated settings and Hook entries."""
+
+    claude = client == "claude-code"
+    path = project_root / (".claude/settings.json" if claude else ".cursor/hooks.json")
+    before = path.read_text(encoding="utf-8") if path.exists() else ""
+    try:
+        manifest = json.loads(before) if before.strip() else {}
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid {client} Hook JSON: {path}: {exc}") from exc
+    if not isinstance(manifest, dict) or not isinstance(manifest.setdefault("hooks", {}), dict):
+        raise ValueError(f"invalid {client} Hook mapping: {path}")
+    if not claude:
+        if manifest.get("version", 1) != 1:
+            raise ValueError(f"unsupported Cursor Hook version: {path}")
+        manifest["version"] = 1
+    events = ("SessionStart", "Stop") if claude else ("sessionStart", "stop")
+    for event, spec in zip(events, specs):
+        groups = manifest["hooks"].setdefault(event, [])
+        if not isinstance(groups, list):
+            raise ValueError(f"invalid {client} {event} Hook list: {path}")
+        command = "bash " + shlex.quote(spec.target_path.resolve().as_posix())
+        entry = {"type": "command", "command": command} if claude else {"command": command}
+        expected = {"hooks": [entry]} if claude else entry
+        def owned(hook: object) -> bool:
+            if not isinstance(hook, dict) or not isinstance(hook.get("command"), str):
+                return False
+            try:
+                tokens = shlex.split(hook["command"])
+            except ValueError:
+                return False
+            return (
+                len(tokens) >= 2 and tokens[0] == "bash"
+                and tokens[1] == spec.target_path.resolve().as_posix()
+            )
+
+        managed = []
+        preserved = []
+        for group in groups:
+            children = group.get("hooks") if claude and isinstance(group, dict) else None
+            if isinstance(children, list):
+                matches = [hook for hook in children if owned(hook)]
+                if matches:
+                    managed.append(group)
+                    remainder = [hook for hook in children if not owned(hook)]
+                    if remainder:
+                        preserved.append({**group, "hooks": remainder})
+                else:
+                    preserved.append(group)
+            elif not claude and owned(group):
+                managed.append(group)
+            else:
+                preserved.append(group)
+        if managed and managed != [expected] and not force:
+            raise FileExistsError(
+                f"existing {client} {event} Hook conflicts: {path}; file preserved. "
+                "Review differences before explicitly updating with --force."
+            )
+        groups[:] = preserved + [expected]
+    after = json.dumps(manifest, indent=2) + "\n"
+    # Invalid native JSON and conflicts above must fail before writing scripts.
+    results = install_hook_suite(
+        specs=specs, project_root=project_root, force=force,
+        harness_mem_version=harness_mem_version, generated_at=generated_at,
+        hook_runner=hook_runner,
+    )
+    if after != before:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(after, encoding="utf-8")
+    results.append(HookInstallResult(
+        path.resolve(), "unchanged" if after == before else "updated" if before else "installed",
+    ))
     return results
 
 
@@ -363,6 +438,16 @@ def install_antigravity_hook_suite(
         groups = hooks.setdefault(event, [])
         if not isinstance(groups, list):
             raise ValueError(f"invalid Antigravity {event} hook list: {manifest_path}")
+        existing_managed = [
+            existing for existing in groups
+            if any(marker in json.dumps(existing, sort_keys=True) for marker in markers)
+        ]
+        if existing_managed and existing_managed != [group] and not force:
+            raise FileExistsError(
+                f"existing Antigravity {event} Hook conflicts with the current runner or template: "
+                f"{manifest_path}; file preserved. Review ownership and differences "
+                "before explicitly updating with --force."
+            )
         groups[:] = [
             existing
             for existing in groups
@@ -448,6 +533,7 @@ def _ensure_hermes_event(
     event: str,
     command: str,
     timeout: int,
+    force: bool,
 ) -> list[str]:
     hooks_end = _find_top_level_block_end(lines, hooks_start)
     event_start = _find_hermes_event_start(lines, hooks_start, hooks_end, event)
@@ -459,6 +545,8 @@ def _ensure_hermes_event(
 
     updated = list(lines)
     if updated[event_start].strip() != f"{event}:":
+        if updated[event_start].split(":", 1)[1].strip() not in {"[]", "{}"}:
+            raise ValueError(f"cannot safely merge inline Hermes {event} hooks")
         updated[event_start] = f"  {event}:"
     event_end = _find_hermes_event_end(updated, event_start, hooks_end)
 
@@ -475,13 +563,24 @@ def _ensure_hermes_event(
             break
 
     if begin_idx is not None and end_idx is not None and begin_idx <= end_idx:
+        if updated[begin_idx : end_idx + 1] != managed and not force:
+            raise FileExistsError(
+                f"existing Hermes {event} Hook conflicts with the current runner or template; "
+                "file preserved. Review ownership and differences before explicitly "
+                "updating with --force."
+            )
         return updated[:begin_idx] + managed + updated[end_idx + 1 :]
+
+    if begin_idx is not None or end_idx is not None:
+        raise ValueError(f"cannot safely merge incomplete Hermes {event} managed markers")
 
     insert_at = event_start + 1
     return updated[:insert_at] + managed + updated[insert_at:]
 
 
-def _merge_hermes_config(text: str, *, pre_command: str, post_command: str) -> str:
+def _merge_hermes_config(
+    text: str, *, pre_command: str, post_command: str, force: bool,
+) -> str:
     newline = _detect_newline(text)
     lines = text.splitlines()
 
@@ -493,6 +592,16 @@ def _merge_hermes_config(text: str, *, pre_command: str, post_command: str) -> s
         hooks_start = len(lines) - 1
     elif re.match(r"^hooks:\s*(\{\s*\}|\[\s*\])\s*$", lines[hooks_start]):
         lines[hooks_start] = "hooks:"
+    elif not re.match(r"^hooks:\s*(?:#.*)?$", lines[hooks_start]):
+        raise ValueError("cannot safely merge inline Hermes hooks config")
+
+    hooks_end = _find_top_level_block_end(lines, hooks_start)
+    content = [
+        line for line in lines[hooks_start + 1:hooks_end]
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    if content and min(len(line) - len(line.lstrip()) for line in content) != 2:
+        raise ValueError("cannot safely merge Hermes hooks with nonstandard event indentation")
 
     lines = _ensure_hermes_event(
         lines,
@@ -500,6 +609,7 @@ def _merge_hermes_config(text: str, *, pre_command: str, post_command: str) -> s
         event=_HERMES_PRE_LLM_EVENT,
         command=pre_command,
         timeout=30,
+        force=force,
     )
     lines = _ensure_hermes_event(
         lines,
@@ -507,6 +617,7 @@ def _merge_hermes_config(text: str, *, pre_command: str, post_command: str) -> s
         event=_HERMES_POST_LLM_EVENT,
         command=post_command,
         timeout=300,
+        force=force,
     )
     return _join_lines(lines, newline)
 
@@ -521,20 +632,29 @@ def install_hermes_hook_suite(
     home_dir: Path | None = None,
     hook_runner: Path | None = None,
 ) -> list[HookInstallResult]:
-    """Install Hermes event entries bound to the Hook console entry."""
+    """Install Hermes Hooks in the same active profile as the global entry.
 
-    home = Path.home() if home_dir is None else home_dir
-    hermes_root = home / _HERMES_CONFIG_DIRNAME
+    An explicit ``home_dir`` retains the legacy ``home_dir/.hermes`` location.
+    Changed managed blocks require ``force``; unrelated YAML stays in place.
+    """
+
+    hermes_root = (
+        default_hermes_home() if home_dir is None else home_dir / _HERMES_CONFIG_DIRNAME
+    )
     config_path = hermes_root / _HERMES_CONFIG_FILENAME
     resolved_runner = Path(hook_runner).resolve() if hook_runner is not None else verified_hook_runner()
     pre_command = _hook_command(resolved_runner, "--adapter", "hermes-pre")
     post_command = _hook_command(resolved_runner, "--adapter", "hermes-post")
     before = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
-    after = _merge_hermes_config(
-        before,
-        pre_command=pre_command,
-        post_command=post_command,
-    )
+    try:
+        after = _merge_hermes_config(
+            before,
+            pre_command=pre_command,
+            post_command=post_command,
+            force=force,
+        )
+    except FileExistsError as exc:
+        raise FileExistsError(f"{config_path.resolve()}: {exc}") from exc
     config_path.parent.mkdir(parents=True, exist_ok=True)
     if after != before:
         config_path.write_text(after, encoding="utf-8")

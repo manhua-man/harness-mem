@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from datetime import datetime, timezone
 from typing import Any, cast
 from uuid import uuid4
 
@@ -73,6 +74,10 @@ def _assimilation_fields(
 ) -> dict[str, Any]:
     """Carry the post-verification proposal without treating it as truth."""
 
+    if topic_path is not None and not isinstance(topic_path, list):
+        raise ValueError(
+            'topic_path must be an array of category names, e.g. ["User preferences", "Export"], not a string'
+        )
     return {
         "assimilation_disposition": assimilation_disposition,
         "assimilation_reason": assimilation_reason,
@@ -354,10 +359,61 @@ def tool_create_task_handoff(
     blockers: list[str] | None = None,
     distill_job_id: str | None = None,
 ) -> dict:
-    """Create a task handoff to record progress."""
+    """Create or update the unique project/task handoff to record progress."""
     from harness_mem.core.schemas.task_handoff import TaskHandoff
 
     backend = _get_backend()
+    matches = [
+        handoff
+        for handoff in asyncio.run(
+            backend.structured_store.get_latest_handoffs(project_name, limit=None)
+        )
+        if handoff.project_name == project_name and handoff.task_id == task_id
+    ]
+    if len(matches) > 1:
+        raise ValueError("multiple handoffs match this project/task_id")
+    if matches:
+        existing = matches[0]
+        bound_job_id = existing.context.get("distill_job_id")
+        # Legacy task_id-only bindings remain readable without changing context.
+        if not bound_job_id:
+            task_job = backend.transcript_store.get_distill_job(task_id)
+            if task_job is not None and task_job.project_name == project_name:
+                bound_job_id = task_job.id
+        if distill_job_id is not None and distill_job_id != bound_job_id:
+            raise ValueError("handoff belongs to another distill job")
+        if bound_job_id:
+            job = backend.transcript_store.get_distill_job(bound_job_id)
+            if job is None:
+                raise ValueError("distill job not found")
+            if job.project_name != project_name:
+                raise ValueError("distill job belongs to another project")
+            if job.status != "reviewing" and not (
+                job.status == "completed" and status == "done"
+            ):
+                raise ValueError(
+                    "handoff updates require a reviewed job; completed jobs "
+                    "can only close an existing handoff as done"
+                )
+        now = datetime.now(timezone.utc)
+        handoff = TaskHandoff.model_validate(
+            {
+                **existing.model_dump(),
+                "summary": summary,
+                "status": status,
+                "next_steps": next_steps or [],
+                "blockers": blockers or [],
+                "last_activity": now,
+                "updated_at": now,
+            }
+        )
+        saved_id = asyncio.run(backend.structured_store.save_task_handoff(handoff))
+        return {
+            "success": True,
+            "handoff_id": saved_id,
+            "task_id": handoff.task_id,
+            "distill_job_id": bound_job_id,
+        }
     # Older callers used the job as task_id but omitted its explicit binding.
     # Adopt that binding only when the persisted job belongs to this project.
     if distill_job_id is None:

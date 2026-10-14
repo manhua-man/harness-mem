@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -13,7 +14,6 @@ from harness_mem.core.schemas import (
 )
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
-from harness_mem.core.schemas.relation_fact import RelationFact
 from harness_mem.event_log import iter_state_events
 from harness_mem.mcp import read_wake_handlers, server
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
@@ -114,13 +114,14 @@ def test_search_memory_returns_clean_canonical_prose_by_default(backend) -> None
         project_name="demo",
     )
 
-    assert payload["project_name"] == "demo"
+    assert payload["project_name"] is None
     assert payload["query"] == "SQLite local-first"
     assert payload["status"] == "answered"
     assert payload["memories"] == [
         {
             "title": "Project memory",
             "statement": "Use SQLite for local-first memory.",
+            "project_name": "demo",
         }
     ]
     assert set(payload) == {"project_name", "query", "status", "memories"}
@@ -206,6 +207,7 @@ def test_search_memory_cannot_revive_legacy_rows(
         {
             "title": "Project memory",
             "statement": "authorityfiltertoken current project decision.",
+            "project_name": "demo",
         }
     ]
     assert "obsolete compatibility decision" not in str(payload)
@@ -345,12 +347,50 @@ def test_wake_reports_degraded_storage_instead_of_success(
         ),
     )
 
-    assert read_wake_handlers.tool_wake(project_name="demo") == {
+    assert read_wake_handlers.tool_wake(project_name="demo", scope="project") == {
         "success": False,
         "project_name": "demo",
         "message": "Project memory storage is not ready.",
         "action": "Run harness-mem doctor.",
     }
+
+
+@pytest.mark.parametrize("current_task", [None, "cache"])
+@pytest.mark.parametrize("error_type", [ValueError, OSError])
+def test_wake_read_failure_is_not_empty_memory_and_can_recover(
+    backend, monkeypatch, current_task, error_type,
+) -> None:
+    reader_name = "search_current_knowledge" if current_task else "list_current_knowledge"
+    reader = AsyncMock(side_effect=error_type("private canonical path"))
+    maintenance = Mock(return_value={})
+    monkeypatch.setattr(read_wake_handlers, reader_name, reader)
+    monkeypatch.setattr(read_wake_handlers, "_build_distill_maintenance_offer", maintenance)
+    failed = server.tool_wake(project_name="demo", current_task=current_task, scope="project")
+    assert failed["success"] is False
+    assert "could not be read" in failed["message"]
+    assert "doctor" in failed["action"]
+    assert "long_term_memory" not in failed
+    assert "private canonical path" not in str(failed)
+    maintenance.assert_not_called()
+
+    # An empty successful read remains distinct from an unreadable store.
+    reader.side_effect = None
+    reader.return_value = []
+    recovered = server.tool_wake(project_name="demo", current_task=current_task, scope="project")
+    assert recovered["success"] is True
+    assert recovered["long_term_memory"] == []
+    maintenance.assert_called_once()
+
+
+@pytest.mark.parametrize("error_type", [ValueError, PermissionError])
+def test_wake_backend_open_failure_has_safe_recovery(monkeypatch, error_type) -> None:
+    monkeypatch.setattr(read_wake_handlers, "_get_backend",
+                        Mock(side_effect=error_type("private canonical path")))
+    result = server.tool_wake(project_name="demo")
+    assert result["success"] is False
+    assert "could not be opened" in result["message"]
+    assert "doctor" in result["action"]
+    assert "private canonical path" not in str(result)
 
 
 def test_file_context_reads_current_knowledge_not_legacy_memory(
@@ -465,6 +505,7 @@ def test_search_memory_never_mixes_in_raw_observations(backend) -> None:
         {
             "title": "Project memory",
             "statement": "canonicalretrievaltoken current memory.",
+            "project_name": "demo",
         }
     ]
     assert "raw session evidence" not in str(default_payload)
@@ -503,7 +544,7 @@ def test_search_memory_records_content_free_abstention_signal(backend) -> None:
     import asyncio
 
     query = "evidence-that-does-not-exist-99331"
-    payload = server.tool_search_memory(query=query, project_name="demo")
+    payload = server.tool_search_memory(query=query, project_name="demo", scope="project")
     signals = asyncio.run(
         backend.structured_store.query_retrieval_signals(
             "demo",

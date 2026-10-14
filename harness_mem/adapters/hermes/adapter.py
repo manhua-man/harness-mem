@@ -7,6 +7,7 @@ import json
 import math
 import os
 import sqlite3
+import sys
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,11 +26,14 @@ from harness_mem.adapters.parser import (
 from harness_mem.adapters.protocol import Issue, SessionRecord
 from harness_mem.adapters.scan_scheduler import sync_sessions_fairly
 from harness_mem.adapters.snapshot import TranscriptSyncResult, persist_session_snapshot
+from harness_mem.adapters.source_metadata import HEADER_BYTES, metadata_record
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
 from harness_mem.core.schemas.observation import Observation
+from harness_mem.integration.command_sync import default_hermes_home
 from harness_mem.transcript_chunking import source_uri_from_path
 
-DEFAULT_SESSIONS_DIR = Path.home() / ".hermes" / "sessions"
+DEFAULT_SESSIONS_DIR = default_hermes_home() / "sessions"
+_INITIAL_SESSIONS_DIR = DEFAULT_SESSIONS_DIR
 
 
 class HermesAdapter:
@@ -47,15 +51,28 @@ class HermesAdapter:
     ) -> None:
         self.backend = backend
         self.home_dir = Path.home() if home_dir is None else home_dir
+        self.profile_home = (
+            default_hermes_home()
+            if home_dir is None or os.environ.get("HERMES_HOME", "").strip()
+            else self.home_dir / "AppData" / "Local" / "hermes"
+            if sys.platform == "win32"
+            else self.home_dir / ".hermes"
+        )
         self.sessions_dir = sessions_dir or (
             DEFAULT_SESSIONS_DIR
-            if home_dir is None
-            else self.home_dir / ".hermes" / "sessions"
+            if home_dir is None and DEFAULT_SESSIONS_DIR != _INITIAL_SESSIONS_DIR
+            else self.profile_home / "sessions"
         )
+        self._metadata_sessions_dirs = list(dict.fromkeys([
+            self.sessions_dir,
+            *([self.home_dir / ".hermes" / "sessions"]
+              if sessions_dir is None and not os.environ.get("HERMES_HOME", "").strip()
+              else []),
+        ]))
         self.state_db = (
             state_db
             if state_db is not None
-            else _find_state_db(self.home_dir)
+            else _find_state_db(self.home_dir, profile_home=self.profile_home)
             if sessions_dir is None
             else None
         )
@@ -65,6 +82,53 @@ class HermesAdapter:
             if project_root is not None
             else None
         )
+
+    def list_session_metadata(
+        self, *, min_size_kb: int = 0, limit: int | None = None,
+        issues: list[Issue] | None = None,
+    ) -> list[SessionRecord]:
+        """Discover JSON headers and all SQLite sessions, including archives."""
+        records: dict[str, SessionRecord] = {}
+        for sessions_dir in self._metadata_sessions_dirs:
+            if not sessions_dir.is_dir():
+                continue
+            for path in sessions_dir.glob("session_*.json"):
+                try:
+                    if not path.is_file() or path.stat().st_size / 1024 < min_size_kb:
+                        continue
+                    roots, header = _read_json_metadata(path)
+                    session_id = header.get("session_id")
+                    if not isinstance(session_id, str) or not session_id.strip():
+                        session_id = path.stem
+                    record = metadata_record(
+                        path, session_id.strip(), project_roots=roots, source_kind="json",
+                        metadata_paths=[path],
+                    )
+                    _set_root_status(record)
+                    records.setdefault(record["session_id"], record)
+                except OSError as exc:
+                    self._append_issue(
+                        issues, level="warning", code="session_scan_failed",
+                        message=str(exc), path=path,
+                    )
+        if self.state_db is not None:
+            for record in _state_db_metadata_records(self.state_db, issues=issues):
+                if record["size_kb"] >= min_size_kb:
+                    # The native DB identity wins over its JSON export.
+                    records[record["session_id"]] = record
+        sessions = list(records.values())
+        if self.scope == "project" and self.project_root is not None:
+            sessions = [
+                record for record in sessions
+                if record["metadata_status"] == "available"
+                and all(
+                    _same_or_child_path(Path(root), self.project_root)
+                    or _same_or_child_path(self.project_root, Path(root))
+                    for root in record["project_roots"]
+                )
+            ]
+        ordered = sorted(sessions, key=session_sort_key, reverse=True)
+        return ordered if limit is None else ordered[:limit]
 
     def list_sessions(
         self,
@@ -443,16 +507,126 @@ def _project_root_variants(project_root: Path) -> set[str]:
     }
 
 
-def _find_state_db(home_dir: Path) -> Path | None:
-    override = os.environ.get("HERMES_STATE_DB")
-    hermes_home = os.environ.get("HERMES_HOME")
+def _find_state_db(home_dir: Path, *, profile_home: Path | None = None) -> Path | None:
+    override = os.environ.get("HERMES_STATE_DB", "").strip()
+    if override:
+        path = Path(override).expanduser()
+        return path if path.is_file() else None
+    if os.environ.get("HERMES_HOME", "").strip():
+        path = default_hermes_home() / "state.db"
+        return path if path.is_file() else None
+    profile_home = profile_home or (
+        default_hermes_home() if home_dir == Path.home()
+        else home_dir / "AppData" / "Local" / "hermes" if sys.platform == "win32"
+        else home_dir / ".hermes"
+    )
     candidates = [
-        *( [Path(override).expanduser()] if override else [] ),
-        *( [Path(hermes_home).expanduser() / "state.db"] if hermes_home else [] ),
+        profile_home / "state.db",
         home_dir / "AppData" / "Local" / "hermes" / "state.db",
         home_dir / ".hermes" / "state.db",
     ]
     return next((path for path in candidates if path.is_file()), None)
+
+
+def _read_json_metadata(path: Path) -> tuple[list[str], dict[str, Any]]:
+    """Read scalar native header fields, stopping before any message container.
+
+    JSON exports can be a single enormous line. Decode only top-level scalar
+    values in a bounded prefix; nested values and messages are not traversed.
+    Missing later metadata is unknown until the existing complete-source read.
+    """
+    with path.open("rb") as stream:
+        text = stream.read(HEADER_BYTES).decode("utf-8-sig", errors="replace")
+    decoder = json.JSONDecoder()
+    position = 0
+    header: dict[str, Any] = {}
+    roots: list[str] = []
+    text = text.lstrip()
+    if not text.startswith("{"):
+        return roots, header
+    position = 1
+    while position < len(text):
+        while position < len(text) and text[position].isspace():
+            position += 1
+        try:
+            key, position = decoder.raw_decode(text, position)
+            if not isinstance(key, str):
+                break
+            while position < len(text) and text[position].isspace():
+                position += 1
+            if position >= len(text) or text[position] != ":":
+                break
+            position += 1
+            while position < len(text) and text[position].isspace():
+                position += 1
+            if key == "messages" or position >= len(text) or text[position] in "[{":
+                break
+            value, position = decoder.raw_decode(text, position)
+        except ValueError:
+            break
+        if key in {"cwd", "git_repo_root", "project_root", "workspace_root", "workspace"}:
+            if isinstance(value, str) and value.strip():
+                header[key] = value
+        if key == "session_id":
+            header[key] = value
+        while position < len(text) and text[position].isspace():
+            position += 1
+        if position >= len(text) or text[position] != ",":
+            break
+        position += 1
+    return hermes_workspace_roots(header), header
+
+
+def _set_root_status(record: SessionRecord) -> None:
+    from harness_mem.adapters.source_inspection import metadata_project_root
+    roots = record["project_roots"]
+    if not metadata_project_root(roots):
+        record["metadata_status"] = "unknown"
+        record.pop("cwd", None)
+
+
+def hermes_workspace_roots(session: dict[str, Any]) -> list[str]:
+    """Corroborate a working directory against Hermes' native repository binding."""
+    from harness_mem.adapters.source_metadata import structured_metadata_roots
+    repository = session.get("git_repo_root")
+    return structured_metadata_roots(session, workspace_root=repository if isinstance(repository, str) and repository else None)
+
+
+def _state_db_metadata_records(path: Path, *, issues: list[Issue] | None) -> list[SessionRecord]:
+    """Sessions-table metadata only; automatic ingestion keeps its own policy."""
+    try:
+        with closing(_connect_readonly(path)) as db:
+            columns = {row[1] for row in db.execute("PRAGMA table_info(sessions)")}
+            selected = [name for name in (
+                "id", "title", "started_at", "ended_at", "git_repo_root", "cwd",
+            ) if name in columns]
+            if "id" not in selected:
+                raise sqlite3.OperationalError("Hermes sessions table has no id")
+            rows = db.execute(f"SELECT {', '.join(selected)} FROM sessions").fetchall()
+        records: list[SessionRecord] = []
+        for row in rows:
+            data = dict(row)
+            session_id = str(data.get("id") or "")
+            if not session_id:
+                continue
+            roots = hermes_workspace_roots(data)
+            record = metadata_record(
+                path, session_id, project_roots=roots, source_kind="sqlite-session-export",
+                # Keep the absent WAL dependency too: creation changes the view.
+                metadata_paths=[path, path.with_name(path.name + "-wal")],
+            )
+            record["name"] = str(data.get("title") or session_id)
+            record["mtime"] = _epoch_seconds(data.get("ended_at") or data.get("started_at")) or record["mtime"]
+            _set_root_status(record)
+            records.append(record)
+        return records
+    except (OSError, sqlite3.Error) as exc:
+        if issues is not None:
+            issues.append({
+                "level": "warning", "code": "hermes_state_db_unreadable",
+                "message": str(exc), "path": str(path),
+            })
+        return []
 
 
 def _connect_readonly(path: Path) -> sqlite3.Connection:

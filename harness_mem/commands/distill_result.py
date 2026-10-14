@@ -97,8 +97,13 @@ def project_distill_result(
             removed.update(point.get("replaced_truth_ids") or [])
         else:
             no_write[_NO_WRITE_REASONS.get(disposition, "未写入")] += 1
+    unfinished = list(dict.fromkeys(unfinished_work))
+    unresolved = bool(
+        unfinished or no_write.get("暂缓处理") or no_write.get("存在待解决冲突")
+        or no_write.get("保留为未完成事项")
+    )
     return {
-        "organization_status": "partial" if no_write.get("暂缓处理") or no_write.get("存在待解决冲突") else "completed",
+        "organization_status": "partial" if unresolved else "completed",
         "knowledge_changes": sorted(
             changes.values(), key=lambda row: (tuple(row["module"]), row["title"])
         ),
@@ -107,7 +112,7 @@ def project_distill_result(
             {"reason": reason, "count": count}
             for reason, count in sorted(no_write.items())
         ],
-        "unfinished_work": list(dict.fromkeys(unfinished_work)),
+        "unfinished_work": unfinished,
     }
 
 

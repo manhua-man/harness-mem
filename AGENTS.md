@@ -26,7 +26,7 @@
 
 ## 项目概览
 
-`harness-mem` 是面向 AI Agent 的本地优先、可插拔项目记忆后端。Agent 通过统一 MCP surface 使用项目记忆；Claude Code、Codex、Cursor、Grok、Hermes、OpenCode 和 Antigravity 通过各自原生命令与 Hook 接入同一运行时。
+`harness-mem` 是面向 AI Agent 的本地优先、可插拔记忆引擎。Agent 通过统一 MCP surface 使用当前记忆；项目只是可选背景或筛选，不是读取和人工整理会话的前提。Claude Code、Codex、Cursor、Grok、Hermes、OpenCode 和 Antigravity 通过各自原生命令与 Hook 接入同一运行时。
 
 - Python 包：`harness-mem`，当前源码版本 `0.9.28`；源码版本真值在 `pyproject.toml` 与 `harness_mem/__init__.py`，最新公开版本以 GitHub `releases/latest` 为准。
 - Rust helper crate：`harness_mem_core_rs`，crate 版本 `4.0.3`；它不是 Python 包版本。
@@ -34,11 +34,99 @@
 - 分发：GitHub Releases 的原生 wheel 与 sdist，不发布到 PyPI。
 - 日常用户只使用 `hm`；`get_project_status` 只负责首次项目/Hook 准备和简短的可用或失败消息，`wake`、`search`、`search-all`、`distill`、`review`、`dream` 是它按需要调用的内部动作或维护动作。
 - CLI 是安装、配置、诊断、集成和维护面；MCP 是 Agent 日常记忆面。
-- Quickstart 与项目无关，只为当前宿主安装一次 `$hm` 或 `/hm`；它不查看或修改 Agent、MCP Router、插件或其他工具管理的 MCP 连接。每个项目第一次使用 `hm` 时才准备该项目的本机记忆和宿主 Hook。
+- Quickstart 与项目无关，只为当前宿主安装一次 `$hm` 或 `/hm`；它不查看或修改 Agent、MCP Router、插件或其他工具管理的 MCP 连接。普通检索与人工整理不要求项目或 Hook；用户要求自动记录时才准备当前工作区的 Hook。
 
 ## 当前版本与目标架构边界
 
-当前未发布工作树状态（2026-10-12）：Codex 在 2026-10-11 的 `6940734...` 源码指纹下已通过实际 CLI 预检和隔离 Hook→SQLite/Note→普通搜索，满足用户约定的单宿主核心链路验收。后续安装提示、状态恢复和中文检索修改改变了源码指纹；其定向回归、隔离首次使用及四项隔离结果检查单独验证，不继承旧模型/Hook 结论。本轮仅整理提交推送，不升级版本、不发布、不维护真实记忆。下面带日期的旧失败保留为历史；当前状态以 `docs/roadmap.md` 的顶部表格为索引。
+Remaining-test follow-up (2026-10-15, unreleased): the previously reported
+19 failures are resolved. Compact-output tests now verify normal results plus
+persisted diagnostics/source retention, rather than restoring old public noise.
+The worker detects literal recombination of independently verified obligations
+through its existing bounded correction/recovery path, while preserving explicit
+alternatives and ambiguous related clauses. The final affected-scope regression
+passed 623 tests, including 40 lossless-MCP and 83 worker tests; this is not the
+entire repository suite. Scoped Ruff/Mypy and two isolated outcome claims passed.
+A fresh native Codex flow saved two preferences, independently recalled them,
+replaced eleven days with twelve, finalized the correction and independently
+recalled the current facts. After worker-only safety fixes, a second new store
+and six fresh native sessions repeated the entire selected manual flow with
+one unchanged final fingerprint (`a500c103...`), followed by separate
+MCP/SQLite/Note/source checks. All 575 real knowledge
+rows and original global configuration hashes match; the native CLI's temporary
+test-workspace trust entry was removed. No other host environment was retried.
+Raw attempts, negative evidence and receipts:
+`.tmp/codex-final-confirmation-20261015/final-code-run/report.json`;
+post-cleanup hashes: the adjacent `restoration-receipt.json`;
+details: `docs/roadmap.md`.
+
+Live-host exercise (2026-10-15, unreleased): the selected Codex native CLI flow
+created and organized a real conversation, recalled its two preferences in an
+independent session, replaced eleven days with twelve days, and completed the
+original correction job after an exact committed-plan replay. A fresh MCP
+process, reopened SQLite and both Note files agreed. Public replay accepts only
+already-assimilated, same-project/job writes whose exact transaction identity
+is committed; it still takes a review lease and rechecks sources, current rows,
+retired predecessors and ordinary search. Pending/uncommitted plans remain
+untrusted; deferred attempts are not automatically rediscovered.
+Grok native identity now accepts `sessionId` / `GROK_SESSION_ID`; Antigravity
+native `GENERIC` records no longer hide a valid conversation; non-array category
+paths are rejected before candidate writes. Antigravity real-model MCP reading
+passed, but organization stopped at quota; its original failed source now
+prepares through fresh MCP stdio. Claude, Cursor, Grok, Hermes and OpenCode did
+not complete native memory flows. Per operator scope, unavailable hosts stop
+after code checks instead of requiring account/environment repair. This is not
+seven-host natural-Hook acceptance. The 575 real knowledge rows kept their
+logical hash, and temporary Antigravity permissions were restored byte-exact.
+Evidence and the initial detailed-output test mismatch are recorded in
+`docs/roadmap.md` and `.tmp/seven-host-live-20261015/report.json`.
+
+Unreleased seven-host integration repair (2026-10-14): all seven clients remain
+product targets; Codex-only live evidence never narrows that scope. Claude Code
+and Cursor installers now merge native event registration as well as writing
+Bash wrappers; configuration/script conflicts fail before suite writes. Their
+Stop adapters and Grok consume native stdin identity, OpenCode carries native
+event session IDs and uses the SDK prompt-body shape, and Antigravity no longer
+reports finished staging on failure. Developer PowerShell helpers resolve the
+repository root from their script directory. No live client configuration,
+memory maintenance, natural Hook, release or model run occurred in this round.
+Current verification and remaining gaps: `docs/roadmap.md` and
+`docs/ide-hook-adapter-matrix.md`.
+
+Unreleased reading update (2026-10-14): search, task-aware wake, automatic recall
+and Hook rendering now share whole-fact selection. Taskless startup offers
+availability; `search_memory` continuation and `detail="full"` keep complete
+knowledge accessible. Checks include targeted regressions, isolated MCP stdio
+and reopened SQLite, Hook output, and Windows/Python 3.13 clean-install and
+release-0.9.28 upgrade runs. On the user's request, the existing Router-managed
+MCP was reloaded from its editable workspace installation. Calls from this chat
+verified narrower Quickstart results, taskless availability, pagination,
+full-entry reading and automatic recall; 575 current knowledge rows retained
+their logical hash. Other shared services and connection settings were unchanged.
+Details are in `docs/roadmap.md`; source version remains `0.9.28`, unreleased.
+Same-day scope repair: named-project tasks still default to all current memory;
+explicit project filters stay strict, with a scope-check hint on empty results.
+The installed Codex `hm` instructions and one actual model task were checked.
+After an earlier access-denied attempt, the shared MCP was reloaded on the
+user's follow-up request. This chat verified the new empty-filter hint and
+default global recall; all 575 current rows and other service roots were
+unchanged. See the scope-repair receipts in `docs/roadmap.md`.
+Later query-reuse guidance distinguishes unanswered questions from alternate
+keywords for the same fact and reuses complete, unchanged file reads. The
+canonical entry, its mirrors and MCP description were updated; 85 targeted
+checks passed. This is an instruction-only optimization, with no runtime result
+filter, query-count cap or new model performance verdict.
+
+最新可用性清理（2026-10-12，未发布）：日常 `hm` 不再把项目初始化、Hook、独立模型预检或宽套件检查当作人工整理前提；准备结果默认一次给出完整允许正文，不重复回传说明、原文与内部报告。没有长期价值时明确不写即可，不要求额外八项问卷。人工批次保留来源绑定，代码字节指纹仅记录，不阻止修补后继续；不相关的历史矛盾不阻止独立已验证点。移除按关键词、逗号数量和固定分类名拒绝知识的规则，正文取舍由 Agent 负责。用户批准同步本机 Codex `$hm` 并清理旧限制后，实际服务单独重载：两个真实历史会话完整读取并收尾，其中首场旧逻辑曾错误拒绝已核实点，记录保留；修补后第二场保存“测试简化优化维护方式”，普通搜索、SQLite 当前行与 Note 哈希一致。三条已过时限制通过 MCP 删除，当前知识为 42 条；不是全部历史已整理或全部后台宿主通过。隔离人工批次结果检查通过，直接收据见本机忽略目录 `.tmp/usability-cleanup-20261012/`。以下旧指纹、未同步入口与真实知识未改的描述均为对应时点历史，不能覆盖本段当前状态。
+
+最新解析补修（2026-10-12）：独立复核发现，下面 `f2917a45...` 实际模型夹具的原生记录没有 `turn_id`，旧解析把用户与助手拆为不同轮次，保存来源遗漏了助手回复。因此该次模型证据只支持用户偏好的保存、纠正与搜索，不能证明完整会话读取。当前解析让无编号回复跟随前一个用户或上下文，后续用户与被过滤宿主内容保持独立边界，新 capture 标为 `codex-conversation-v3`；直接重放原失败输入已保留双方正文。当前指纹 `1b510f4f9afec5818a079dedee2e748d9f6ee034aa26a0f17739e302ba8ab6d6` 的 307 项定向测试、Ruff 和五文件 Mypy 通过。用户再次要求继续后，新目录 `.tmp/device-memory-engine-20261012/model-run-v3/` 中一次实际 Codex 预检（65.705 秒）及两场流程（178.907 秒）通过：独立从原文与实际 CLI 返回逐字核对了全部四条允许的用户/助手消息，持久化正文也完整匹配；十三天被替换为十四天，简洁中文偏好独立保存；重开后的普通搜索、SQLite、两份 revision/latest Note 及批次状态一致，20 项直接检查通过。本机实际 MCP 服务尚未重载此解析版本。没有改写旧来源、真实记忆或用户目录入口；这只证明一个真实 Codex 人工流程处理两场小型虚构原生来源，不证明真实历史、七个真实客户端、自然 Hook、复杂语义质量或性能优化，不继承旧实际 MCP 的通过结论。
+
+未发布设备整理改动（2026-10-12）：`inspect_sessions()` 默认列出设备原生会话；项目目录只是可选背景，不存在、未记录或涉及多个目录均不是整理前置门槛。`prepare_session_distill(scope="all", batch_sessions=...)` 使用原固定批次 owner 顺序完整读取来源，保存不可变版本并绑定任务，再进入相同验证、SQLite 写入、Note 和普通搜索回读。当前 Agent 人工处理，不要求后台 CLI 或先建立项目；不迁移真实知识，不自动删除原会话。七宿主的虚构文件与原生容器隔离结果检查通过，不代表七宿主真实应用、自然 Hook 或模型质量。此前实际 MCP 检查为旧源码证据，新代码需单独重载核对。
+
+同日实际执行边界：隔离 Codex 在 `858e687...` 指纹下通过只读预检，但人工流程因 Agent 提交不支持的 `session_exchange` 引用类型而停止；SQLite 当前知识新增为 0，仅准备第一场任务，第二场未开始。CLI 正常退出不是产品通过。随后公开 schema 改为直接使用运行时 `EvidenceRef` 定义，处理说明明确合法引用；本机 MCP 已重载并只读核对设备默认盘点、全局搜索和新引用 schema。用户再次明确要求继续后，在新目录 `model-run-corrected`、指纹 `f2917a458f5fad23985636f59d125ca651e1664326a5bf412784dc7e135333f9` 下，一次 Codex 预检（64.047 秒）及两场真实模型人工流程（128.677 秒）通过：无目录与历史目录已删除的虚构会话均完成；十三天偏好被替换为十四天，简洁中文偏好独立保存。重开存储后的普通 MCP 搜索与 SQLite 两条当前知识一致，旧十三天说法消失；两份 Note 与收尾回执哈希一致，批次没有未完成事项，全部原文保留。真实当前知识逻辑哈希和全局 CLI 配置未变；用户目录入口、正式 Hermes 配置未改。这只证明一个实际 Codex 人工链路，不证明真实设备历史已整理、七宿主真实应用、自然 Hook、性能改善或上游语义质量对照。失败与新成功原始记录分别保留在 `.tmp/device-memory-engine-20261012/model-run/` 与 `model-run-corrected/`。
+
+当前未发布工作树状态（2026-10-12）：可选项目标签和默认跨全部项目检索已实现；当前指纹 `4f28dfaa...` 下通过 772 项定向回归及五项隔离结果检查。实际 MCP 单独重新加载后，带名称和仅带当前目录的盘点均保留 `harness-mem`，三个已删除旧目录不再占名；无项目搜索、无关项目上下文搜索和 wake 均找回当前知识。真实 44 条当前知识的逻辑哈希、项目配置、Hook 文件和全局 Codex hm 说明未变，其他共享服务未重启。全局入口说明仍未同步，本轮按不改用户目录的要求保留；没有升级版本、发布、提交推送、真实记忆维护或新模型/Hook 执行。此前 697 项结果和 `6940734...` 下的 Codex 核心链路属于对应源码的历史证据，不验证当前字节。详细范围和本机忽略收据见 `docs/roadmap.md`。
+
+用户批准的简化合同（2026-10-12，未发布）：普通搜索、`wake` 和 `autopilot_search_tick` 默认检索全部项目的 SQLite 当前知识，不锁定活动项目；项目信息只是可选上下文或显式筛选。原始会话、job 材料和 legacy 行不进入记忆检索。已有 `project_name` 字段保留以兼容旧数据，本次不迁移或重新分类真实记忆。项目 profile 是可选上下文标签，不拥有目录或名称的裁决权；transcript 来源记录中的旧目录不占用名称、不强制改名。同 basename 的不同根目录可以使用同一标签，选定会话与冻结批次仍保持独立的文件/来源验证范围；用户不管理目录搬迁、退役或名称占用。只读发现与完整来源核验继续遵守权限、归属和冻结 revision 边界。
 
 `0.9.22` 已实现会话生命周期、无损提取、逐点验证、SQLite 当前知识、job 范围临时处理材料、干净检索，以及显式授权的 detached semantic execution。当前 wake/search 只返回当前记忆；需要核对原始对话时使用 `search_raw` 等明确的来源读取工具。
 
@@ -99,7 +187,7 @@
 ### 4. 检索与使用
 
 - **处理单位：** 一个 task/query 及为其返回的长期知识。
-- **负责：** 只从 SQLite 当前知识单一真源或同代派生索引读取，完成项目隔离、相关性排序和重复折叠，提供干净的标题 + 正文默认输出，并记录有界的 `used`、`ignored`、`misleading`、`stale` 反馈。旧兼容行、未完成材料和原始会话不进入记忆检索候选。
+- **负责：** 只从 SQLite 当前知识单一真源或同代派生索引读取；用户批准的未发布默认范围为全部项目，项目信息仅作可选上下文或显式筛选。完成相关性排序和重复折叠，提供干净的标题 + 正文输出，并记录有界的 `used`、`ignored`、`misleading`、`stale` 反馈。来源访问与写入仍核对选定范围；旧兼容行、未完成材料和原始会话不进入记忆检索候选。
 - **不负责：** 在正常结果中暴露 transcript、candidate、Answer Packet、Note、内部原因、内部 ID、hash 或旧知识。
 - **质量信号：** 召回率、精确率、去重、最小充分上下文成本，以及默认结果的内部噪声/过期知识泄漏率。
 - **主要 owner：** `harness_mem/mcp/read_*`、`harness_mem/search/`、`harness_mem/context_assembly.py`、`harness_mem/storage/derived_index.py`。
@@ -182,6 +270,14 @@ MCP schema、handler、cluster/registry 与 descriptor 必须保持同一组 20 
 
 未发布工作树的 `inspect_sessions` 提供只读 inventory、完整允许来源分页、按覆盖范围验证的 Agent 主题概览和固定批次进度，不导入、不建 job、不写记忆、不触发后台。`prepare_session_distill` 用 `batch_sessions` 创建手工固定批次、用 `batch_id` 恢复、用 `retry_failures=true` 显式重试 active 批次失败；stopped 批次不能因此恢复。`data_dir/manual-batches` 保存冻结项目/root、来源 revision、runtime fingerprint、原已完成引用、job 绑定和未解决失败，不保存知识历史。当前 Agent 负责手工语义处理，不依赖后台 CLI；批次不自动删除来源。
 
+七宿主自动工程与会话发现（2026-10-12，未发布）：当前工作区来自宿主任务上下文，不是 MCP Router 的启动目录。`inspect_sessions {}` 只读返回 Claude Code、Codex、Cursor、Grok、Hermes、OpenCode 和 Antigravity 的工程及数量；Agent 内部带入返回的来源范围，用户不填目录或编号。同名不同绝对目录可以共享标签，但选定来源与冻结批次分别验证。`session_inventory.py` 的 `_project_context_labels` 只读取 profile 标签提示，不从旧 transcript 目录推导名称占用；`automatic_project_names` 不添加强制改名规则。只读发现不导入、不建任务、不写记忆、不开后台；无法读取一个工程的配置不隐藏其他工程。
+
+盘点引用只是来源提示：已选择会话必须独立完整核对内容、权限与来源范围，再冻结真实版本。分页只读目标，已验证引用保留来源范围信息，读取前后来源及归属依赖必须一致，依赖变化不能沿用旧页缓存。名称不是全局唯一目录键；不能因旧来源使用了同名标签而拒绝当前目录。仅有标签且无法确定选定来源范围时不得猜目录，也不能回退到 Router 目录。批次恢复从冻结记录获取原来源范围，不纳入新会话。`manual_distill.py` 继续逐项核对 root、client、session 与不可变 revision；这不要求用户维护目录生命周期。
+
+`harness_mem/qualification/automatic_projects_outcome_probe.py` 执行 MCP 分发、七宿主原生格式读取、验证、任务、SQLite、Note 哈希与重开后的普通搜索。两组虚构隔离数据和确定性 Agent 决定验证旧目录不占名称、同标签 root 的来源范围保留及默认全项目搜索。当前 772 项回归和五项隔离结果通过；单场整理的自动选择、指定 job/session、延后和恢复也核对目录与不可变来源，异目录任务及 checkpoint 不变。来源处理范围未知的旧观察不作为当前目录证据。夹具不证明七个真实客户端、模型或 Hook、所有 live 数据库格式；实际 MCP 的盘点和检索另行验证。已发布 `0.9.28` 不含这些修改。Quickstart 仍只安装 `hm`，不管理 MCP、不导入旧会话，后台默认关闭。
+
+公开检索合同核对：`tool_specs.py`、生成 descriptor 与新加载 MCP 的实际工具列表一致。`search_memory` 与 `wake` 默认 `scope=all`，显式 `scope=project` 才按项目筛选；`wake` 和 `autopilot_search_tick` 的项目信息是可选上下文。autopilot 不公开 scope 筛选，不能把项目上下文当成筛选。inspect/prepare 字段区分可选标签和来源验证范围；20 个公开工具集合未增加。
+
 相关 owner：`adapters/source_inspection.py`、`commands/session_inventory.py`、`commands/session_overview.py`、`commands/manual_distill.py`、`storage/manual_batch_store.py` 和 `mcp/session_handlers.py`（均位于 `harness_mem/`）。Cursor 原生 SQLite 只读检查已有 `code/tests/test_cursor_sqlite_history.py` 隔离 fixture，不代表所有 live DB 格式均支持。Hermes 在 2026-09-24 和 2026-09-28 的预检返回 HTTP 400（缺少 `x-opencode-session`），两次均未启动完整 Hook；该宿主问题仍未解决。
 
 2026-10-07 经用户明确选择，Codex 在独立测试项目通过 F2 预检和一次隔离 Hook 入口→worker→SQLite→Note→普通 MCP 搜索：同一 job 写入并找回 1 条知识，三种 Hook 重入均被拦截且下游新增 job 为 0，运行前后代码指纹一致。正式项目仍选择 Hermes。本机忽略目录中的 `corrected-report.json` 和 `contract-report.json` 位于 `.tmp/codex-acceptance-20261007/`；后者复用该报告检查既有 `background_memory_hook_flow` 断言，不是全部 outcome 的重新执行。此次由脚本调用 Hook，不证明 Desktop 自然 Stop、多场真实语义质量、全部宿主或发布门禁。完整 Hook 耗时 76.62 秒，三个语义阶段 CLI 回报 105,301 tokens；预检单独计量，不能据此声称节省费用。下一步目标与验收顺序见 `docs/roadmap.md`。
@@ -190,9 +286,9 @@ MCP schema、handler、cluster/registry 与 descriptor 必须保持同一组 20 
 
 | 用户动作 | 架构位置 |
 | --- | --- |
-| `get_project_status` | `hm` 的自动前置动作：首次准备项目与 Hook，日常只返回简短的可用或失败消息；完整诊断属于 `harness-mem doctor` |
-| `wake` | 阶段 4：加载干净、紧凑的当前项目上下文 |
-| `search` / `search-all` | 阶段 4：项目内或显式跨项目检索 |
+| `get_project_status` | 用户要求自动记录时准备当前工作区与 Hook；不是普通检索或人工整理的前置条件。完整诊断属于 `harness-mem doctor` |
+| `wake` | 阶段 4：未发布批准默认加载全部项目中相关的当前知识，项目信息可作上下文 |
+| `search` / `search-all` | 阶段 4：未发布批准默认跨全部项目检索；项目标签可显式筛选 |
 | `distill` | 人工显式入口；由当前宿主编排阶段 1～3 |
 | `review` | 人工纠错、替换和删除当前记忆 |
 | `dream` | 唯一无人值守的执行者；处理 Hook 触发会话并进行项目级治理，再回到验证与吸收 |
@@ -226,7 +322,7 @@ MCP schema、handler、cluster/registry 与 descriptor 必须保持同一组 20 
 | **receipt / fingerprint** | 后台运行回执；代码版与配置版的 SHA256 | 长期记忆或 Note 正文 |
 | **`distill.autonomous.enabled`** | 项目开关：`true` = 允许所选 CLI Agent 做后台整理；`false` = 关 | 不是人工 `distill` 开关 |
 | **`provider.name`（receipt）** | 成功路径：`{host}_cli`（如 `codex_cli`、`hermes_cli`、`claude-code_cli`、`opencode_cli`） | HTTP 名（如 `anthropic_messages:…`）不能冒充 Agent |
-| **实际结果检查**（文件名仍为 `.codex/outcomes.json`） | 原 12 条用户结果合同；未发布工作树已配置第 13 项 `manual_session_batch` 探针，配置不代表通过 | 普通单元测试或真实后台 Hook 的替代证明 |
+| **实际结果检查**（文件名仍为 `.codex/outcomes.json`） | 原 12 条用户结果合同；未发布工作树增加 `manual_session_batch` 与 `automatic_project_multihost_flow`，合计 14 项；配置不代表通过 | 普通单元测试或真实后台 Hook 的替代证明 |
 
 **后台设置与当前实现（0.9.28）：**
 
@@ -309,12 +405,12 @@ MCP schema、handler、cluster/registry 与 descriptor 必须保持同一组 20 
 | --- | --- |
 | 日常记住、查找或纠正 | Codex 用 `$hm`，其他宿主用 `/hm`；直接说普通话 |
 | 新 session 恢复上下文 | 由项目 Hook 自动调用 MCP `wake` |
-| 显式跨项目借鉴 | 在 `hm` 中明确说明要跨项目查找 |
+| 找回以往经验 | 未发布批准默认：跨全部项目读取当前知识；项目信息可作上下文，明确要求时才筛选 |
 | 立即整理近期会话 | 在 `hm` 中说“记住这次”；内部遵循 `code/tools/hm-distill/SKILL.md` |
 | 纠错或删除 | 在 `hm` 中指出哪条记忆不对 |
 | 治理维护与诊断 | MCP/CLI operator surface；不新增日常入口 |
 
-项目任务进行中，Agent 不只在任务开始读取一次记忆：开始处理项目任务、准备修改文件或作出项目决定时，先让 `autopilot_search_tick` 判断是否有相关当前记忆；工具报错或出现冲突时再次判断；准备写入长期记忆时用待写入说法再次核对。普通问题不触发实际搜索；Hook 仍负责任务开始的 `wake` 和结束时的会话维护。
+项目任务进行中，Agent 不只在任务开始读取一次记忆：开始处理项目任务、准备修改文件或作出项目决定时，先让 `autopilot_search_tick` 判断是否有相关当前记忆；工具报错或出现冲突时再次判断；准备写入长期记忆时用待写入说法再次核对。用户批准的未发布默认是从全部项目查找，调用者项目只作可选上下文，不是检索锁。普通问题不触发实际搜索；Hook 仍负责任务开始的 `wake` 和结束时的会话维护。来源读取与写入核验继续按选定会话或冻结批次范围执行。
 
 物理镜像位于 `.agents/skills/`、`.agents/workflows/`、`.claude/commands/`、`.cursor/commands/`、`.grok/skills/` 和 `.opencode/commands/`。它们应保持同义；插件或用户全局 skill 不得误写成项目 runtime 依赖。
 

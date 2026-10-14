@@ -485,6 +485,105 @@ def test_project_status_preserves_known_setup_failure_without_private_detail(
     assert "private path" not in json.dumps(payload)
 
 
+@pytest.mark.parametrize("stage", ["ensure_profile", "active_project"])
+@pytest.mark.parametrize("error_type, message, action", [
+    (PermissionError, "access was denied", "write access"),
+    (OSError, "opened or saved", "doctor"),
+    (ValueError, "could not be read", "before editing"),
+])
+def test_project_status_profile_failure_is_short_and_stops_hook_setup(
+    backend, tmp_path, monkeypatch, stage, error_type, message, action,
+) -> None:
+    from unittest.mock import AsyncMock, Mock
+
+    workspace = tmp_path / "profile-failure"
+    workspace.mkdir()
+    monkeypatch.setattr(support_module, "DEFAULT_DATA_DIR", backend.data_dir)
+    hook_setup = Mock(side_effect=AssertionError("must not install after profile failure"))
+    monkeypatch.setattr(status_handlers, "cmd_install_hook_suite", hook_setup)
+    if stage == "ensure_profile":
+        monkeypatch.setattr(support_module, "ensure_project_profile",
+                            AsyncMock(side_effect=error_type("private profile path")))
+    else:
+        monkeypatch.setattr(status_handlers, "set_active_project",
+                            Mock(side_effect=error_type("private profile path")))
+    result = status_handlers.tool_get_project_status(
+        project_root=str(workspace), host_client="codex",
+    )
+    assert result["success"] is False
+    assert message in result["message"]
+    assert action in result["action"]
+    assert "private profile path" not in json.dumps(result)
+    hook_setup.assert_not_called()
+    assert not (workspace / ".codex").exists()
+
+
+def test_project_status_preserves_actual_malformed_profile(backend, tmp_path, monkeypatch) -> None:
+    from unittest.mock import Mock
+
+    workspace = tmp_path / "broken-profile"
+    workspace.mkdir()
+    monkeypatch.setattr(support_module, "DEFAULT_DATA_DIR", backend.data_dir)
+    store = LocalProjectProfileStore(backend.data_dir)
+    profile_path = store.profiles_dir / "broken-profile.json"
+    original = b'{"project_name": "broken-profile", invalid private content'
+    profile_path.write_bytes(original)
+    hook_setup = Mock(side_effect=AssertionError("must preserve broken settings"))
+    monkeypatch.setattr(status_handlers, "cmd_install_hook_suite", hook_setup)
+    result = status_handlers.tool_get_project_status(
+        project_root=str(workspace), host_client="codex",
+    )
+    assert result["success"] is False
+    assert "existing files were preserved" in result["message"]
+    assert "private content" not in json.dumps(result)
+    assert profile_path.read_bytes() == original
+    hook_setup.assert_not_called()
+    assert not (backend.data_dir / "active_project.txt").exists()
+
+
+@pytest.mark.parametrize("operation", ["get", "save"])
+def test_project_status_profile_store_io_failure_stops_setup(
+    backend, tmp_path, monkeypatch, operation,
+) -> None:
+    from unittest.mock import AsyncMock, Mock
+
+    workspace = tmp_path / "store-io-failure"
+    workspace.mkdir()
+    monkeypatch.setattr(support_module, "DEFAULT_DATA_DIR", backend.data_dir)
+    monkeypatch.setattr(LocalProjectProfileStore, operation,
+                        AsyncMock(side_effect=PermissionError("private profile path")))
+    hook_setup = Mock(side_effect=AssertionError("must stop setup"))
+    monkeypatch.setattr(status_handlers, "cmd_install_hook_suite", hook_setup)
+    result = status_handlers.tool_get_project_status(
+        project_root=str(workspace), host_client="codex",
+    )
+    assert result["success"] is False
+    assert "access was denied" in result["message"]
+    assert "private profile path" not in json.dumps(result)
+    hook_setup.assert_not_called()
+
+
+@pytest.mark.parametrize("error_type", [ValueError, PermissionError])
+def test_project_status_backend_open_failure_has_safe_recovery(
+    backend, tmp_path, monkeypatch, error_type,
+) -> None:
+    from unittest.mock import Mock
+
+    workspace = tmp_path / "backend-failure"
+    workspace.mkdir()
+    monkeypatch.setattr(support_module, "DEFAULT_DATA_DIR", backend.data_dir)
+    monkeypatch.setattr(status_handlers, "cmd_install_hook_suite", lambda *_: 0)
+    monkeypatch.setattr(status_handlers, "_get_backend",
+                        Mock(side_effect=error_type("private canonical path")))
+    result = status_handlers.tool_get_project_status(
+        project_root=str(workspace), host_client="codex",
+    )
+    assert result["success"] is False
+    assert "could not be opened" in result["message"]
+    assert "doctor" in result["action"]
+    assert "private canonical path" not in json.dumps(result)
+
+
 def test_public_mcp_surface_is_single_memory_entrypoint(backend) -> None:
     result, tool_names = _listed_tool_names()
 
@@ -826,6 +925,13 @@ def test_public_candidate_detail_is_limited_to_current_knowledge_candidates(back
     assert "skill_promotion_candidate" not in kind_enum
     assert "skill_revision_candidate" not in kind_enum
     assert "skill_deprecation_candidate" not in kind_enum
+
+
+def test_govern_evidence_reference_schema_is_the_runtime_schema() -> None:
+    from harness_mem.core.schemas.evidence import EvidenceRef
+    properties = server.TOOLS["govern_memory"]["input_schema"]["properties"]["arguments"]["properties"]
+    assert properties["verification_refs"]["items"] == EvidenceRef.model_json_schema()
+    assert properties["verification_refs"]["items"]["properties"]["kind"]["enum"] == ["repository", "user_statement", "transcript"]
 
 
 def test_dream_auto_is_enabled_by_default_config() -> None:

@@ -5,7 +5,481 @@ changes, and the next delivery train. Separately authorized legacy convergence
 remains independent. This document never authorizes mutation of real user memory by
 itself; normal runtime paths do not migrate legacy data.
 
+## Current iteration plan
+
+Planning update: **2026-10-15**. Source version: `0.9.28`.
+
+### Real native-host exercise, 2026-10-15 (unreleased)
+
+Follow-up repair, 2026-10-15: the initially reported 19 failures below are
+superseded by a fresh **623-pass** affected-scope regression run (59.09 seconds,
+zero failures, errors or skips). The lossless
+MCP module now checks public compact results and persisted job diagnostics
+separately, while preserving raw reconstruction, current knowledge, Note and
+ordinary-search assertions. It also checks the current manual-source-retention
+and unfinished-work contracts instead of expecting obsolete destructive or
+terminal-rejection behavior. The repaired modules together passed 123 tests
+(40 lossless-MCP and 83 autonomous-worker tests). Scoped Ruff/Mypy, mirrors and
+the `manual_session_batch` / `clean_retrieval_boundary` isolated outcomes passed.
+
+The combined-item defect was not fixed by weakening the assertion: structural
+validation accepted the combined provider sentence and bypassed the existing
+retry/source-clause recovery path. The worker now checks literal recombination
+of independently modal, already-verified clauses, asks the provider to correct
+it within the existing bounded retries, and revalidates any source-clause
+recovery. Tests cover Chinese/English correction and recovery, conditional
+alternatives, related clauses, paired tests and checklists. Arbitrary paraphrase
+semantics remain Agent-owned. Independent review found two additional safety
+edges: a Chinese "one of three" checklist and related clauses with the same
+Chinese subject. Explicit alternatives now retain their whole source scope
+before any splitting, and ambiguous shared-subject grouping stays Agent-owned.
+Both examples have positive preservation tests for knowledge items and canonical
+fields; the original independent-obligation splitting control still passes.
+
+Fresh native Codex evidence is retained under
+`.tmp/codex-final-confirmation-20261015/`, with direct verification in `report.json`.
+The native flow created a new conversation, saved TSV/eleven days as independent
+knowledge, recalled both in another session, replaced eleven with twelve days,
+finalized the correction job, and recalled TSV/twelve days in another independent
+session. A separate fresh MCP process agrees with reopened SQLite (two current
+facts, no eleven-day row). Both jobs' Notes match their returned SHA256 and latest
+copies; immutable source hashes verify and original native sources remain.
+Native phase times were 27.497 / 182.999 / 34.218 / 130.110 / 19.440 seconds;
+these are single observations, not an efficiency comparison.
+
+That first complete manual flow used runtime fingerprint `e52f0908...`. The later
+worker-only safety fixes have fingerprint `a500c103...`; an additional real Codex
+recall (23.623 seconds), the fresh MCP readback, persisted-result verification
+and final regression ran on those final bytes. This is not one unchanged-code
+run of every phase, nor a native model execution of every worker fallback.
+Initial project/device reference-scope and governance-argument mistakes were
+rejected before successful verified writes. Failed selection-batch receipts
+remain available; the whole test store is not claimed fully organized.
+
+All 575 real knowledge rows kept their original logical hash. Native Codex
+automatically added one trust entry for the temporary Git workspace, which
+made the first wrapper safety assertion fail despite a successful native source
+session. Its exact scoped delta was verified; that single entry was removed
+after the final CLI call and the global Codex configuration matches its original
+bytes/hash. Global harness-mem configuration also matches its original hash.
+The older host report was not rewritten into current-source evidence. Other
+host environments were not retried, and no release, commit or push was performed.
+
+Final unchanged-code confirmation: a second, newly created store and six new
+native Codex sessions completed source confirmation -> organization -> independent
+recall -> correction-source confirmation -> correction organization -> independent
+corrected recall. Every phase's before/after runtime fingerprint is
+`a500c1031964268233f49ee95b584f0a244337bafa71bdb272b662b90248c6d4`.
+The selected source IDs came from actual native CLI thread events, not fabricated
+transcripts. Final SQLite and fresh MCP stdio hold exactly two separate facts:
+TSV export and twelve-day retention; the eleven-day row is absent. Both selected
+jobs have complete source coverage, verified readback, substantive hash-matching
+Notes and retained native/immutable sources. No tool errors were observed in
+these six final sessions. This is a selected-source CLI/manual flow, not a
+natural-Desktop-Hook or all-fallback-model qualification.
+
+Final raw evidence is under
+`.tmp/codex-final-confirmation-20261015/final-code-run/`; `report.json` is the direct
+result receipt and `restoration-receipt.json` records post-cleanup observed
+configuration and real-knowledge hashes against that run's original baseline.
+The native CLI's new trust entry for this second workspace was likewise removed
+alone after all native calls, and exact original global hashes were restored.
+The 623-test final regression includes the 123 repaired-module tests; these
+counts are not additive. No performance or billing improvement is inferred.
+
+Commit preparation, 2026-10-15: all modified and newly added test modules were
+rerun with the existing development environment: **1,380 passed, two skipped**
+(166.58 seconds). The two optional upstream-native checks require an explicitly
+configured upstream checkout and were not run. The first broader run exposed
+two stale test-support assumptions: the comparison script still extracted a
+removed reply sentence, and one metadata test collapsed distinct source
+locators sharing a session ID. The script now reads the canonical result section
+with missing/empty-section controls; the test checks that both native locators
+and their separate roots survive discovery. Their focused regression passed
+58 tests before the broader rerun. No memory runtime changed during this
+handoff; the manual-flow fingerprint remains `a500c103...`. Ruff, scoped worker
+Mypy, MCP descriptors, host-entry mirrors and whitespace checks passed. This
+is a source/test/documentation handoff, not a version bump or Release; local
+test stores and raw native receipts remain excluded from Git.
+
+The operator requested real usage attempts, then explicitly allowed unavailable
+hosts to stop after our code checks. No account login, provider repair, model
+switching beyond the tested per-call routes, or further desktop input is required.
+
+| Host | Current evidence | Unverified boundary |
+| --- | --- | --- |
+| Codex | Native source conversation -> manual organization -> independent recall -> eleven-to-twelve-day replacement -> original job finalization; fresh MCP/SQLite/Note readback agrees | Other test-store ancestor-Hook jobs and seven-host natural events were not organized or qualified |
+| Antigravity | Real model read the dedicated MCP store; failed original native source now prepares via fresh stdio after the parser fix | Native model organization hit quota; prepared job remains reviewing, not complete |
+| Claude Code | Native SessionStart and dedicated MCP connection | Existing model routes returned 503/400; no completed source/organization |
+| Grok | Native executable and declared project Hook location inspected | Not signed in; workspace Hook untrusted; no real model run |
+| Hermes | Dependency environment repaired; native session startup reached | No completed answer before the bounded timeout |
+| OpenCode | Official task-local executable launched; help/version checked | Model discovery returned 401; inference was not attempted |
+| Cursor | Native GUI launched | Operator stopped desktop interaction before a model request |
+
+Actual calls exposed three format/validation bugs: Grok's camelCase/environment
+session identity, Antigravity `GENERIC` native tool records incorrectly making
+an entire conversation unreadable, and a string category path becoming single
+characters. Targeted tests cover native identity, mixed/metadata-only logs and
+rejecting non-array paths before saving candidates. Canonical `hm` instructions
+and repository mirrors now use full-name category arrays and tell job-bound
+corrections to submit candidates then finalize, not prewrite through Review.
+The original TSV test row predates this guard and retains its malformed category;
+no automatic stored-data migration was performed.
+
+Codex also exposed a recovery gap after a separate Review had already written
+the job's candidate. Finalization now explains that an exact prior plan is
+required rather than misreporting zero candidates. Public explicit replay is
+limited to already-assimilated, same-project/job points with an exact existing
+transaction identity; it does not authorize a fresh write. Existing lease,
+source, current-row, predecessor-absence and ordinary-search checks still run.
+The original native correction job completed in a new real Codex CLI invocation
+(52.084 seconds), using the original Review reason, items and predecessor ID.
+Reopened SQLite holds exactly TSV and twelve days; eleven days is absent, and
+revision/latest Note bytes match the returned SHA256. The new guard/recovery
+tests reject changed source, missing current result, altered plan/reason and
+cross-job evidence without producing a Note or changing current knowledge.
+Independent review additionally found normalization could change a replay's
+identity; both admission and the final normalized apply point now check the
+exact committed write. The protection is limited to writing dispositions so
+trusted retries of non-writing decisions remain supported. Eight dedicated
+regression cases passed. A second native invocation successfully replayed the
+completed result (46.517 seconds); this is not another fresh assimilation run.
+The first original-job completion preceded the additional guard hardening;
+the final fingerprint/readback must not imply one unchanged-code native run.
+
+Validation is scoped, not an all-tests-pass claim: 183 seven-host
+adapter/source/identity/category checks passed; 249 integration/surface/manual
+checks passed before the final replay change; after that change 130
+manual/review/truth/category tests and six existing unleased/stale-input checks
+passed. Scoped Ruff/Mypy and mirror/descriptor checks passed.
+Final affected-scope union after the guard fixes: **464 passed in 40.03s**;
+Ruff passed and Mypy found no issues in six affected runtime files. This union
+does not include the failing broader modules described below.
+
+At the initial checkpoint, an older lossless-MCP file returned 18 failed / 22 passed: those assertions
+expect detailed diagnostic fields (for example `completion`, `agent_execution`
+and `selection_source`) removed by the current compact projection, plus the
+older unavailable-task error shape. They were open at that checkpoint; runtime output was not
+expanded to satisfy obsolete assertions. A broader autonomous-worker module
+also returned one failed / 59 passed: its combined-provider-item test did not
+take the expected `runtime_source_clause` repair path. This initial failure
+was not included in a claim that all product/code validation passed; the
+follow-up repair and fresh tests are recorded above.
+
+Raw attempts, failure logs, original-source replay and independent readback are
+retained under `.tmp/seven-host-live-20261015/`; `report.json` separates every
+host result. All 575 real knowledge rows match their pre-run logical hash.
+Temporary Antigravity test-MCP permissions were removed and original settings
+restored byte-for-byte. No real memory maintenance, source deletion, release,
+commit or push was performed. These observations do not establish natural Hook
+completion, quality parity, stable performance or billing savings.
+
+The `0.9.29` reading work is implemented in the working tree, unreleased:
+content/title relevance, whole-fact paging, explicit full reading for long
+entries, taskless availability and shared MCP/automatic/Hook selection.
+Automatic output includes its feedback cost, with redundant fields removed.
+Current validation includes isolated MCP stdio, reopened SQLite, Hook rendering,
+and a Windows wheel installed with default dependencies and over release 0.9.28.
+The source/package version remains unchanged until release work.
+
+Validation: 432 targeted regressions, scoped Ruff/Mypy, and the isolated
+`bounded_current_memory_reading`, `clean_retrieval_boundary` and
+`manual_session_batch` outcomes passed. The local result receipt is
+`.tmp/reading-iteration-20261014/outcome-report-final.json`. The installed-wheel
+checks also cover default dependencies without tiktoken and preservation of
+current/legacy fixture data over upgrade.
+
+Live activation (2026-10-14, explicitly requested): only the existing
+Router-managed harness-mem service was stopped and started; its editable
+workspace installation needed no reinstall or connection-setting change.
+Calls through this chat returned two directly relevant Quickstart facts instead
+of 33 broad matches, availability without bodies for a blank wake, nonoverlapping
+600-token browse pages, complete expansion from a 250-token index, and automatic
+recall within its requested 1100-token envelope. These are selected live-query
+checks, not a general quality or total-cost claim. All 575 current knowledge rows
+kept the same logical hash; normal retrieval/usage signals were recorded. Other
+shared service roots retained their PIDs and creation times. The local receipt is
+`.tmp/reading-activation-20261014/live-mcp-receipt.json`; publication remains pending.
+
+Scope-guidance repair (2026-10-14, unreleased): a project task no longer implies
+project-only recall in the tool description and canonical `hm` instructions.
+An empty explicit project search suggests checking the scope; it neither
+silently broadens the filter nor exposes other knowledge. The 162 targeted
+regressions, scoped Ruff/Mypy and mirror/descriptor checks passed.
+In one fresh Codex run of the same historical-decision task, memory calls fell
+from eight to three, all using the default scope; the first call recovered the
+required global decision. Elapsed time was 147.87s before and 117.16s after;
+this is one observation, not a stable performance or billing claim. A new stdio
+process verified both the empty-filter hint and default global recall. All 575
+current rows kept their logical hash. The local receipt is
+`.tmp/scope-fix-20261014/receipt.json`. The installed Codex `hm` instructions were
+synced with a backup. The first shared MCP reload attempt was blocked by desktop
+access denied and left the service running. On the user's follow-up request,
+only that service was stopped and started. This chat then received the new
+empty-filter hint and recovered the global decision with the same query under
+the default scope. All 575 current rows kept their logical hash; the Router and
+other six service roots retained their PIDs and creation times. The new receipt
+is `.tmp/scope-fix-20261014/shared-mcp-reload-receipt.json`; the earlier failed
+attempt remains retained. Current-chat tool metadata is still cached, so this
+verifies runtime behavior rather than a refresh of the chat's tool descriptions.
+
+### Goal and current priority
+
+Make memory useful during ordinary work: remember the right facts, find them
+when needed, and correct or resume work easily.
+
+The current priority is everyday recall. At the start of this iteration, the
+October 14 review found broad matching, full-library blank-task output,
+observation-only budgets and a SessionStart renderer that discarded its
+selection. The current changes address those paths. See
+[MCP wake](../harness_mem/mcp/read_wake_handlers.py),
+[ranking](../harness_mem/read_knowledge.py),
+[cost observation](../harness_mem/runtime_cost.py) and
+[Hook output](../harness_mem/commands/wake.py).
+
+The core remember/search flow has working Codex evidence. Next, evaluate how
+well the changed reading helps actual tasks in the `0.9.30` work below.
+
+Supported-host scope (clarified 2026-10-14): Claude Code, Codex, Cursor, Grok,
+Hermes, OpenCode and Antigravity are all current product targets. The earlier
+choice of Codex as one real execution sample did not narrow the product to
+Codex. Iterate the common remember/recall/correct/resume contract across all
+seven integrations. Record native-source, command/Hook and live-application
+evidence separately for each host; missing live evidence is not an unsupported
+product declaration, and one host's success does not verify another's native
+behavior.
+
+Seven-host daily-use repair (2026-10-14, unreleased): the shared contract stays
+in the existing runtime; this round fixes integration defects rather than
+running another performance benchmark:
+
+- Claude Code/Cursor now install native event registration as well as Bash
+  wrappers. Invalid JSON, managed registration conflicts and script conflicts
+  stop before suite writes. Forced updates preserve unrelated commands,
+  including mixed groups and another project's same-named script.
+- Claude Code/Cursor/Grok read native stdin session IDs; OpenCode passes each
+  native event's session ID and uses the SDK prompt-body shape. Missing IDs
+  cannot dispatch maintenance through the new stdin adapters.
+- Codex/Antigravity project-local adapters retain the explicitly bound root,
+  rather than following a conflicting payload workspace. Global Hermes keeps
+  payload-based project discovery. Antigravity failures no longer say staging
+  finished; Claude Code/Cursor Stop wrappers retain a failing runner exit code.
+- Hermes config merging rejects unsupported event indentation before writing,
+  including a legal four-space layout that the previous merger could corrupt.
+  This is safe refusal, not new support for arbitrary YAML layouts.
+- The three developer PowerShell helpers resolve the repository root from
+  their own location and fail clearly for detached plugin copies. No package
+  installation is performed by their offline regression tests.
+
+Fresh validation: **272 targeted tests passed**, including generated Stop
+wrappers under Git Bash, generated OpenCode plugin events under Node with a
+stub SDK/shell, correction/resume/shared-memory contracts and both PowerShell
+engines. Scoped Ruff and three-file Mypy passed. Two selected outcome claims,
+`device_memory_flow` and `automatic_project_multihost_flow`, passed their two
+isolated native-source variants across all seven hosts through actual MCP
+dispatch, persisted SQLite/Notes and reopened ordinary search. The receipt is
+`.tmp/seven-host-daily-20261014/outcome-report-final.json`. Independent read-only
+review reproduced and then rechecked the three scope/ownership/YAML defects.
+An older installation-instruction assertion was updated to the already adopted
+no-project-setup manual flow; it no longer requires unconditional status/Hook
+preparation. Native declaration references and requirements are in the
+[adapter matrix](ide-hook-adapter-matrix.md).
+
+These are deterministic fixture and generated-artifact execution results, not
+seven live applications or natural Hooks. No new model CLI, shared-service
+reload, real-memory maintenance, user configuration change, release or
+commit/push occurred in this round. Source/package version remains `0.9.28`.
+Keep these fixes; actual native event discovery/approval, live transcript
+compatibility and task-level memory quality remain separately unverified where
+no current host-specific evidence exists. Do not defer already supported hosts
+out of product scope or label this integration pass as overall daily-use
+readiness.
+
+### Version plan
+
+| Version | Main result | Planned work |
+| --- | --- | --- |
+| `0.9.29` | Find useful knowledge with less irrelevant output | Implemented in the working tree; publication is pending |
+| `0.9.30` | Use the right memory during actual work | Better recall timing, fewer repeated searches, reliable correction and interrupted-work recovery |
+| Later `0.9.x` | Address the next important user problem | Knowledge quality/grouping, recovery, host support, external-source refresh or performance |
+| `1.0` | Stable everyday use and upgrades | Consistent remember/recall/correct/recover experience and reliable installed packages |
+
+These are planned versions. Adjust their contents as results and user needs
+become clearer.
+
+### 0.9.29: relevant, concise reading
+
+**What changes**
+
+1. Improve the existing ranker so task-specific terms and meaningful title
+   matches outweigh broad product/category words. Cover Chinese/English mixed
+   queries, technical punctuation and alternative wording.
+2. Make response size part of selection. Count the final response using a
+   declared tokenizer and tune the existing wake setting against real tasks;
+   the current 2,000-token value is a starting point for experiments.
+3. Return a few short facts directly. For large result sets, provide useful
+   selected facts or an index with convenient continuation. Keep whole entries
+   readable, including a single long entry.
+4. Give absent or blank tasks a short availability/index response. When the
+   task is known, the Agent supplies it automatically.
+5. Share selection and size calculation between MCP wake, automatic recall and
+   SessionStart. Simplify returned fields and bind feedback to the facts shown.
+6. Include the existing unreleased device-session, optional-project, manual
+   batch and recovery improvements in the package; update the affected docs and
+   integration resources together.
+
+**Where to change**
+
+Use the existing `read_knowledge.py`, MCP `read_*` handlers,
+`commands/wake.py`, `context_assembly.py`, response helpers and tool specs.
+
+**How to judge the result**
+
+- Compare old/new output on the same fictional knowledge sets: specific versus
+  broad terms, mixed Chinese/English, blank/no-match queries, many relevant
+  items and a long fact.
+- Check both missed useful facts and irrelevant output. Short facts should stay
+  easy to obtain; large results should stay fully accessible through continuation.
+- Check the final response size, ordinary all-project search, explicit project
+  filtering and saved/corrected knowledge readback through the actual MCP.
+- Exercise the changed Hook rendering and test the built package's clean install
+  and upgrade in disposable directories.
+
+Keep the change when it reduces noise and context use while preserving useful
+knowledge. Adjust it if relevant facts disappear or simple queries take more work.
+
+### 0.9.30: memory helps during actual work
+
+Continue the recall improvements using actual tasks. Review the existing recall
+triggers at task changes, uncertainty, failure and correction; fix repeated
+queries and repeated context in their current owners. Use the existing
+used/ignored/misleading/stale feedback to understand the results.
+
+Compare the same tasks and initial knowledge on the old and new versions.
+Include remember -> later recall -> correction, ambiguous corrections, no-write
+results, partial saves and interrupted manual resume. Check the visible answer
+as well as the stored result.
+
+Measure response size, total model input/output, cached input, calls, retries
+and elapsed time separately. Repeated matched runs can establish whether the
+whole task actually became cheaper or faster.
+
+Exercise the shared daily-use contract for all seven supported hosts, including
+their native entries and source boundaries. Use isolated native fixtures and
+real runtime consumers for deterministic coverage; verify actual applications
+and natural Hooks where those behaviors are claimed. Report unavailable live
+environments explicitly without removing their existing product support. After
+this version, decide whether recall still needs work or another direction would
+help users more. Performance experiments are supporting evidence, not the
+definition of daily-use readiness.
+
+### Completing the earlier Claude-Mem work
+
+Earlier work focused on job recovery and reliability. This iteration connects
+the previously missing concise output, on-demand detail and final-consumer size
+selection to everyday reading. Short answers return directly; larger results
+continue through the same search tool.
+
+The [reference notes](reference-projects/claude-mem.md#2026-10-14-reading-improvements)
+record the relevant code and how to apply the ideas. Session-distill also offers
+useful examples of source selection, resumable work and readable results.
+
+Continue through the existing `hm`, MCP, Hook and feedback implementations.
+
+### Later work and 1.0
+
+The [later directions](roadmap/next-iteration-directions.md) describe the remaining
+problems and first useful changes. The [work list](roadmap/defer.md) records their
+status. Choose the next work by its effect on ordinary use; urgent data-loss or
+incorrect-memory problems take priority.
+
+For `1.0`, aim for reliable daily remembering, recall, correction and recovery,
+plus stable installation, upgrades and supported-host behavior.
+
+Existing legacy JSON compatibility continues through `0.9.x`; its documented
+earliest removal is `1.0.0` and `2027-01-31`.
+
 ## Current source and release line
+
+Latest usability cleanup (2026-10-12, unreleased): normal `hm` search and manual
+processing no longer require workspace setup, Hooks, a separate model preflight
+or a broad test suite. Default preparation returns complete permitted prose once;
+no-write completion needs no extra eight-way questionnaire. Manual batches keep
+their source bindings but package-byte changes no longer block resuming them.
+Unrelated historical contradictions do not reject independently verified points.
+Word/punctuation quotas and fixed module-name rejection were removed; semantic
+quality remains the Agent's job. The user-authorized installed Codex entry was
+updated and only the live memory service reloaded. Two actual historical sources
+were read and finalized: the first exposed an erroneous session-wide rejection,
+which remains recorded; after correction the second saved a test-maintenance
+preference. Ordinary search, SQLite and Note hashes matched. Three obsolete
+restrictive memories were deleted through MCP, leaving 42 current entries.
+The isolated manual outcome also passed. Private receipts are in
+`.tmp/usability-cleanup-20261012/`. This proves the exercised manual path, not
+all historical processing, all host/background paths, a release or performance
+gains. Statements below about unchanged real memory, an unchanged installed
+entry or an unreloaded live service describe their earlier evidence only.
+
+Unreleased device-session work (2026-10-12) makes directories optional context,
+not prerequisites for memory. Default inventory includes rootless, missing-root
+and multi-workspace sources. One selected device batch captures complete sources
+sequentially through the existing manual verification, SQLite, Note and ordinary
+search path. Seven fictional native-host flows in both file and container/archive
+variants pass isolated outcome checks; no real user memory has been reorganized.
+Older Model/Hook reports are historical fingerprints; only the explicitly
+current v3 manual run below verifies these bytes.
+Global host-entry installation and live MCP readiness are separate checks, not
+implied by the fictional native-host fixtures.
+
+Latest source correction: an independent review found that the actual model
+fixture's records omit `turn_id`. At `f2917a45...`, every such record became a
+separate turn, so assistant replies were omitted from the permitted capture.
+Thus the model run below proves user-preference persistence/correction/retrieval,
+not complete conversational capture. The parser now joins unnumbered replies
+to their preceding user/context and separates subsequent user or excluded-host
+boundaries; new captures use `codex-conversation-v3`. Exact original-source reads
+now retain both user and assistant messages. At current fingerprint
+`1b510f4f9afec5818a079dedee2e748d9f6ee034aa26a0f17739e302ba8ab6d6`,
+307 focused tests and scoped Ruff/Mypy passed. After explicit user continuation,
+one fresh actual Codex preflight (65.705 s) and one two-session workflow
+(178.907 s) passed in `model-run-v3` at this same fingerprint. Independent
+comparison of the original native messages and actual CLI tool returns verified
+all four permitted user/assistant messages, not just the `complete` flags.
+Persisted v3 captures matched those full message bytes. Fresh ordinary MCP
+search after reopening returned fourteen-day retention and concise-Chinese
+preferences, with the thirteen-day row absent; revision/latest Notes matched
+the finalize receipts and the batch had no unresolved work. The 20 direct
+consumer checks passed in `model-run-v3/product-verification.json`.
+The live MCP service has not been reloaded with v3. No old capture, real memory
+or user-directory installation was rewritten. This is one real Codex manual
+workflow over two small fictional native sources, not live-history processing,
+seven live apps, natural Hooks, complex semantic quality or performance acceptance.
+
+The isolated Codex attempt at fingerprint `858e687...` passed the read-only
+preflight, then stopped after submitting an unsupported `session_exchange`
+evidence kind: zero knowledge entries saved, one prepared session, second session
+not started. Preserve the failed run; normal CLI exit was not product success.
+The public tool now derives evidence-reference schema from the runtime model,
+and the instructions state the exact supported reference kinds. After the user
+explicitly requested continuation, one fresh isolated Codex preflight (64.047 s)
+and one two-session manual workflow (128.677 s) passed at fingerprint
+`f2917a458f5fad23985636f59d125ca651e1664326a5bf412784dc7e135333f9`.
+The sessions had no directory and a deleted historical directory respectively.
+The actual Agent added a thirteen-day fictional preference, replaced it with
+fourteen days, and independently saved a concise-Chinese preference. Fresh MCP
+ordinary search after storage reopening returned exactly those two current
+facts; the old thirteen-day statement was absent. Both Notes matched their
+finalize receipts, the fixed batch had no unresolved work, and original inputs,
+real current knowledge and global CLI configuration were unchanged. Raw evidence
+is retained locally at `.tmp/device-memory-engine-20261012/model-run-corrected/`.
+This verifies user-preference writes, correction and retrieval through one real
+Codex model/manual path at those bytes, not complete conversational capture,
+real-device history processing,
+seven live apps, natural Hooks, performance improvement or an upstream quality
+comparison. Live MCP device inventory and default search
+have been checked read-only after a single-service reload. User directories and
+real current knowledge were not reorganized; the installed global entry stays
+unchanged under the user's no-user-directory-write instruction.
 
 The current source package is `0.9.28`; published artifacts are listed on the
 GitHub Releases page. This release line provides session lifecycle, lossless
@@ -27,11 +501,16 @@ different host.
 
 ## Next train: complete session organization with less friction
 
+**Planning status, 2026-10-14:** this records the earlier train and its evidence.
+Its unfinished user outcomes are carried into the current iteration plan above;
+its historical failures and optional comparisons are not a second active queue.
+
 The agreed goal is to let users ask `hm` to organize their work and receive
 readable, verified project knowledge with fewer user steps, fewer unnecessary
 Agent calls, and less repeated output. End-to-end capability and surface
-simplification are one goal, not competing directions. No release version or
-target tool count is assigned to this train yet.
+simplification are one goal, not competing directions. This earlier train did
+not assign a release version or target tool count; candidate scheduling is now
+owned by the current iteration plan.
 
 As of 2026-10-07, inventory and resumable manual batches already have
 implementation and isolated fixtures. The next iteration should prove that
@@ -76,12 +555,128 @@ and does not replace package safety/regression or publication requirements.
 | Public MCP contains 20 tools: the previous 19 plus `inspect_sessions`; automatic Dream tick remains internal | Implemented in the working tree, unreleased | Published 0.9.28 also has 20 tools but includes `dream_auto_tick` instead of `inspect_sessions`; equal counts do not mean equal contracts |
 | Diagnostic stages no longer inferred from `completed`; actual provider/readback boundaries and task-local correlation | Implemented in the working tree, unreleased | Focused tests passed; missing boundary evidence remains a gap, not an inferred success |
 | Read-only inventory, complete source paging, theme coverage, frozen manual batches, progress and knowledge-change reports | Implemented in the working tree, unreleased | Focused synthetic fixtures; integrated outcome and release acceptance are separate gates, not inferred from implementation |
+| Automatic project/session discovery through seven native adapters | Current-source fixture verified, unreleased | 772 focused tests and five isolated outcomes; separately checked live MCP inventory; not seven live apps, models or Hooks |
+| Optional project labels and default all-project search/wake/autopilot recall | Implemented and verified on 2026-10-12, unreleased | Live MCP retained `harness-mem`, ignored historical name reservations and read without a project gate; no real-memory migration; global host instructions not synchronized |
 | Codex CLI preflight and isolated Hook-to-knowledge-to-search flow | Passed on the recorded `6940734...` fingerprint on 2026-10-11, unreleased | Real CLI, isolated Hook, SQLite/Note and ordinary search matched; later retrieval/onboarding fixes need their own checks and do not inherit that model/Hook verdict |
 | Readable completion and on-demand current knowledge | Implemented and narrowly verified on 2026-10-07, unreleased | Isolated manual runtime outcomes and one real Codex completion reply; not all native Agent interactions |
 | Frozen matched quality corpus and offline result comparison | Implemented in the working tree, unreleased | Seven fictional sources and 17 independent oracle points; no actual paired product run or comparative quality verdict |
 | One working host/CLI core memory path | Codex met the agreed one-host criterion on 2026-10-11 | Recorded CLI/Hook core-chain evidence supersedes the earlier local occupancy blocker; not live-history quality, all-host or release acceptance |
 | Manual/background ownership and current-project archive totals | Repaired and isolated-runtime verified on 2026-10-09, unreleased | Frozen manual selections stay out of background dispatch/claims; stored absolute roots scope terminal totals; the separate Codex core-chain pass does not prove every manual/archive path |
 | Matched upstream quality/ease comparison and lower end-to-end overhead | Optional follow-ups, not current pass criteria | Comparative or performance claims still require their own real measurements |
+
+### Automatic project and session discovery (2026-10-12, unreleased)
+
+The Agent derives the caller workspace from native task context, not the MCP
+Router's working directory. `inspect_sessions {}` starts with a metadata-only
+project/count summary across Claude Code, Codex, Cursor, Grok, Hermes, OpenCode
+and Antigravity. Returned bindings remain internal to subsequent Agent calls;
+users need not provide directories or IDs. Different roots may share a context
+label; their selected sessions and frozen batches retain separate file/source
+validation scopes. The approved simplification below supersedes any earlier
+name-to-directory reservation rule.
+
+Discovery does not import sessions, create jobs or enable background work.
+Manual preparation independently revalidates selected full sources and project
+ownership before freezing revisions. Resume derives scope from the frozen batch
+and excludes new discoveries; batch sources remain retained. Quickstart still
+installs only `hm`, performs no old-session import or MCP management, and leaves
+background processing disabled by default.
+
+The automatic-project outcome probe exercises the actual MCP dispatcher, native
+formats, gates, jobs, SQLite, Notes and ordinary search with deterministic fixture
+decisions. Its two variants cover files and native containers/archives, two
+same-name project roots, selected-source paging, frozen resume and retrieval
+after reopening storage. This evidence is isolated runtime qualification, not
+seven live apps, model quality, live Hooks or acceptance of an older installed
+MCP server. It does not inherit the dated Codex model/Hook verdicts below or
+establish package/release acceptance.
+
+Historical result recorded on 2026-10-12, before the label/recall simplification:
+697 tests passed in two non-overlapping lanes, plus
+the five isolated outcome claims `automatic_project_multihost_flow`,
+`manual_session_batch`, `archive_distill_batch_outcome`, `partial_distill_handoff`
+and `clean_retrieval_boundary`. Independent review findings were repaired and
+rechecked: non-batch profile ownership, verified references retaining their
+project binding, and source changes during preview reads. The local ignored
+receipt is `.tmp/automatic-projects-20261012/outcomes-final.json`; no live memory,
+global host configuration, release or commit/push was performed for this work.
+These results belong to the recorded earlier revision. They do not establish
+that the subsequently changed source or updated probe passed.
+
+### Approved simplification: labels and all-project recall (2026-10-12, unreleased)
+
+The user explicitly chose default recall across all projects. Ordinary search,
+session-start `wake` and automatic task-aware search must read current SQLite
+knowledge without an active-project lock. Project information is optional
+context or an explicit filter. Raw transcripts, job material and legacy rows
+remain excluded from memory results. This is implemented in the current
+working tree, not in published `0.9.28` artifacts.
+
+Project profiles are optional context labels, not directory/name authority.
+Old roots in transcript source records never reserve names or force a rename.
+Different roots with the same basename may use the same label. Users do not
+manage directory moves, retirement or name reservations. Existing SQLite
+`project_name` fields remain for compatibility; there is no real-data migration
+or reclassification. An explicit label filter selects stored knowledge labels,
+not a globally unique directory identity.
+
+Read-only native discovery still observes permissions and capture policy. A
+selected source is completely revalidated independently before preparation;
+file evidence, root, client, session and immutable revision remain checked
+within the selected session or frozen batch scope. Batch resume keeps that
+scope and excludes newly discovered sources. Shared labels do not authorize
+cross-root source/file reads or expand write/cleanup scope.
+
+Current code inspection shows label-only profile hints in `session_inventory.py`,
+separate root/revision checks in `manual_distill.py`, and all-project defaults
+in the retrieval handlers. The automatic-project probe now contains assertions
+for historical roots not reserving names, same-label source scopes, preserved
+historical sources and ordinary global retrieval after reopening SQLite.
+Independent review also exposed same-label cross-root selection in the single
+session path. Selection, explicit job/session/defer requests and recovery now
+check the workspace and immutable revision before claiming or changing jobs.
+Seven-host, two-variant regressions verify that out-of-scope jobs, checkpoints
+and source content remain unchanged. Unknown-root legacy observations are not
+returned as evidence for the selected workspace.
+
+Current evidence, fingerprint
+`4f28dfaa7ed552f687cc5682511f7ab2dd6f402424ab370798d65dd74bbdbd3e`:
+772 focused tests and the five isolated outcome claims above passed. The
+current live MCP was reloaded alone and verified independently: explicit
+workspace/name and root-only inventory both retained `harness-mem` despite
+three historical removed worktrees; ordinary search without a project, search
+with unrelated optional project context and task-aware wake retrieved the same
+current Quickstart knowledge. Fresh localhost MCP schemas expose optional
+inspection roots and all-project search/wake defaults.
+
+The 44 real current-knowledge rows and their ordered logical digest stayed
+unchanged, as did project config, Codex Hook files and global Codex hm entry.
+Router and six other shared service root PIDs/creation times stayed unchanged.
+Only harness-mem MCP was stopped and started. No source cleanup, real-memory
+maintenance, global entry synchronization, model/Hook run, release or commit
+was performed. The global hm instructions still differ from current canonical
+instructions; updating that user-directory file requires separate authority.
+Receipts are private and ignored under
+`.tmp/context-labels-global-retrieval-20261012/`, including
+`outcomes-final-current.json`, `live-schema.json` and `verification.json`.
+Earlier 697-test and CLI/Hook receipts remain historical for their fingerprints.
+
+Public tool/schema contract:
+
+- `search_memory` already declares default `scope=all`; `scope=project` plus
+  `project_name` is the explicit stored-label filter.
+- `wake.scope` has default `all` and
+  an explicit `project` filter. `project_name` alone is optional context, not
+  a filter. Autopilot exposes optional context but no scope filter.
+- Generated descriptors and fresh live schemas agree with these defaults.
+- Inspect/prepare descriptions distinguish optional labels from selected-source
+  validation scope. Project fields required for
+  job, evidence, feedback or governance compatibility do not make project
+  information a requirement for default recall.
+
+Native fixture evidence does not prove seven live applications, new model
+quality or natural Hook execution. Live read checks do not prove a real-memory
+write, which was explicitly excluded from this run.
 
 ### Current usability work (2026-10-12, unreleased)
 
@@ -104,6 +699,34 @@ Verification is scoped to these changed paths and isolated current-knowledge
 boundaries. The 2026-10-11 model/Hook reports remain tied to their recorded
 fingerprint; they do not validate subsequently changed runtime bytes. Package,
 upgrade, native-trigger and release acceptance remain separate.
+
+### Follow-up: daily recovery and honest completion (2026-10-12, unreleased)
+
+After the product review, the operator approved four further bounded repairs;
+this approval does not authorize new features, real-memory changes, release or
+an additional commit/push:
+
+- Wake reports a current-memory read failure instead of successful empty memory.
+  Expected profile/read/open failures receive short Doctor or access recovery
+  messages; malformed project settings remain unchanged.
+- Hook upgrade conflicts preserve existing files, including legacy Python
+  Hooks. Existing explicit `sync --force` is documented only after ownership
+  and differences are reviewed; a subsequent normal sync checks the update.
+- Hermes command and Hook installation share the active-profile resolver,
+  including `HERMES_HOME` and Windows defaults. Other profiles are not touched;
+  explicit installer `home_dir` remains compatible. Doctor's legacy Hermes
+  artifact inventory is not expanded by this change.
+- Single-session and batch organization stays `partial` when unfinished work,
+  deferral or conflicts remain, even if source processing has ended. Saved
+  knowledge changes and no-write reasons remain separately visible.
+
+Focused isolated fixtures cover failed reads, preserved malformed settings,
+changed runners/templates, user edits, active-profile separation and resumable
+handoffs. The existing four isolated outcome claims were rerun against these
+changes; `manual_session_batch` now requires partial organization for unfinished
+work. These results do not prove natural host events, a new CLI/model/Hook run,
+all-host compatibility, package installation or release acceptance. Earlier
+model/Hook reports remain historical for their recorded fingerprint.
 
 ### Product review: remaining priorities, not additional implementation
 
@@ -238,6 +861,11 @@ claim. The dominant repeated input must be measured before blaming prompts,
 tool schemas, host configuration, or the number of semantic judgments.
 
 ### Delivery sequence
+
+This is the earlier sequence and its retained execution evidence. Optional
+comparisons, historical stop messages and stage labels below do not supersede
+the current candidate scopes or the action-specific validation rules in
+[distill-test-plan.md](distill-test-plan.md).
 
 The same-source manual comparison collector is now available as development-only
 `code/scripts/run_matched_memory_comparison.py` and `matched_memory_host.py`.
@@ -541,7 +1169,8 @@ automatic retries.
    should not need a second question to see what was remembered. Reuse current
    knowledge rendering and the canonical `hm` instruction; do not create a
    dashboard, a new daily command or a Markdown truth store. On demand, show the
-   full current project knowledge from SQLite. Quiet background processing
+   full current knowledge from SQLite, with an optional project-label filter.
+   Quiet background processing
    remains quiet; requested status uses the same readable result. Distinguish
    the original conversation's outcome from the organizer's persisted result.
    Acceptance covers success, replacement, no-write, failure and partial work
@@ -635,6 +1264,13 @@ database compatibility, semantic theme quality or current background acceptance.
 - Inventory and progress use the same project scope and current counts;
   imported is never reported as processed. Unreadable or ambiguous sources
   remain visible and cannot silently count as complete.
+- Default search, wake and autopilot recall cover all current SQLite knowledge;
+  project context does not silently filter to the active workspace. Explicit
+  filters remain optional, and raw/job/legacy material stays excluded.
+- Historical source roots never reserve names or force renaming. Optional
+  profiles do not own names/directories; same-basename roots may share labels
+  while selected-source and frozen-batch file validation stays separate.
+  No user directory lifecycle management or real-data reclassification occurs.
 - Complete source coverage, independent point decisions, deduplication,
   current SQLite state and ordinary-search readback agree with the reported
   knowledge changes. No-write results remain valid outcomes, not fake writes.
@@ -825,6 +1461,9 @@ path.
 
 ## Delivery order and stop conditions
 
+The numbered results below describe the completed SQLite-convergence train,
+not a list of work to rebuild for the new candidates.
+
 1. Released: lock schema, transaction, cleanup, and clean-projection tests.
 2. Released: remove rejected Markdown authority and permanent audit-ledger code.
 3. Released: implement SQLite row mutations and minimal source/version relations on the existing database inode.
@@ -839,12 +1478,15 @@ path.
 9. Completed one separately authorized `harness-mem`-scoped legacy convergence;
    future projects or historical cohorts still require their own explicit approval.
 
-Checks that call a real host CLI follow one bounded order: focused deterministic
-tests, one fixed model check with no automatic retry, one isolated full Hook run,
-then broad repository and release gates. A failed or timed-out model check stops
-the run before a job or full Hook is created. A failed full Hook stops the release
-checks. Code or relevant configuration changes invalidate earlier runtime
-evidence; results from separate attempts are not combined.
+The earlier CLI/Hook qualification used focused checks, a bounded model check,
+an isolated Hook and release checks. For future work, select evidence by the
+changed user path as specified in [distill-test-plan.md](distill-test-plan.md).
+Ordinary development and manual `hm` use do not require an extra model preflight
+or full Hook. Exercise a real CLI/Hook only for the corresponding integration
+claim; diagnose a failed prerequisite before dependent work or another costly
+attempt. Relevant code/configuration changes invalidate affected old runtime
+evidence, and successes from different attempts are not assembled into an
+unexecuted complete run.
 
 Any partial SQLite mutation, early workspace cleanup, stale/superseded retrieval
 hit, cross-project write, unsupported source claim, duplicate current item,
@@ -859,14 +1501,13 @@ acceptance matrix is [distill-test-plan.md](distill-test-plan.md).
 
 ## Directions under consideration
 
-The released train is complete. One deliberately unplanned direction is
-recorded in [next-iteration-directions.md](roadmap/next-iteration-directions.md):
-
-1. Revalidate the real external web/API source of an existing claim without
-   turning the product into a search engine.
-
-That document is a decision backlog, not a delivery commitment or an authority
-to access networks or mutate real historical memory.
+The earlier released train is complete, not the entire product. The current
+iteration plan above owns the next candidate versions. Knowledge quality and
+organization, wider recovery and host use, external-source revalidation and
+evidence-triggered performance/cleanup work are retained in
+[next-iteration-directions.md](roadmap/next-iteration-directions.md).
+That backlog is not an additional release schedule or an authority to access
+networks, install global integrations or mutate real historical memory.
 
 ## Historical releases
 

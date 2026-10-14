@@ -126,12 +126,12 @@ never a truth store.
 - `reject`: terminate unsupported, contradicted, unsafe, or malformed content
   without truth mutation.
 
-Before any insert, compare the normalized point with current project truth.
+Before any insert, compare the normalized point with current knowledge relevant to the fact.
 The absence of an exact text match is not sufficient proof that the knowledge
 is new.
 
 For correction, refinement, replacement, or deletion, resolve the user's
-ordinary-language title or content through ordinary current-project search.
+ordinary-language title or content through ordinary current-memory search.
 In `govern_memory`, pass `arguments.target_knowledge=[{title, statement, module}]`
 using the old title, old statement, and module from that search result. At least
 title or statement is required; module is an optional array of strings. The

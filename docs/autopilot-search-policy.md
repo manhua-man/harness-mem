@@ -6,11 +6,26 @@ hosts. They can say “remember this session”, “find how we did this before�
 users do not need to choose `wake`, `search`, `distill`, `review`, or `dream`.
 Current-knowledge search uses deterministic text matching. Unsegmented Chinese
 questions also match overlapping two-character terms after removing common
-question wording; full keywords rank first. This is not synonym or semantic
+question wording. Title and distinctive content matches outweigh repetition;
+category labels alone do not establish relevance. This is not synonym or semantic
 search. The Agent should extract topic words and reformulate an empty query
 before claiming no relevant memory exists. A question containing only generic
 wording must not return the entire knowledge library; an explicit empty query
-remains the way to read all current project knowledge.
+remains the way to read all current knowledge through paged reading.
+
+A task about a named project still searches all current memory by default:
+relevant user decisions may be stored under `global`. Use `scope="project"`
+only when the user explicitly wants other projects excluded. If that filter
+returns no match and was not requested, repeat the same focused query with
+`scope="all"` before trying more keywords. Stop once the missing decision is
+supported; do not keep searching alternate wording just to collect more hits.
+One returned fact may answer several questions. Searching its other keywords
+does not supply independent verification: use current files or actual sources
+to check applicability. A further query needs a still-unanswered question or a
+new conflict. Reuse complete, unchanged file content already read in the task;
+read the missing part when output was truncated or the source changed. These
+are Agent instructions, not a runtime query cap or cross-call result filter.
+
 Those internal capabilities do not replace the functional architecture:
 
 ```text
@@ -99,7 +114,13 @@ in ordinary language.
   or unavailable memory returns `success=false`, an actionable error and no injection;
   an empty successful search remains `status=empty`.
 
-Consumers should read `context_injection.memories`. The duplicate `search`,
+Consumers should read `context_injection.memories` and follow its `continuation`
+when more knowledge is needed. The requested budget selects whole facts against
+the complete tick response, including feedback and decision fields. An index
+title is a reading aid; its returned full-reading call opens the complete fact.
+Only returned whole facts receive hit/outcome references.
+
+The duplicate `search`,
 `answer_ready_context`, `context_plan`, empty evidence/hint lists and repeated
 instruction blocks are no longer returned by this scheduler. Exact-source tools
 and ordinary `search_memory` are unchanged.

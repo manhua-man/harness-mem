@@ -9,6 +9,8 @@ from harness_mem.commands.integration_cmds import cmd_sync_commands
 from harness_mem.integration.command_sync import (
     COMMAND_HOSTS,
     command_hint,
+    default_hermes_home,
+    default_hermes_skills_dir,
     default_host_commands_dir,
     sync_host_commands,
 )
@@ -164,6 +166,8 @@ def test_cli_syncs_all_hosts_at_user_scope(
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local-appdata"))
 
+    monkeypatch.delenv("HERMES_HOME", raising=False)
+
     exit_code = cmd_sync_commands(
         client="all", dry_run=False, source_dir=str(source_dir)
     )
@@ -173,3 +177,31 @@ def test_cli_syncs_all_hosts_at_user_scope(
     assert output.count("Use:") == len(COMMAND_HOSTS)
     assert "Use: $hm" in output
     assert "Use: /hm" in output
+
+
+@pytest.mark.parametrize(
+    ("platform", "configured_home", "local_appdata"),
+    [("win32", True, True), ("linux", True, True),
+     ("win32", False, True), ("win32", False, False), ("linux", False, True)],
+)
+def test_hermes_profile_resolver_preserves_platform_rules(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    platform: str, configured_home: bool, local_appdata: bool,
+) -> None:
+    home = tmp_path / "home"
+    appdata = tmp_path / "local-appdata"
+    profile = tmp_path / "custom profile"
+    monkeypatch.setattr(Path, "home", lambda: home)
+    monkeypatch.setattr(sys, "platform", platform)
+    monkeypatch.setenv("HERMES_HOME", f"  {profile}  " if configured_home else "  ")
+    if local_appdata:
+        monkeypatch.setenv("LOCALAPPDATA", str(appdata))
+    else:
+        monkeypatch.delenv("LOCALAPPDATA", raising=False)
+    expected = profile if configured_home else (
+        (appdata if local_appdata else home / "AppData" / "Local") / "hermes"
+        if platform == "win32" else home / ".hermes"
+    )
+    assert default_hermes_home() == expected
+    assert default_hermes_skills_dir() == expected / "skills"
+    assert default_host_commands_dir("hermes") == expected / "skills"

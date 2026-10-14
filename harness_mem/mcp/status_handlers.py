@@ -55,10 +55,17 @@ def _bootstrap_status_workspace(
     if resolved_project is None or resolved_root is None:
         return resolved_project, resolved_root, host, False, None
 
-    asyncio.run(
-        _support.ensure_project_profile(resolved_project, project_root=resolved_root)
-    )
-    set_active_project(resolved_project)
+    try:
+        asyncio.run(
+            _support.ensure_project_profile(resolved_project, project_root=resolved_root)
+        )
+        set_active_project(resolved_project)
+    except PermissionError:
+        return resolved_project, resolved_root, host, False, "project_permission"
+    except OSError:
+        return resolved_project, resolved_root, host, False, "project_unavailable"
+    except ValueError:
+        return resolved_project, resolved_root, host, False, "project_invalid"
 
     if host not in _STATUS_BOOTSTRAP_HOSTS:
         return resolved_project, resolved_root, host, False, None
@@ -112,9 +119,24 @@ def tool_get_project_status(
 
     if not hook_ready:
         recoveries = {
+            "project_permission": (
+                "Project memory settings could not be prepared because access was denied.",
+                "Check write access to the harness-mem data directory, then retry hm.",
+            ),
+            "project_unavailable": (
+                "Project memory settings could not be opened or saved.",
+                "Run harness-mem doctor before retrying hm.",
+            ),
+            "project_invalid": (
+                "Project memory settings could not be read; existing files were preserved.",
+                "Run harness-mem doctor to check the existing settings before editing them.",
+            ),
             "conflict": (
                 "Existing project Hook files were preserved because they conflict with setup.",
-                "Run harness-mem doctor to review the conflict before changing those files.",
+                "Run harness-mem doctor and compare the existing files with setup. "
+                "Only after confirming they are unmodified generated files, update them "
+                "with harness-mem integration hooks sync --client "
+                f"{resolved_host} --project-root . --force from the intended workspace.",
             ),
             "permission": (
                 "Project Hook files could not be written because access was denied.",
@@ -145,7 +167,15 @@ def tool_get_project_status(
             "action": action,
         }
 
-    backend = _get_backend()
+    try:
+        backend = _get_backend()
+    except (OSError, ValueError):
+        return {
+            "success": False,
+            "project_name": resolved_project,
+            "message": "Project memory storage could not be opened.",
+            "action": "Run harness-mem doctor before retrying hm.",
+        }
     if backend.runtime_state == "degraded_fallback" or backend.runtime_error:
         return {
             "success": False,

@@ -107,6 +107,30 @@ def test_scope_contracts_need_no_upstream_source(experiment):
     assert host.upstream_command(manifest, ["index"]) == ("index", [])
 
 
+@pytest.mark.parametrize("context", ["rootless", "missing"])
+def test_isolated_device_host_lists_and_prepares_without_a_source_directory(experiment, context):
+    payload, _, source = experiment
+    records = [json.loads(line) for line in source.read_text(encoding="utf-8").splitlines()]
+    records[0]["payload"].pop("cwd")
+    if context == "missing":
+        records[0]["payload"]["cwd"] = str(Path(payload["run_root"]) / "former-workspace")
+    source.write_text("\n".join(json.dumps(row) for row in records) + "\n", encoding="utf-8")
+    original = source.read_bytes()
+    rewrite(experiment, device_scope=True, project_name="global")
+    listed = invoke(experiment, requests=[call("inspect_sessions", {})])
+    assert listed.returncode == 0, listed.stderr
+    inventory = json.loads(json.loads(listed.stdout)["result"]["content"][0]["text"])
+    assert inventory["scope"] == "all" and len(inventory["sessions"]) == 1, inventory
+    prepared = invoke(experiment, requests=[call("prepare_session_distill", {
+        "scope": "all", "batch_sessions": inventory["sessions"],
+    })])
+    assert prepared.returncode == 0, prepared.stderr
+    packet = json.loads(json.loads(prepared.stdout)["result"]["content"][0]["text"])
+    assert packet["success"] and packet["session_id"] == payload["session_ids"][0], packet
+    assert not (Path(payload["data_dir"]) / "profiles").exists()
+    assert source.read_bytes() == original
+
+
 def test_manifest_rejects_missing_upstream_directory(experiment):
     payload, path, _ = experiment
     rewrite(experiment, upstream_root=str(Path(payload["run_root"]) / "missing-upstream"))

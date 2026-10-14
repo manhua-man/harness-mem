@@ -48,8 +48,9 @@ harness-mem quickstart --client codex
 ```
 
 Quickstart reports only that the entry was installed. Start a new Agent task so
-the app discovers it. The same entry then works in every project; its first use
-prepares local memory and Hooks for that project.
+the app discovers it. The same entry then works in every project. Ordinary
+recall and manual organization need no project setup or Hooks; request automatic
+recording when you want that workspace's Hooks prepared.
 
 Refresh the entry explicitly without reinstalling the package:
 
@@ -67,13 +68,17 @@ and preserves unrelated user files. To refresh all supported apps deliberately:
 Repair only the current project's Hook files with:
 
 ```powershell
-harness-mem integration hooks sync --client codex --project-root . --force
+harness-mem integration hooks sync --client codex --project-root .
 ```
 
 Neither Quickstart nor these command-entry helpers inspect or change MCP
 connections. The Agent, Router, plugin, or other tool that owns those settings
 must expose `harness-mem-mcp` separately. If one of them already exposes it, do
 not add a duplicate connection.
+
+If an existing managed Hook conflicts, inspect the differences before rerunning
+the same sync with `--force`; unrelated Hook entries remain preserved. Claude
+Code and Cursor install both native event registration and Bash wrappers.
 
 ## Boundaries
 

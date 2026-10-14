@@ -127,19 +127,9 @@ def test_wake_signal_failure_does_not_fail_context_and_is_reported(
         async def touch_confirmed_rule(self, _record_id: str) -> None:
             return None
 
-    class Plan:
-        project_name = "demo"
-
-        def layer(self, _layer_id: str):
-            return SimpleNamespace(
-                entries=[entry],
-                budget=SimpleNamespace(max_entries=1),
-            )
-
-    entry = SimpleNamespace(
-        why_included="essential:current_knowledge",
-        source_ids=["entry-1"],
-        truth_status="confirmed_current",
+    entry = KnowledgeEntry(
+        id="entry-1", project_name="demo", module_path=["Reading"],
+        title="Current fact", statement="A complete returned fact.",
     )
 
     async def fail_signal(*_args, **_kwargs):
@@ -151,7 +141,7 @@ def test_wake_signal_failure_does_not_fail_context_and_is_reported(
     receipt = asyncio.run(
         wake_module._apply_surface_side_effects(
             backend,
-            Plan(),
+            [entry],
             retrieval_id="retrieval-wake-test",
         )
     )

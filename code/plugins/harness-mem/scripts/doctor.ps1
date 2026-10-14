@@ -4,8 +4,14 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$pluginRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$repoRoot = Resolve-Path (Join-Path $pluginRoot "..\..")
+$repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "../../../.."))
+$expectedScripts = Join-Path $repoRoot "code/plugins/harness-mem/scripts"
+$pyproject = Join-Path $repoRoot "pyproject.toml"
+
+if ($PSScriptRoot -ne $expectedScripts -or -not (Test-Path -LiteralPath $pyproject -PathType Leaf)) {
+    throw "Cannot locate harness-mem repository root from '$PSScriptRoot'. Expected code/plugins/harness-mem/scripts beneath a root containing pyproject.toml; detached plugin packages are not supported."
+}
+
 $python = Get-Command python -ErrorAction Stop
 
 Push-Location $repoRoot

@@ -23,6 +23,7 @@ from harness_mem.commands.evidence_admission import (
 )
 from harness_mem.commands.knowledge_assimilation import (
     record_assimilation_result,
+    is_committed_knowledge_point,
     resolve_candidate_source_context,
     normalize_knowledge_targets,
     KnowledgeTargetError,
@@ -53,33 +54,15 @@ _ASSIMILATION_DISPOSITIONS = {
     "reject",
 }
 _WRITING_DISPOSITIONS = {"add", "refine", "replace"}
-FORBIDDEN_KNOWLEDGE_MODULE_NAMES: frozenset[str] = frozenset(
-    {
-        "stable operation rule",
-        "stable operation rules",
-        "candidate promotion",
-        "候选提升",
-        "稳定操作规则",
-        "会话管理",
-    }
-)
+FORBIDDEN_KNOWLEDGE_MODULE_NAMES: frozenset[str] = frozenset()
 
 
 def validate_knowledge_module_path(path: Sequence[str]) -> list[str]:
-    """Reject processing labels without imposing a project module taxonomy."""
+    """Validate structure without a hard-coded module vocabulary."""
 
     normalized = [str(part).strip() for part in path if str(part).strip()]
     if not normalized:
         raise ValueError("topic_path must name a natural project module")
-    forbidden = [
-        part
-        for part in normalized
-        if part.casefold() in FORBIDDEN_KNOWLEDGE_MODULE_NAMES
-    ]
-    if forbidden:
-        raise ValueError(
-            "topic_path uses an internal processing label: " + ", ".join(forbidden)
-        )
     return normalized
 
 
@@ -734,12 +717,20 @@ async def apply_separated_assimilation(
     # the session is still reported as a successful complete review.
     candidates_by_id: dict[str, KnowledgeCandidate] = {}
     evidence_by_candidate: dict[str, KnowledgeEvidence] = {}
+    point_by_candidate = {point["candidate_id"]: point for point in points}
     for candidate_id in expected:
         candidate = await store.get_candidate(candidate_id)
         if candidate is None:
             raise ValueError(f"separated candidate is missing: {candidate_id}")
         if candidate.project_name != project_name:
             raise ValueError("separated assimilation candidate belongs to another project")
+        point = point_by_candidate[candidate_id]
+        if (candidate.status == "assimilated"
+                and point["disposition"] in _WRITING_DISPOSITIONS
+                and not await is_committed_knowledge_point(
+                    backend, candidate=candidate, point=point,
+        )):
+            raise ValueError("terminal candidate requires the exact normalized committed plan")
         candidates_by_id[candidate_id] = candidate
         evidence_by_candidate[candidate_id] = _job_bound_evidence(
             await store.list_evidence(candidate.id), candidate_id=candidate.id
@@ -769,7 +760,7 @@ async def apply_separated_assimilation(
         if not record_point.get("knowledge_items"):
             record_point["claim_kind"] = _fallback_claim_kind(candidate, evidence)
         source_refs: list[ProjectKnowledgeSourceRef] = []
-        resolved_root = Path(project_root).expanduser().resolve()
+        resolved_root: Path | None = Path(project_root).expanduser().resolve() if project_root else None
         if disposition in {"add", "refine", "replace", "confirm"}:
             resolved_root, source_refs, verified_at = await resolve_candidate_source_context(
                 backend,
@@ -1081,14 +1072,6 @@ def _validate_canonical_knowledge_item(raw: Mapping[str, Any]) -> dict[str, Any]
         "procedure",
     }:
         raise ValueError("canonical knowledge claim_kind is invalid")
-    lowered_title = title.casefold()
-    if (
-        title.count("、") >= 2
-        or title.count(",") >= 2
-        or title.count("/") >= 2
-        or lowered_title.count(" and ") >= 2
-    ):
-        raise ValueError("canonical knowledge title is not atomic")
     try:
         statement = validate_atomic_knowledge_statement(statement)
     except ValueError as exc:
@@ -1109,6 +1092,7 @@ async def separated_job_candidate_ids(
     project_name: str,
     distill_job_id: str,
     include_candidate_ids: Sequence[str] = (),
+    include_reviewed: bool = False,
 ) -> list[str]:
     """Return pending and explicitly replayed candidates bound to this job.
 
@@ -1117,13 +1101,16 @@ async def separated_job_candidate_ids(
     job is not.  ``include_candidate_ids`` lets the retry prove those terminal
     candidates still belong to this job without pulling deferred candidates
     from an older extraction attempt back into the active plan.
+    ``include_reviewed`` is a diagnostic lookup for missing-plan errors, not
+    permission to assimilate those candidates automatically.
     """
 
     store = backend.structured_store.knowledge_store
     included = {str(value) for value in include_candidate_ids}
     matches: list[str] = []
     for candidate in await store.list_candidates(project_name):
-        if candidate.status != "pending" and candidate.id not in included:
+        if (candidate.status != "pending" and candidate.id not in included
+                and not (include_reviewed and candidate.status == "assimilated")):
             continue
         if any(
             evidence.distill_job_id == distill_job_id
@@ -1131,6 +1118,47 @@ async def separated_job_candidate_ids(
         ):
             matches.append(candidate.id)
     return sorted(matches)
+
+
+async def is_committed_job_replay(
+    backend: LocalMemoryBackend, *, project_name: str, distill_job_id: str,
+    plan: Mapping[str, Any],
+) -> bool:
+    """Only exact already-committed writes may enter public replay unleased.
+
+    This is not permission for a new write. Normal finalization still claims
+    its lease and revalidates source, current rows, predecessor absence and
+    ordinary search before producing a Note.
+    """
+    if plan.get("version") != "separated-v1":
+        return False
+    ids = list(plan.get("candidate_ids") or [])
+    points = list(plan.get("points") or [])
+    if not ids or len(ids) != len(set(ids)) or len(points) != len(ids):
+        return False
+    if any(not isinstance(point, Mapping) for point in points):
+        return False
+    if {point.get("candidate_id") for point in points} != set(ids):
+        return False
+    store = backend.structured_store.knowledge_store
+    for point in points:
+        candidate = await store.get_candidate(str(point["candidate_id"]))
+        if candidate is None or candidate.project_name != project_name:
+            return False
+        evidence = await store.list_evidence(candidate.id)
+        if len(evidence) != 1 or evidence[0].distill_job_id != distill_job_id:
+            return False
+        try:
+            normalized = {
+                **point,
+                "knowledge_items": _validated_apply_knowledge_items(point, writes_truth=True),
+                "reason": str(point.get("reason") or "").strip(),
+            }
+            if not await is_committed_knowledge_point(backend, candidate=candidate, point=normalized):
+                return False
+        except (KeyError, TypeError, ValueError):
+            return False
+    return True
 
 
 def _statement(arguments: Mapping[str, Any], *, kind: str) -> str:

@@ -1,16 +1,34 @@
 {
   "name": "search_memory",
-  "description": "Search current long-term memory for a project. The output contains only readable titles and statements. An empty project query lists all current knowledge with natural modules for on-demand viewing. Use search_raw when exact conversation evidence is needed.",
+  "description": "Search all current long-term memory by default, including global user decisions. A task about a named project still uses scope=all; do not infer a project filter from the task or workspace. Use scope=project only when the user explicitly asks to exclude other projects' memory. Reuse a returned fact for every question it already answers; searching its other keywords does not independently verify it. Search again for a still-unanswered question or new conflict, and check current applicability against the relevant sources. Use focused topic keywords rather than a list of every file, tool and task detail. The output contains readable titles and whole statements. Large results include a continuation call; follow it to read the rest. Empty queries browse current knowledge with natural modules. A long entry may first return its title and a detail=full call for its complete text. Use search_raw when exact conversation evidence is needed.",
   "inputSchema": {
     "type": "object",
     "properties": {
       "project_name": {
         "type": "string",
-        "description": "Project name (required when scope=project)"
+        "description": "Optional task context, ignored as a filter with scope=all. Required only for a user-requested project-only filter; relevant decisions may be stored under global or other labels."
       },
       "query": {
         "type": "string",
-        "description": "Search query"
+        "description": "The specific topic or missing decision to recover; avoid concatenating unrelated task keywords."
+      },
+      "budget_tokens": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Size of the complete returned page, using cl100k_base when available or conservative UTF-8 byte counting. Omit to use cost_budget.search_tokens."
+      },
+      "cursor": {
+        "type": "string",
+        "description": "Reading position from the returned continuation call; the Agent follows it automatically."
+      },
+      "detail": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "full"
+        ],
+        "default": "auto",
+        "description": "auto returns whole facts fitting the page. full explicitly reads one complete entry, even when it exceeds the page size."
       },
       "scope": {
         "type": "string",
@@ -18,7 +36,8 @@
           "project",
           "all"
         ],
-        "description": "Search scope: project or all (default: project)"
+        "description": "Keep all for ordinary tasks, even tasks about one project. project excludes global and other labels: use only when the user explicitly requests that restriction.",
+        "default": "all"
       }
     },
     "required": [

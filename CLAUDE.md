@@ -28,7 +28,7 @@ When sources disagree, inspect current code, manifests, tests, and runtime evide
 
 1. Directly verifiable user outcomes.
 2. Evidence integrity and data safety.
-3. Compatibility across supported hosts and existing stores.
+3. Supported-host and stored-data behavior within the agreed scope, including explicitly requested cleanup or compatibility removal.
 4. Testability and deterministic replay.
 5. Readability and bounded module ownership.
 6. Simplicity and reversibility.
@@ -36,7 +36,7 @@ When sources disagree, inspect current code, manifests, tests, and runtime evide
 ## Working Method
 
 - Inspect the implementation and its tests before changing behavior.
-- Prefer the smallest coherent change that preserves public and stored-data compatibility.
+- Prefer the smallest coherent change for the requested outcome. Preserve public and stored-data compatibility unless changing or removing it is part of the authorized task.
 - Keep canonical behavior in runtime modules; generated command, skill, descriptor, and documentation mirrors must not become independent truth sources.
 - Update existing modules and documents before creating a parallel product path.
 - Do not introduce a second CLI, distillation path, review policy, hook lifecycle, or storage authority when an existing canonical path owns that behavior.
@@ -62,22 +62,18 @@ When sources disagree, inspect current code, manifests, tests, and runtime evide
 
 ## Implementation and Validation
 
-- Add or update focused tests for every changed contract or boundary.
-- Run the narrowest relevant tests first, then the appropriate repository lane from `AGENTS.md`.
-- Before a check that calls a real model CLI, run one smallest representative
-  model check for the current code and configuration. Do not retry it
-  automatically or continue with other model samples after a failure or timeout.
-- Run one full Hook chain only after that model check passes. Run broad test and
-  release gates only after the full Hook chain passes.
-- A code or relevant configuration change invalidates earlier model and Hook
-  evidence. Do not combine successful pieces from different runs into one claim.
+- Choose the smallest verification that covers the actual change and requested user path. Add or update focused tests when behavior or a contract changes; documentation-only work can be checked by rereading the diff and its referenced implementation.
+- Run broader suites when the affected scope or release task warrants them. Ordinary development and manual `hm` use do not require a separate F2 model preflight or a successful Hook run first.
+- Use the current Agent and available tools for manual `hm` work. Verify complete sources, point decisions, persisted results and ordinary-search readback through that path; a separate model CLI or background Hook is needed only when testing that execution path.
+- After a failure or timeout, inspect the failed input and output, locate the cause, and recheck the affected path after correction. Continue independent diagnosis and checks; stop dependent writes when source integrity, ownership or transaction safety is uncertain. Existing task authorization covers relevant retries, not blind repetition or unrelated model runs.
+- Old model and Hook reports prove only their recorded code and configuration. Reverify affected claims on current code; an unrelated change does not require repeating every runtime path. Do not assemble separate successes into a claim that an unexecuted complete run passed.
 - Run `python code/scripts/ensure_mcps_canonical.py` when MCP tool specifications or generated descriptors change.
 - Validate host-specific changes against their checked-in fixtures and negative project-isolation cases.
 - Do not infer that a passing mock proves a native host, hook, provider, storage, or cleanup outcome.
 
 ## User-Outcome Claims
 
-- Before saying a user-visible runtime result is complete, use `.codex/outcomes.json` through the repository's outcome verifier.
+- Establish a user-visible runtime result through its actual consumer and persistence path. When a matching probe in `.codex/outcomes.json` helps verify the claim, select it with the verifier's `--claim`; the full contract is not a prerequisite for ordinary development or manual use.
 - A file, configuration entry, passing unit test, queued job, or `completed` flag is supporting evidence unless it is itself the requested outcome.
 - Hooks and asynchronous workers require a fresh receipt produced after the relevant trigger.
 - Generated Notes and processed data must exist, contain meaningful content, and be readable through their intended path.
@@ -86,7 +82,7 @@ When sources disagree, inspect current code, manifests, tests, and runtime evide
 ## Runtime and Data Safety
 
 - Do not mutate live runtime data, local memory stores, transcript sources, Notes, receipts, or generated diagnostic reports during unrelated development work.
-- Use documented dry-run or preview modes before maintenance or deletion operations.
+- For authorized maintenance or deletion, resolve the exact targets and use an existing preview when it helps check the scope. Explicit task authorization may include old-data cleanup or compatibility removal; do not require renewed permission for each step within that scope.
 - Never delete a shared history container to remove one session.
 - Preserve transaction safety and project isolation when correcting or deleting stored knowledge, but do not retain old knowledge as history.
 - Do not enable autonomous model processing or source deletion without the explicit authorization required by the public configuration contract.

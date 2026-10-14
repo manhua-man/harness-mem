@@ -311,8 +311,8 @@ def test_tool_ingest_sessions_cursor_resolves_project_from_project_root_only(
     assert payload["success"] is True
     assert payload["project_name"] == "servers"
     assert payload["project_root"] == str(workspace.resolve())
-    assert payload["project_resolution_source"] == "project_root"
-    assert payload["resolved_client"] == "cursor"
+    # The compact public packet exposes the resolved context directly, not
+    # internal resolution/debug fields.
     assert "Ingested: 1 sessions" in payload["output"]
 
 
@@ -461,8 +461,6 @@ def test_tool_prepare_session_distill_cursor_resolves_project_from_project_root_
     assert payload["success"] is True
     assert payload["project_name"] == "servers"
     assert payload["project_root"] == str(workspace.resolve())
-    assert payload["project_resolution_source"] == "project_root"
-    assert payload["resolved_client"] == "cursor"
     assert payload["distill_mode"] == "lossless_chunks"
     assert payload["source_id"]
     assert payload["source_revision"].startswith("sha256:")

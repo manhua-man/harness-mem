@@ -4,10 +4,16 @@
 
 ## Design Intent
 
-- **Audience:** developers and agent users who need trustworthy project memory without managing a second knowledge application.
+- **Audience:** developers and agent users who need useful device-wide memory without managing a second knowledge application.
 - **Primary experience:** quiet infrastructure surfaced through short MCP responses, host-native commands, and useful diagnostics.
-- **Core promise:** keep one clear set of current project memories that users can find, correct, replace, or delete.
+- **Core promise:** keep one clear set of current memories that users can find across projects, correct, replace, or delete.
 - **Not this:** a dashboard-first product, a stream of internal IDs, or an opaque “AI remembered it” experience.
+
+The product targets all seven supported hosts: Claude Code, Codex, Cursor,
+Grok, Hermes, OpenCode and Antigravity. Host-native discovery and lifecycle
+formats differ; remembering, recall, correction and recovery use one runtime
+contract. A narrower live acceptance sample describes evidence coverage, not
+a reduction in supported-host scope.
 
 ## Experience Principles
 
@@ -22,8 +28,9 @@
 
 The default path is: install, run `harness-mem quickstart` once for the Agent
 app, then use one global native entry in any project. Codex exposes `$hm`;
-other supported hosts expose `/hm`. The first use prepares local memory and
-Hooks for the current project. The entry accepts ordinary language for three intents:
+other supported hosts expose `/hm`. Memory recall and manual organization work
+without project setup; only requested automatic recording prepares workspace
+Hooks. The entry accepts ordinary language for three intents:
 
 - Remember this session.
 - How did we solve this before?
@@ -31,14 +38,41 @@ Hooks for the current project. The entry accepts ordinary language for three int
 
 Users describe corrections or deletions by title or content in ordinary language.
 They do not need to understand internal components, or supply, copy, or manage memory
-IDs. The Agent resolves and verifies tool-returned references within the current
-project; it must never guess an ID. If the description does not identify one
+IDs. The Agent finds the target across current memory, then verifies its stored
+context and tool-returned references before changing it; it must never guess an
+ID. If the description does not identify one
 target uniquely, preserve the existing memory and explain what cannot be
 determined using readable titles or content.
 
+The approved unreleased default for ordinary search, wake and automatic
+task-aware search is all projects. Project information is optional context or
+an explicit filter, not a requirement for recall or an active-workspace lock.
+Only current SQLite knowledge enters recall; raw sources, job material and
+legacy rows remain excluded. Existing `project_name` fields stay compatible;
+this simplification does not migrate or reclassify real memory.
+
+Daily reading returns useful whole facts in a concise response. Larger results
+offer continuation through the same search tool; a very long fact can be opened
+in full. When the user asks to view all knowledge, the Agent reads all pages.
+Without a task, startup offers memory availability rather than dumping the
+library. MCP, automatic recall and Hook rendering share result selection and
+measure their final output, including necessary protocol and feedback fields.
+
+Project profiles supply optional context labels. They do not own directory or
+name authority. Historical transcript roots never reserve names or force a
+rename; two roots with the same basename may share a label. Device session
+processing does not require directories to exist, have names or belong to one
+workspace. Frozen batches select sources, not directory lifecycles.
+Source permissions, complete validation and frozen resume remain required.
+Users should not manage directory moves, retirement or name reservations.
+Current-source isolated checks and live MCP inventory/search/wake passed on
+2026-10-12; global host-entry synchronization remains separate. Earlier dated
+model/Hook results do not validate the new bytes.
+
 Wake happens with session entry and authorized background organization happens
 without becoming a daily checklist. Before each requested action, `hm` performs
-only a short project and Hook check. Doctor, raw evidence, candidate detail,
+only the checks needed for the action. A project/Hook check is not required
+for device session processing or recall. Doctor, raw evidence, candidate detail,
 storage repair, and cleanup are diagnostic or operator drill-downs, not primary
 navigation. Do not create a parallel “simple mode”; the default path is the
 product and uses the same runtime contracts.
@@ -46,6 +80,11 @@ Readiness reports memory storage and prepared Hook files, not proof that Hooks
 have run. Codex replies include a conditional trust action because file existence
 cannot establish whether the user accepted the host's trust prompt; already-trusted
 users need not repeat it. Setup failures name the known cause and one safe next step.
+Unreadable memory or project settings are failures, not an empty successful
+memory result. Preserve malformed settings and stop setup before installing
+Hooks. Upgrade conflicts preserve existing files; explain the existing explicit
+sync recovery only after ownership and differences have been reviewed.
+Hermes entry and Hook preparation use the same active-profile location.
 
 ## CLI and MCP Output
 
@@ -66,10 +105,21 @@ users need not repeat it. Setup failures name the known cause and one safe next 
 - In the unreleased session inspection flow, inventory, complete source paging
   and theme coverage are read-only. Label themes as Agent-proposed and incomplete
   source coverage as partial; unknown, malformed and empty sources stay distinct.
-- Manual batches freeze the selected project and revisions. Show progress and
+- Automatic discovery starts with `inspect_sessions {}` and a metadata-only
+  list of device sessions across the seven native adapters, including rootless,
+  historical-missing and multi-workspace sources. Directories are optional context.
+  The Agent selects sources according to the user's request; users do not supply
+  directories or IDs. A device batch freezes source references, independently
+  reads and captures each complete source before semantic work, then binds its
+  immutable revision. Resume reuses that selection without a project prerequisite.
+  Discovery does not import old sessions or enable background processing.
+- Manual batches freeze the selected sources. Show progress and
   unresolved failures within that scope, and exclude previously completed work
   from this run's knowledge changes. Explicit retry applies only to active
   batches; stopped batches do not silently resume. Completion retains sources.
+  A batch can finish processing its selected sources while organization remains
+  partial because it retains unfinished work. Show verified saved knowledge
+  separately; never translate processing completion into "everything is done."
 - The current Agent owns manual work independently of the background CLI.
   Keep fixture evidence, the `manual_session_batch` outcome probe and
   live background acceptance separate; none implies that the others passed.
@@ -81,8 +131,9 @@ users need not repeat it. Setup failures name the known cause and one safe next 
   from being saved through the existing commit and readback checks. Report what
   was actually saved separately from what remains unfinished; partial saving
   must never be described as all work completed. Shared safety failures such as
-  project binding conflicts or failed write readback still stop affected work.
-- Users may ask `hm` to show all current project knowledge. Reuse SQLite-backed
+  source-scope conflicts or failed write readback still stop affected work.
+- Users may ask `hm` to show all current knowledge, optionally filtering by
+  project label. Reuse SQLite-backed
   rendering; any Markdown view is an on-demand projection, not a second store
   or a new daily entry. Long views may be paged with their scope made clear.
 - Keep the original conversation outcome separate from the result of organizing
@@ -101,9 +152,13 @@ users need not repeat it. Setup failures name the known cause and one safe next 
 - Quickstart installs only the global native entry for the current Agent app.
   It is independent of the current project and does not inspect, add, remove,
   or replace MCP connections.
-- The first `hm` use in a project resolves that workspace and prepares its
-  project Hooks without reinstalling the global entry.
-- Commands should resolve the active project from the workspace before asking for a project name.
+- Requested automatic recording resolves that workspace and prepares its
+  Hooks without reinstalling the global entry; ordinary use does not require it.
+- Resolve workspace context internally for Hook setup and source validation;
+  do not require a project name or directory lifecycle action for memory recall.
+- Derive the caller workspace from the Agent's native task context, never from
+  the MCP Router's working directory. Keep returned project/session bindings
+  inside Agent tool calls rather than turning them into user setup steps.
 - Keep setup and repair instructions out of the normal daily loop unless diagnosis proves they are needed.
 - Keep automatic wake and authorized background organization out of the user's
   required daily steps. State their result in ordinary language, and surface
@@ -194,3 +249,4 @@ Use teal for identity and positive forward motion. Use gold sparingly for lineag
 | 2026-09-03 | Made Quickstart global, moved project Hook preparation to first use, and removed the old action-specific entries | onboarding, command sync, host mirrors, and current docs |
 | 2026-09-05 | Reduced the automatic project check to a short usable/failure reply and kept full diagnosis in Doctor | `hm` host mirrors, MCP status response, and current docs |
 | 2026-10-07 | Made visible saved knowledge and on-demand current-project reading explicit next-iteration acceptance criteria | User could not see the isolated test result until asking again; `docs/roadmap.md` and `docs/distill-test-plan.md` define verification, not an implementation-complete claim |
+| 2026-10-12 | Adopted optional project labels and default all-project current-memory recall while retaining selected-source and frozen-batch validation | 772 focused tests, five isolated outcomes and separate live MCP checks; no new model/Hook verdict or global entry synchronization |

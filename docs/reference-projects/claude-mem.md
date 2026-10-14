@@ -1,6 +1,6 @@
 # claude-mem
 
-- 定位：面向编码 Agent 的会话观察、检索与生成服务；本页只把它作为产品运行时可靠性参考。
+- 定位：面向编码 Agent 的会话观察、检索与生成服务；本页记录早期可靠性研究和后来补齐的日常读取实现。
 - 上游：<https://github.com/thedotmack/claude-mem>
 - 本地镜像：`F:\AIInfra\upstreams\harness-mem\claude-mem`
 - 复核基线：`main` 的 `a90066f9cf82cc936dd2d841319bb6b19658f7d4`（2026-08-01 本地核查）。
@@ -88,3 +88,24 @@ receipt-first 与 fail-closed 约束。
 | 0.9.7 | 支持既有的 distill job lifecycle reconciliation：从 checkpoint/lease 真相重算 job 状态，记录进展和恢复原因；不得把一次 Agent 调用失败伪装成任务消失。 |
 | 0.9.8 | 只把“事实与执行 transport 分离”映射到 derived-index generation manifest、staging 与原子 active-pointer 切换；中断 build 必须保留旧 generation，不复制 `SessionStore` 的启动时修补模式。 |
 | 0.9.9 | 在七 host replay/repair qualification 中区分 adapter capture、ingest、cleanup 和 wake 的 failure artifact；Windows zombie-port 与 readiness 思路可用作 host 安装/重启诊断，不能把健康响应误报为 replay 成功。 |
+
+## 2026-10-14 reading improvements
+
+核对版本：`v13.39.0`（`cbcd92e2cf3a4b61ce751e180f24132ddf4f2395`）
+及 main `fef3402e674bebbf72a23aeb735e91c92cd34afd`。
+
+本次补齐此前没有落到日常读取的部分：
+
+- **输出更精简：** [Agent 输出实现](https://github.com/thedotmack/claude-mem/blob/fef3402e674bebbf72a23aeb735e91c92cd34afd/src/servers/mcp-text-format.ts)
+  选择适合阅读的字段。工作树中的 wake/search 和 Hook 已按当前任务选取完整知识。
+- **按需要展开：** [渐进读取实现](https://github.com/thedotmack/claude-mem/blob/fef3402e674bebbf72a23aeb735e91c92cd34afd/src/shared/progressive-search.ts)
+  提供目录与详情。工作树已实现短知识直接返回、结果分页，以及长条目完整读取。
+
+它的[启动输出控制](https://github.com/thedotmack/claude-mem/blob/fef3402e674bebbf72a23aeb735e91c92cd34afd/src/services/context/ContextBudget.ts)
+通过重渲染和减少条目控制字符量；
+[TokenCalculator](https://github.com/thedotmack/claude-mem/blob/fef3402e674bebbf72a23aeb735e91c92cd34afd/src/services/context/TokenCalculator.ts)
+按部分字段字符数除以四估算 token。我们的大小设置根据实际任务调节，
+效果用完整任务的知识命中、调用量、token 和耗时比较。
+
+0.9.29 的读取改造已在工作树实现并完成隔离运行检查；0.9.30 继续比较真实任务中的使用效果。
+版本安排见[主路线图](../roadmap.md#current-iteration-plan)。

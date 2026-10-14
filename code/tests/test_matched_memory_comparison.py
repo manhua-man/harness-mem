@@ -151,17 +151,50 @@ def test_prompts_no_oracle_and_explicit_real_product_work(tmp_path):
         assert "初始知识" in prompt and "完整内容" in prompt
         if product == "harness-mem":
             assert "product-instructions" in prompt and "hm.md" in prompt
-            assert "不展开报错原文" in prompt
-            assert "暂时无法使用" in prompt
+            assert mod.daily_reply_instructions() in prompt
+            assert "直接展示实际保存的标题和正文" in prompt
+            assert "未完成事项单独说" in prompt
+            assert "保留已保存的成果" in prompt
         if product == "session-distill-skills":
             assert "只是待验证材料" in prompt
             preflight = mod.workflow_prompt(product, path, preflight=True)
             assert preflight.index(" index;") < preflight.index(" bundle ")
 
 
+def test_reply_instructions_use_only_the_canonical_result_section(tmp_path, monkeypatch):
+    entry = tmp_path / "code/plugins/harness-mem/commands/hm/hm.md"
+    entry.parent.mkdir(parents=True)
+    entry.write_text("## Earlier\nNot a reply rule.\n\n## 结果与失败\n\n"
+                     "Show saved knowledge and unfinished work.\n\n## Later\nNot a reply rule.\n",
+                     encoding="utf-8")
+    monkeypatch.setattr(mod, "REPO_ROOT", tmp_path)
+    assert mod.daily_reply_instructions() == (
+        "## 结果与失败\n\nShow saved knowledge and unfinished work."
+    )
+
+
+@pytest.mark.parametrize("text", ["## Other\nNo rules.", "## 结果与失败\n\n## Later\nNot rules."])
+def test_reply_instructions_reject_missing_or_empty_canonical_section(tmp_path, monkeypatch, text):
+    entry = tmp_path / "code/plugins/harness-mem/commands/hm/hm.md"
+    entry.parent.mkdir(parents=True)
+    entry.write_text(text, encoding="utf-8")
+    monkeypatch.setattr(mod, "REPO_ROOT", tmp_path)
+    with pytest.raises(ValueError, match="reply instructions are missing"):
+        mod.daily_reply_instructions()
+
+
 @pytest.mark.parametrize("product", ["harness-mem", "session-distill-skills"])
 def test_preflight_rejects_failure_containing_success_word(tmp_path, product):
     assert mod.preflight_verified("Not PREFLIGHT_OK: failed", product, tmp_path / "absent.json") is False
+
+
+@pytest.mark.parametrize("result", [{"success": False}, {"success": False, "error": "unsupported evidence kind"}])
+def test_completed_mcp_transport_does_not_hide_a_rejected_product_operation(result):
+    event = {"type": "item.completed", "item": {
+        "type": "mcp_tool_call", "status": "completed", "error": None,
+        "result": {"content": [{"type": "text", "text": json.dumps(result)}]},
+    }}
+    assert mod.failed_mcp_results([event]) == [event["item"]]
 
 
 @pytest.mark.parametrize("product", ["harness-mem", "session-distill-skills"])

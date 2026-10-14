@@ -551,11 +551,13 @@ def _apply_legacy_autonomous_compat(merged: dict[str, Any]) -> None:
     _remove_dotted(merged, "semantic.execution.restricted")
 
 
-def load_merged_config(project_root: str | os.PathLike[str]) -> MergedConfig:
+def load_merged_config(project_root: str | os.PathLike[str] | None = None) -> MergedConfig:
     """Deep-merge the user-level and project-level config into a MergedConfig.
 
     Args:
-        project_root: Absolute path to an existing project directory. Used both
+        project_root: Optional absolute path to an existing project directory. None
+            reads user policy only, without attributing a Router working directory.
+            A supplied path is used both
             to locate ``<project_root>/.harness-mem.toml`` and as the
             attribution anchor for project-level values.
 
@@ -567,13 +569,13 @@ def load_merged_config(project_root: str | os.PathLike[str]) -> MergedConfig:
             declared allowed set.
     """
     # ---- 1. project_root validation (Req 3.1, 3.2) ----------------------
-    if not os.path.isabs(project_root) or not os.path.isdir(project_root):
+    if project_root is not None and (not os.path.isabs(project_root) or not os.path.isdir(project_root)):
         raise ConfigPathError(str(project_root))
 
     # ---- 2. read source files (Req 3.3, 3.4, 3.5, 3.8) ------------------
     user_path, user_dict = _load_user_config_files()
-    project_path = Path(project_root) / ".harness-mem.toml"
-    project_dict = _load_toml_file(project_path)
+    project_path = Path(project_root) / ".harness-mem.toml" if project_root is not None else user_path
+    project_dict = _load_toml_file(project_path) if project_root is not None else {}
 
     # Background authorization and destructive cleanup are project-scoped.
     _remove_dotted(user_dict, "distill.autonomous.enabled")

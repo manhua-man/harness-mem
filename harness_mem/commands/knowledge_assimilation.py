@@ -33,7 +33,7 @@ def normalize_knowledge_targets(values: Sequence[Mapping[str, Any]]) -> list[dic
     """Use the same title, statement and module fields as normal search."""
     targets: list[dict[str, Any]] = []
     for value in values:
-        if not isinstance(value, Mapping) or set(value) - {"title", "statement", "module"}:
+        if not isinstance(value, Mapping) or set(value) - {"title", "statement", "module", "project_name"}:
             raise KnowledgeTargetError("请用旧记忆的标题、内容和可选分类说明要改哪条。")
         target: dict[str, Any] = {}
         for key in ("title", "statement"):
@@ -48,6 +48,10 @@ def normalize_knowledge_targets(values: Sequence[Mapping[str, Any]]) -> list[dic
             if not isinstance(module, list) or any(not isinstance(part, str) or not part.strip() for part in module):
                 raise KnowledgeTargetError("旧记忆的分类应使用搜索结果中的分类文字。")
             target["module"] = [part.strip() for part in module]
+        if "project_name" in value:
+            if not isinstance(value["project_name"], str) or not value["project_name"].strip():
+                raise KnowledgeTargetError("旧记忆的范围应使用搜索结果中的文字。")
+            target["project_name"] = value["project_name"].strip()
         targets.append(target)
     return targets
 
@@ -59,6 +63,8 @@ async def resolve_knowledge_targets(
 ) -> list[str]:
     """Resolve exact readable selections inside one project, never guess IDs."""
     references = normalize_knowledge_targets(target_knowledge)
+    if any(target.get("project_name", project_name) != project_name for target in references):
+        raise KnowledgeTargetError("要修改的旧记忆不属于所选范围，原内容未改动。")
     ids = [str(value).strip() for value in target_ids]
     if references and ids:
         raise KnowledgeTargetError("请只用一种方式指定要修改的旧记忆。")
@@ -96,7 +102,7 @@ async def record_assimilation_result(
     candidate_before = candidate.model_copy(deep=True)
     disposition = _disposition(point)
     if disposition in {"add", "refine", "replace", "confirm"} and (
-        project_root is None or not source_refs
+        not project_root or not source_refs
     ):
         resolved_root, resolved_refs, resolved_verified_at = (
             await resolve_candidate_source_context(
@@ -121,21 +127,8 @@ async def record_assimilation_result(
         for _index, item in enumerate(_knowledge_items(point), 1):
             if not source_refs:
                 raise ValueError("knowledge write requires a real source reference")
-            identity = "\0".join(
-                [
-                    candidate.project_name,
-                    *item["topic_path"],
-                    item["title"],
-                    item["statement"],
-                ]
-            )
             entry = KnowledgeEntry(
-                id=str(
-                    uuid5(
-                        NAMESPACE_URL,
-                        f"harness-mem:knowledge:{identity}",
-                    )
-                ),
+                id=_knowledge_item_id(candidate.project_name, item),
                 project_name=candidate.project_name,
                 title=item["title"],
                 statement=item["statement"],
@@ -175,7 +168,7 @@ async def record_assimilation_result(
             await _verify_normal_search_after_truth_write(
                 backend,
                 project_name=candidate.project_name,
-                project_root=_required_project_root(project_root),
+                project_root=_optional_project_root(project_root),
                 added_entries=new_entries,
                 predecessor_entries=[],
             )
@@ -245,7 +238,7 @@ async def record_assimilation_result(
     )
     if new_entries:
         await store.apply_current_change(
-            project_root=_required_project_root(project_root),
+            project_root=_optional_project_root(project_root),
             candidate_before=candidate_before,
             candidate_after=candidate,
             decision=decision,
@@ -258,7 +251,7 @@ async def record_assimilation_result(
         await _verify_normal_search_after_truth_write(
             backend,
             project_name=candidate.project_name,
-            project_root=_required_project_root(project_root),
+            project_root=_optional_project_root(project_root),
             added_entries=new_entries,
             predecessor_entries=predecessor_entries,
         )
@@ -270,6 +263,27 @@ async def record_assimilation_result(
         await store.save_candidate(candidate)
         await store.save_decision(decision, project_root=project_root)
     return knowledge_ids
+
+
+def _knowledge_item_id(project_name: str, item: Mapping[str, Any]) -> str:
+    identity = "\0".join([project_name, *item["topic_path"], item["title"], item["statement"]])
+    return str(uuid5(NAMESPACE_URL, f"harness-mem:knowledge:{identity}"))
+
+
+async def is_committed_knowledge_point(
+    backend: LocalMemoryBackend, *, candidate: KnowledgeCandidate, point: Mapping[str, Any],
+) -> bool:
+    """Prove an exact write replay without trusting caller-supplied outputs."""
+    disposition = _disposition(point)
+    if candidate.status != "assimilated" or disposition not in {"add", "refine", "replace"}:
+        return False
+    decision_id = assimilation_decision_id(
+        candidate_id=candidate.id, disposition=disposition,
+        knowledge_ids=[_knowledge_item_id(candidate.project_name, item) for item in _knowledge_items(point)],
+        predecessor_ids=[str(value) for value in point.get("matched_truth_ids") or []],
+        reason=str(point.get("reason", "")),
+    )
+    return await backend.structured_store.knowledge_store.current_change_committed(decision_id)
 
 
 async def _verify_normal_search_after_truth_write(
@@ -348,10 +362,14 @@ async def _current_entries_match(
     return True
 
 
-def _required_project_root(value: str | Path | None) -> Path:
-    if value is None:
-        raise ValueError("knowledge change requires an explicit project root")
-    return Path(value).expanduser().resolve()
+def _optional_project_root(value: str | Path | None) -> Path | None:
+    """Preserve missing context without resolving it to the process directory."""
+    if value is None or not str(value).strip():
+        return None
+    root = Path(value).expanduser()
+    if not root.is_absolute():
+        raise ValueError("knowledge source context requires an absolute project root")
+    return root.resolve()
 
 
 async def resolve_candidate_source_context(
@@ -360,7 +378,7 @@ async def resolve_candidate_source_context(
     candidate: KnowledgeCandidate,
     evidence_items: Sequence[KnowledgeEvidence],
     project_root: str | Path | None,
-) -> tuple[Path, list[ProjectKnowledgeSourceRef], Any]:
+) -> tuple[Path | None, list[ProjectKnowledgeSourceRef], Any]:
     if len(evidence_items) != 1:
         raise ValueError("knowledge candidate requires one evidence envelope")
     evidence = evidence_items[0]
@@ -375,15 +393,28 @@ async def resolve_candidate_source_context(
         else None
     )
     root_value = project_root or (job.project_root if job is not None else None)
-    if root_value is None:
+    has_repository_refs = any(
+        ref.kind == "repository" for ref in evidence.verification_refs
+    )
+    if (
+        not root_value
+        and has_repository_refs
+        and job is None
+        and (backend.data_dir / "profiles").is_dir()
+    ):
+        # Preserve attribution from existing repository profiles. Missing
+        # profiles must not be created just to resolve optional context.
         profile = await LocalProjectProfileStore(backend.data_dir).get(
             candidate.project_name
         )
         root_value = profile.project_root if profile is not None else None
-    root = _required_project_root(root_value)
+    root = _optional_project_root(root_value)
+    if has_repository_refs and (root is None or not root.is_dir()):
+        raise ValueError("repository knowledge requires a real project root")
     source_refs: list[ProjectKnowledgeSourceRef] = []
     for ref in evidence.verification_refs:
         if ref.kind == "repository" and ref.locator:
+            assert root is not None
             path = (root / ref.locator).resolve()
             source_refs.append(
                 ProjectKnowledgeSourceRef(
@@ -538,7 +569,6 @@ async def resolve_separated_review(
     # even though no assimilation decision can validly own it.
     targets: list[KnowledgeEntry] = []
     if disposition in {"refine", "replace", "confirm"}:
-        assert resolved_root is not None
         for target_id in target_knowledge_ids:
             target = await store.get_entry(
                 str(target_id),

@@ -15,6 +15,7 @@ from harness_mem.adapters.parser import (
 from harness_mem.adapters.protocol import Issue, SessionRecord
 from harness_mem.adapters.scan_scheduler import sync_sessions_fairly
 from harness_mem.adapters.snapshot import TranscriptSyncResult, persist_session_snapshot
+from harness_mem.adapters.source_metadata import metadata_record, read_jsonl_metadata
 from harness_mem.core.schemas import Observation
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
 from harness_mem.transcript_chunking import source_uri_from_path
@@ -34,6 +35,35 @@ class ClaudeCodeAdapter:
     def __init__(self, backend: MemoryBackend | None, sessions_dir: Path | None = None):
         self.backend = backend
         self.sessions_dir = sessions_dir or DEFAULT_SESSIONS_DIR
+
+    def list_session_metadata(
+        self, *, min_size_kb: int = 0, limit: int | None = None,
+        issues: list[Issue] | None = None,
+    ) -> list[SessionRecord]:
+        """Discover native JSONL headers; lossy project buckets are not owners."""
+        sessions: list[SessionRecord] = []
+        if not self.sessions_dir.is_dir():
+            return sessions
+        for path in self.sessions_dir.glob("*/*.jsonl"):
+            try:
+                if not path.is_file() or path.stat().st_size / 1024 < min_size_kb:
+                    continue
+                roots, _ = read_jsonl_metadata(path, client="claude-code")
+                record = metadata_record(
+                    path, path.stem, project_roots=roots, source_kind="jsonl", metadata_paths=[path],
+                )
+                if len(roots) != 1 or not Path(roots[0]).is_absolute():
+                    record["metadata_status"] = "unknown"
+                    record.pop("cwd", None)
+                sessions.append(record)
+            except OSError as exc:
+                if issues is not None:
+                    issues.append({
+                        "level": "warning", "code": "session_scan_failed",
+                        "message": str(exc), "path": str(path),
+                    })
+        ordered = sorted(sessions, key=session_sort_key, reverse=True)
+        return ordered if limit is None else ordered[:limit]
 
     def list_project_sessions(
         self,

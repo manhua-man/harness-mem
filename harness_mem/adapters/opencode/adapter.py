@@ -27,6 +27,7 @@ from harness_mem.adapters.claude_code.project_profile_detector import (
 from harness_mem.adapters.protocol import Issue, SessionRecord
 from harness_mem.adapters.scan_scheduler import sync_sessions_fairly
 from harness_mem.adapters.snapshot import TranscriptSyncResult, persist_session_snapshot
+from harness_mem.adapters.source_metadata import metadata_record
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.transcript_chunking import source_uri_from_path
@@ -67,6 +68,43 @@ class OpenCodeAdapter:
         self.home_dir = Path.home() if home_dir is None else home_dir
         self.project_root = _normalize_workspace_path(project_root)
         self.database_path = database_path or self._find_database()
+
+    def list_session_metadata(
+        self, *, min_size_kb: int = 0, limit: int | None = None,
+        issues: list[Issue] | None = None,
+    ) -> list[SessionRecord]:
+        """Read only session metadata from the selected database, not all profiles."""
+        path = self.database_path
+        if path is None:
+            return []
+        try:
+            if path.stat().st_size / 1024 < min_size_kb:
+                return []
+            with closing(self._connect()) as db:
+                rows = db.execute(
+                    "SELECT id, directory, title, time_created, time_updated "
+                    "FROM session ORDER BY time_updated DESC, id DESC"
+                ).fetchall()
+            sessions: list[SessionRecord] = []
+            for session_id, directory, title, created, updated in rows:
+                if not session_id or not self._directory_matches(directory):
+                    continue
+                roots = [directory] if isinstance(directory, str) and directory.strip() else []
+                record = metadata_record(
+                    path, str(session_id), project_roots=roots, source_kind="sqlite-session-export",
+                    # WAL commits can change session rows without touching the DB.
+                    metadata_paths=[path, path.with_name(path.name + "-wal")],
+                )
+                record["name"] = str(title or session_id)
+                record["mtime"] = _epoch_millis(updated or created) or record["mtime"]
+                if not roots or not Path(roots[0]).is_absolute():
+                    record["metadata_status"] = "unknown"
+                    record.pop("cwd", None)
+                sessions.append(record)
+        except (OSError, sqlite3.Error) as exc:
+            self._issue(issues, "opencode_database_unreadable", str(exc), path)
+            return []
+        return sessions if limit is None else sessions[:limit]
 
     def list_sessions(
         self,

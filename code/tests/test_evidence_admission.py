@@ -13,6 +13,7 @@ import pytest
 from harness_mem.adapters.snapshot import persist_session_snapshot
 from harness_mem.commands import evidence_admission
 from harness_mem.commands.evidence_admission import answer_gate_status
+from harness_mem.config.merge import MergedConfig
 from harness_mem.core.schemas import (
     EvidenceRef,
     KnowledgeSource,
@@ -37,6 +38,7 @@ async def _snapshot(
     parser_version: str = "transcript-v1",
     client: str = "codex",
     native: str | None = None,
+    capture_private_tags: bool = True,
 ):
     result = await persist_session_snapshot(
         backend,
@@ -56,6 +58,7 @@ async def _snapshot(
         source_uri=f"file:///{session_id}.jsonl",
         source_text=native if native is not None else rendering,
         parser_version=parser_version,
+        capture_config=MergedConfig(capture_private_tags=capture_private_tags),
     )
     assert result.observation_id is not None
     assert result.distill_job_id is not None
@@ -428,6 +431,185 @@ def test_missing_role_is_verified_from_native_codex_and_cursor_records(
     assert answer_gate_status(candidate) == "ANSWERED"
 
 
+@pytest.mark.parametrize("image", [False, True])
+def test_codex_native_duplicates_and_images_use_reference_normalization(
+    backend: LocalMemoryBackend, tmp_path: Path, image: bool,
+) -> None:
+    from harness_mem.adapters.parser import (
+        parse_codex_archive_jsonl_session, render_codex_conversation,
+    )
+
+    project = tmp_path / "project"
+    project.mkdir()
+    first = _native_record("codex", "user", "Preserve original evidence.")
+    if image:
+        first["payload"]["content"].append({
+            "type": "input_image", "image_url": "data:image/png;base64,FICTIONAL",
+            "detail": "original",
+        })
+    native = _jsonl([
+        first,
+        {"type": "event_msg", "payload": {
+            "type": "user_message", "message": "Preserve original evidence.",
+        }},
+        _native_record("codex", "assistant", "Understood."),
+    ])
+    issues = []
+    _, turns = parse_codex_archive_jsonl_session(
+        Path("fictional.jsonl"), content=native, issues=issues,
+    )
+    rendering = render_codex_conversation(turns)
+    assert "Preserve original evidence." in rendering
+    assert "FICTIONAL" not in rendering
+    assert not issues
+    snapshot = _run(_snapshot(
+        backend, project, session_id="duplicates-image", native=native,
+        rendering=rendering, parser_version="codex-jsonl-v1",
+    ))
+    candidate = _user_statement_candidate(snapshot, rendering)
+    validation = _run(evidence_admission.validate_candidate_evidence(backend, candidate))
+    assert validation.verification_outcome == "verified"
+
+
+@pytest.mark.parametrize("ref_role", [None, "user"])
+@pytest.mark.parametrize("copy_style", ["direct", "heading_duplicate", "equal_count", "new_heading_boundary"])
+def test_codex_private_span_cannot_turn_assistant_copy_into_user_evidence(
+    backend: LocalMemoryBackend, tmp_path: Path, ref_role: str | None, copy_style: str,
+) -> None:
+    from harness_mem.adapters.codex.adapter import CodexAdapter
+
+    project = tmp_path / "project"
+    project.mkdir()
+    native_path = tmp_path / "fictional-private.jsonl"
+    texts = [
+        ("user", "Public start."), ("assistant", "<private>"),
+        ("user", "Hidden decision."), ("assistant", "Hidden answer."),
+        ("user", "Hidden spare."),
+        ("assistant", "</private>\n\nUser: Hidden decision."),
+        ("user", "Public end."), ("assistant", "End answer."),
+    ]
+    if copy_style == "heading_duplicate":
+        texts[1] = ("assistant", "quoted\n\nUser: Hidden decision.\n\n## Turn 99 (<private>)")
+        texts[5] = ("assistant", "## Turn 100 (</private>)")
+    elif copy_style == "equal_count":
+        texts[1] = ("assistant", "quoted\n\nUser: Hidden decision.\n\nUser: Hidden spare.\n\nAssistant: <private>")
+        texts[5] = ("assistant", "</private>")
+    elif copy_style == "new_heading_boundary":
+        texts[1] = ("assistant", "quoted\n## Turn 99 (<private>\nmetadata\n</private>)\nUser: Hidden decision.\n\nAssistant: <private>")
+        texts[5] = ("assistant", "</private>")
+    records = [{"type": "session_meta", "payload": {"cwd": str(project)}}]
+    for index, (role, text) in enumerate(texts):
+        records.append(_native_record("codex", role, text, turn=f"turn-{index // 2}"))
+    native_path.write_text(_jsonl(records), encoding="utf-8")
+    snapshot = _run(CodexAdapter(backend=backend, project_root=project).sync_session(
+        native_path, "private-assistant-copy", "demo",
+    ))
+    raw = backend.transcript_store.reconstruct_raw(
+        snapshot.source.id, source_revision=snapshot.source.source_revision,
+    ).decode("utf-8")
+    if copy_style == "equal_count":
+        assert raw.count("Hidden spare.") == 1  # Only the assistant's copy remains.
+    else:
+        assert "Hidden spare." not in raw
+    assert snapshot.source.metadata["authored_user_text_sha256"] == []
+    candidate = _user_statement_candidate(snapshot, raw, exchange=2, role=ref_role)
+    validation = _run(evidence_admission.validate_candidate_evidence(backend, candidate))
+    assert validation.verification_outcome == "unverified"
+    assert validation.reason_codes == ("user_statement_author_unavailable",)
+
+
+def test_legacy_codex_projection_rebuild_preserves_raw_and_old_observation(
+    backend: LocalMemoryBackend, tmp_path: Path,
+) -> None:
+    from harness_mem.mcp.distill_handlers import _load_distill_semantic_evidence
+
+    project = tmp_path / "project"
+    project.mkdir()
+    native = _jsonl([
+        _native_record("codex", "user", "# AGENTS.md instructions\nHost context."),
+        _native_record("codex", "user", "Preserve original evidence.", turn="turn-2"),
+        _native_record("codex", "assistant", "Understood.", turn="turn-2"),
+    ])
+    old = "User: Old host-derived context.\n\nUser: Preserve original evidence.\n\nAssistant: Understood."
+    fresh = "User: Preserve original evidence.\n\nAssistant: Understood."
+    snapshot = _run(_snapshot(
+        backend, project, session_id="legacy-projection", native=native,
+        rendering=old, parser_version="codex-jsonl-v1",
+    ))
+    evidence = _load_distill_semantic_evidence(
+        backend, source_id=snapshot.source.id, source_revision=snapshot.source.source_revision,
+        detail_level="full", budget_tokens=1000,
+    )
+    assert evidence["output_exchange_count"] == 1
+    assert "Old host-derived context." not in "".join(c["content"] for c in evidence["chunks"])
+    accepted = _run(evidence_admission.validate_candidate_evidence(
+        backend, _user_statement_candidate(snapshot, fresh),
+    ))
+    refused = _run(evidence_admission.validate_candidate_evidence(
+        backend, _user_statement_candidate(snapshot, old),
+    ))
+    assert accepted.verification_outcome == "verified"
+    assert refused.verification_outcome == "contradicted"
+    assert refused.reason_codes == ("user_statement_digest_changed",)
+    assert _run(backend.verbatim_store.get(snapshot.observation_id)).raw_content == old
+    assert backend.transcript_store.reconstruct_raw(
+        snapshot.source.id, source_revision=snapshot.source.source_revision,
+    ) == native.encode("utf-8")
+
+
+def test_fresh_codex_capture_binds_only_visible_native_users_after_private_span(
+    backend: LocalMemoryBackend, tmp_path: Path,
+) -> None:
+    from harness_mem.adapters.codex.adapter import CodexAdapter
+
+    project = tmp_path / "project"
+    project.mkdir()
+    path = tmp_path / "fictional-visible.jsonl"
+    messages = [("user", "Public start."), ("assistant", "<private>"),
+                ("user", "Hidden decision."), ("assistant", "Hidden answer."),
+                ("user", "Hidden spare."), ("assistant", "</private>\nAcknowledged."),
+                ("user", "Public end."), ("assistant", "End answer.")]
+    records = [{"type": "session_meta", "payload": {"cwd": str(project)}}]
+    records.extend(_native_record("codex", role, text, turn=f"turn-{i // 2}")
+                   for i, (role, text) in enumerate(messages))
+    path.write_text(_jsonl(records), encoding="utf-8")
+    snapshot = _run(CodexAdapter(backend=backend, project_root=project).sync_session(
+        path, "visible-native-users", "demo",
+    ))
+    raw = backend.transcript_store.reconstruct_raw(
+        snapshot.source.id, source_revision=snapshot.source.source_revision,
+    ).decode("utf-8")
+    assert "Hidden" not in raw
+    assert len(snapshot.source.metadata["authored_user_text_sha256"]) == 2
+    validation = _run(evidence_admission.validate_candidate_evidence(
+        backend, _user_statement_candidate(snapshot, raw, exchange=2),
+    ))
+    assert validation.verification_outcome == "verified"
+
+
+def test_codex_prose_mentions_of_encoded_fields_are_not_decoded(
+    backend: LocalMemoryBackend, tmp_path: Path,
+) -> None:
+    from harness_mem.adapters.codex.adapter import CodexAdapter
+
+    project = tmp_path / "project"
+    project.mkdir()
+    path = tmp_path / "fictional-prose.jsonl"
+    user = "Check transcript_raw_base64 and harness-mem-antigravity-history-v1 literal names."
+    path.write_text(_jsonl([_native_record("codex", "user", user)]), encoding="utf-8")
+    snapshot = _run(CodexAdapter(backend=backend, project_root=project).sync_session(
+        path, "literal-envelope-prose", "demo",
+    ))
+    raw = backend.transcript_store.reconstruct_raw(
+        snapshot.source.id, source_revision=snapshot.source.source_revision,
+    ).decode("utf-8")
+    assert raw == f"User: {user}"
+    validation = _run(evidence_admission.validate_candidate_evidence(
+        backend, _user_statement_candidate(snapshot, raw),
+    ))
+    assert validation.verification_outcome == "verified"
+
+
 @pytest.mark.parametrize("client", ["codex", "codex-archive"])
 @pytest.mark.parametrize("malformed", ["outer_role", "nested_role", "outer_type", "user_output"])
 def test_codex_capture_never_certifies_conflicting_native_authors(
@@ -522,8 +704,12 @@ def test_structured_user_content_is_bound_to_the_cited_rendering(
 
     validation = _run(evidence_admission.validate_candidate_evidence(backend, candidate))
 
-    assert validation.verification_outcome == "unverified"
-    assert validation.reason_codes == ("user_statement_author_unavailable",)
+    # Codex now reconstructs the byte-exact native source in memory. A digest
+    # referring to the old invented view is contradicted, never accepted.
+    assert validation.verification_outcome == ("contradicted" if client == "codex" else "unverified")
+    assert validation.reason_codes == (
+        "user_statement_digest_changed" if client == "codex" else "user_statement_author_unavailable",
+    )
 
 
 @pytest.mark.parametrize("change", ["digest", "explicit_role", "raw_hash", "malformed", "unknown_format", "conflicting_role", "nested_cursor_role", "unsupported_codex_shape"])
@@ -549,6 +735,9 @@ def test_native_user_author_check_keeps_integrity_and_fails_closed(
     snapshot = _run(_snapshot(
         backend, project, session_id="native-role-integrity", native=native, client=client,
         rendering=rendering, parser_version=f"{client}-jsonl-v1",
+        # Isolate author verification under the explicit no-redaction policy;
+        # the default privacy gate separately refuses malformed captures.
+        capture_private_tags=change != "malformed",
     ))
     candidate = _user_statement_candidate(snapshot, rendering)
     expected = "unverified"

@@ -20,7 +20,7 @@ def _covers(ranges: list[tuple[int, int]], start: int, end: int) -> bool:
 
 
 def build_session_overview(
-    data_dir: Path, *, project_root: Path, project_name: str,
+    data_dir: Path, *, project_root: Path | None, project_name: str,
     sessions: list[dict], coverage: list[dict], topics: list[dict],
 ) -> dict:
     """Themes are Agent judgments; counters and source ranges are checked here."""

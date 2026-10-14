@@ -17,6 +17,7 @@ from urllib.parse import quote, unquote, urlsplit
 from harness_mem.adapters import AdapterRegistry
 from harness_mem.adapters.parser import list_session_files
 from harness_mem.adapters.protocol import Issue, SessionRecord
+from harness_mem.adapters.source_metadata import structured_metadata_roots
 from harness_mem.capture_policy import decide_capture, redact_private_bytes, redact_private_text
 from harness_mem.config.merge import MergedConfig
 from harness_mem.transcript_chunking import sha256_bytes, source_uri_from_path
@@ -36,6 +37,13 @@ class InspectedSource:
     reason: str | None
     record: SessionRecord
     adapter: Any
+    preview_stamps: list[tuple[Path, int, int]] | None = None
+    captured_bytes: bytes | None = None
+    native_input_bytes: bytes | None = None
+    authored_user_texts: list[str] | None = None
+    project_roots: list[str] | None = None
+    capture_config: MergedConfig | None = None
+    native_input_digest: str | None = None
 
 
 def normalized_root(value: str | Path) -> str:
@@ -45,27 +53,36 @@ def normalized_root(value: str | Path) -> str:
     return os.path.normcase(str(path.resolve(strict=False))).rstrip("\\/")
 
 
-def ownership_for(roots: list[str], project_root: Path) -> str:
-    """Only structured local workspace metadata can establish ownership."""
+def metadata_project_root(roots: list[str]) -> str:
+    """Return exactly one native local workspace, or no binding."""
     local: set[str] = set()
     for value in roots:
         if not value:
             continue
+        if value.startswith(("\\\\", "//")):
+            return ""
         if "://" in value:
             uri = urlsplit(value)
             if uri.scheme != "file" or uri.netloc not in {"", "localhost"}:
-                return "unknown"
+                return ""
             value = unquote(uri.path)
             if os.name == "nt" and len(value) > 2 and value[0] == "/" and value[2] == ":":
                 value = value[1:]
         path = Path(value)
         if not path.is_absolute():
-            return "unknown"
+            return ""
         local.add(normalized_root(path))
     if len(local) != 1:
+        return ""
+    return next(iter(local))
+
+
+def ownership_for(roots: list[str], project_root: Path) -> str:
+    """Only structured local workspace metadata can establish ownership."""
+    owner = metadata_project_root(roots)
+    if not owner:
         return "unknown"
     target = normalized_root(project_root)
-    owner = next(iter(local))
     return "project" if owner == target else "other"
 
 
@@ -79,6 +96,9 @@ def build_inspection_adapter(client: str, *, project_root: Path | None = None) -
 
 
 def list_native_records(adapter: Any, client: str, issues: list[Issue]) -> list[SessionRecord]:
+    metadata_reader = getattr(adapter, "list_session_metadata", None)
+    if callable(metadata_reader):
+        return metadata_reader(min_size_kb=0, limit=None, issues=issues)
     if client == "claude-code":
         return list_session_files(
             adapter.sessions_dir, pattern="*/*.jsonl", min_size_kb=0, issues=issues,
@@ -97,7 +117,9 @@ def _records(text: str, client: str) -> tuple[list[dict[str, Any]], str | None]:
                 document = None
             if isinstance(document, dict) and isinstance(document.get("messages"), list):
                 return [document], None
-        values = [json.loads(line) for line in text.splitlines() if line.strip()]
+        # JSONL records use LF (or CRLF), not Unicode line separators that can
+        # legally occur inside a JSON string, including host tool output.
+        values = [json.loads(line) for line in text.split("\n") if line.strip()]
     except (ValueError, TypeError):
         return [], "parse_failed"
     if any(not isinstance(value, dict) for value in values):
@@ -141,7 +163,10 @@ def classify_records(records: list[dict[str, Any]], client: str) -> str:
         elif "history_record" in record or "transcript_record" in record:
             recognized = True
             interaction |= _has_content(record.get("history_record") or record.get("transcript_record"))
-        elif client == "codex" and kind in {"session_meta", "turn_context"}:
+        elif client == "codex" and kind in {
+            "session_meta", "turn_context", "world_state", "compacted",
+            "inter_agent_communication_metadata", "token_usage_record",
+        }:
             recognized = True
         elif client == "codex" and kind in {"response_item", "event_msg"}:
             recognized = True
@@ -159,9 +184,14 @@ def classify_records(records: list[dict[str, Any]], client: str) -> str:
             interaction |= _has_content(message) or _has_content(record.get("tool_calls"))
         elif kind in {"turn_ended", "session_start", "session_end"}:
             recognized = True
-        elif client == "antigravity" and kind in {"USER_INPUT", "AI_RESPONSE", "TOOL_CALL", "TOOL_RESULT"}:
+        elif client == "antigravity" and kind in {"USER_INPUT", "PLANNER_RESPONSE", "AI_RESPONSE", "TOOL_CALL", "TOOL_RESULT"}:
             recognized = True
             interaction |= any(_has_content(record.get(key)) for key in ("content", "text", "message", "tool_calls"))
+        elif client == "antigravity" and kind == "GENERIC":
+            # Native CLI tool-result envelopes coexist with USER_INPUT and
+            # PLANNER_RESPONSE. They do not make the format unknown, but alone
+            # do not establish a user/assistant conversation either.
+            recognized = True
         else:
             unknown = True
     if unknown:
@@ -182,18 +212,21 @@ def structured_roots(records: list[dict[str, Any]], client: str) -> list[str]:
         if not isinstance(metadata, dict):
             continue
         # Do not inspect message content, tool arguments or textual path mentions.
-        for key in ("cwd", "project_root", "workspace_root", "workspace"):
-            value = metadata.get(key)
-            if isinstance(value, str) and value:
-                roots.append(value)
+        if client == "hermes":
+            from harness_mem.adapters.hermes.adapter import hermes_workspace_roots
+            roots.extend(hermes_workspace_roots(metadata))
+        else:
+            roots.extend(structured_metadata_roots(metadata))
     return roots
 
 
-def read_native_source(adapter: Any, client: str, record: SessionRecord) -> dict[str, Any]:
+def read_native_source(adapter: Any, client: str, record: SessionRecord, *, project_root: Path | None = None) -> dict[str, Any]:
     """Reuse native exporters, never read a whole shared DB as one session."""
     path = Path(record["path"])
     session_id = record["session_id"]
     uri = source_uri_from_path(path)
+    if client == "antigravity" and callable(getattr(adapter, "read_session_source", None)):
+        return adapter.read_session_source(path, session_id, workspace_scoped=project_root is not None)
     if client == "cursor" and callable(getattr(adapter, "read_session_source", None)):
         return adapter.read_session_source(path, session_id)
     if client == "codex":
@@ -207,14 +240,19 @@ def read_native_source(adapter: Any, client: str, record: SessionRecord) -> dict
         text = render_codex_conversation(turns)
         # Match the existing permitted conversation capture, not host-private
         # system/context records or hidden reasoning from the rollout file.
+        # Original input is separate from capture for snapshot author binding.
         return {"raw_bytes": text.encode("utf-8"), "source_text": text,
                 "source_uri": uri, "project_roots": roots,
+                "native_input_digest": sha256_bytes(raw),
+                "authored_user_texts": [turn["user"] for turn in turns if turn["user"].strip()],
                 "readability": readability,
                 "inspection_error": error or ("unknown_format" if readability == "unknown_format" else None)}
     if client == "hermes" and adapter._is_state_db(path):
         from harness_mem.adapters.hermes.adapter import _export_state_db_session
         exported = _export_state_db_session(path, session_id)
-        return {**exported, "source_uri": f"{uri}#session={quote(session_id, safe='')}", "project_roots": [str(exported["session"].get("cwd") or record.get("cwd") or "")]}
+        from harness_mem.adapters.hermes.adapter import hermes_workspace_roots
+        return {**exported, "source_uri": f"{uri}#session={quote(session_id, safe='')}",
+                "project_roots": hermes_workspace_roots(exported["session"])}
     if client == "opencode":
         from harness_mem.adapters.opencode.adapter import _connect_readonly, _export_session
         with closing(_connect_readonly(path)) as db:
@@ -229,14 +267,15 @@ def read_native_source(adapter: Any, client: str, record: SessionRecord) -> dict
 
 
 def inspect_native_source(
-    adapter: Any, client: str, record: SessionRecord, *, project_root: Path, config: MergedConfig,
+    adapter: Any, client: str, record: SessionRecord, *, project_root: Path | None, config: MergedConfig,
 ) -> InspectedSource:
+    """Inspect a selected source; None omits only the project ownership check."""
     uri = source_uri_from_path(Path(record["path"]))
     session_id = record["session_id"]
     admitted = decide_capture(config, client=client, session_id=session_id, source_uri=uri)
     if not admitted.admitted:
         return InspectedSource(client, session_id, uri, "", "", "unknown", "excluded", admitted.reason, record, adapter)
-    exported = read_native_source(adapter, client, record)
+    exported = read_native_source(adapter, client, record, project_root=project_root)
     uri = exported.get("source_uri", uri)
     text = exported["source_text"]
     records: list[dict[str, Any]]
@@ -248,7 +287,11 @@ def inspect_native_source(
         records, error = [], exported.get("inspection_error")
     else:
         records, error = _records(text, client)
-    roots = list(exported.get("project_roots") or []) + structured_roots(records, client)
+    # Antigravity owns full history/attachment membership validation, including
+    # corroboration of a child cwd against the native workspace binding.
+    roots = list(exported.get("project_roots") or [])
+    if client != "antigravity":
+        roots += structured_roots(records, client)
     if record.get("cwd"):
         roots.append(str(record["cwd"]))
     # Grok's URL-encoded full workspace bucket is a native identity, not a name.
@@ -256,12 +299,33 @@ def inspect_native_source(
         bucket = Path(record["path"]).parent.parent.name
         decoded = unquote(bucket)
         if Path(decoded).is_absolute():
-            roots.append(decoded)
-    ownership = ownership_for(roots, project_root)
+            roots = [decoded]
+            for record_value in records:
+                roots.extend(structured_metadata_roots(record_value, workspace_root=decoded))
+    ownership = "source" if project_root is None else ownership_for(roots, project_root)
     status = exported.get("readability") or error or classify_records(records, client)
     if config.capture_private_tags:
         text, _ = redact_private_text(text)
-        captured_bytes, _ = redact_private_bytes(exported["raw_bytes"])
+        if client == "codex":
+            # The Codex exporter returns only UTF-8 permitted conversation.
+            # Literal mentions of encoded fields are not actual containers.
+            captured_bytes = text.encode("utf-8")
+        else:
+            captured_bytes, _ = redact_private_bytes(exported["raw_bytes"])
     else:
         captured_bytes = exported["raw_bytes"]
-    return InspectedSource(client, session_id, uri, sha256_bytes(captured_bytes), text, ownership, status, error, record, adapter)
+    # Filtered host context and assistant-only turns have no permitted dialogue.
+    # Preserve unknown-format errors; only skip a fully parsed empty capture.
+    if client == "codex" and status == "readable" and not text.strip():
+        status = "empty_draft"
+    readable = status == "readable"
+    return InspectedSource(
+        client, session_id, uri, sha256_bytes(captured_bytes), text, ownership,
+        status, error, record, adapter,
+        captured_bytes=captured_bytes if readable else None,
+        native_input_bytes=exported["raw_bytes"] if readable and client != "codex" else None,
+        authored_user_texts=exported.get("authored_user_texts") if readable else None,
+        project_roots=roots,
+        capture_config=config,
+        native_input_digest=exported.get("native_input_digest") if readable else None,
+    )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -11,22 +12,16 @@ from harness_mem.commands.distill_lifecycle import (
     pending_distill_jobs,
 )
 from harness_mem.config.merge import MergedConfig, load_merged_config
-from harness_mem.context_assembly import assemble_context_plan
-from harness_mem.core.schemas.context_assembly_plan import ContextAssemblyPlan, LayerId
+from harness_mem.core.schemas import KnowledgeEntry
+from harness_mem.mcp.read_projection import project_memory_entries, resolve_read_budget, select_memory_page
+from harness_mem.read_knowledge import list_current_knowledge, search_current_knowledge
 from harness_mem.retrieval_signals import record_retrieval_signal
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
-_SURFACED_LAYERS: tuple[LayerId, ...] = ("L0", "L1", "L2")
-_SIGNAL_TARGET_BY_WHY = {
-    "essential:current_knowledge": "knowledge_entry",
-    "active:recently_surfaced": "knowledge_entry",
-}
-
-
 async def _apply_surface_side_effects(
     backend: LocalMemoryBackend,
-    plan: ContextAssemblyPlan,
+    entries: list[KnowledgeEntry],
     *,
     retrieval_id: str | None = None,
 ) -> dict[str, Any]:
@@ -36,42 +31,22 @@ async def _apply_surface_side_effects(
     recorded_ids: set[str] = set()
     attempted = 0
     recorded = 0
-    for layer_id in _SURFACED_LAYERS:
-        layer = plan.layer(layer_id)
-        entries = layer.entries
-        if layer_id in {"L1", "L2"}:
-            entries = [
-                entry
-                for entry in entries
-                if entry.truth_status == "confirmed_current"
-            ]
-        for entry in entries[: layer.budget.max_entries]:
-            target_kind = _SIGNAL_TARGET_BY_WHY.get(entry.why_included)
-            if target_kind is None:
-                continue
-            record_id = next(
-                (source_id for source_id in entry.source_ids if source_id),
-                "",
-            )
-            if not record_id or record_id in seen_ids:
-                continue
-            seen_ids.add(record_id)
-            attempted += 1
-            signal = await record_retrieval_signal(
-                backend,
-                project_name=plan.project_name,
-                signal_type="wake_surfaced",
-                target_kind=target_kind,
-                target_id=record_id,
-                context={
-                    "source": "wake",
-                    "surface": "wake",
-                    "retrieval_id": retrieval_id,
-                },
-            )
-            if signal is not None:
-                recorded += 1
-                recorded_ids.add(record_id)
+    for entry in entries:
+        if entry.id in seen_ids:
+            continue
+        seen_ids.add(entry.id)
+        attempted += 1
+        signal = await record_retrieval_signal(
+            backend,
+            project_name=entry.project_name,
+            signal_type="wake_surfaced",
+            target_kind="knowledge_entry",
+            target_id=entry.id,
+            context={"source": "wake", "surface": "wake", "retrieval_id": retrieval_id},
+        )
+        if signal is not None:
+            recorded += 1
+            recorded_ids.add(entry.id)
     return {
         "contract_version": "retrieval-signal-receipt-v1",
         "retrieval_id": retrieval_id,
@@ -138,16 +113,47 @@ async def build_wake_injection(
     project_name: str,
     *,
     apply_surface_side_effects: bool = True,
+    current_task: str | None = None,
+    budget_tokens: int | None = None,
 ) -> str:
-    """Return only current knowledge for the host session-start Hook."""
-
-    plan = await assemble_context_plan(backend, project_name=project_name)
-    if apply_surface_side_effects:
-        await _apply_surface_side_effects(backend, plan)
-    return await backend.structured_store.knowledge_store.render_markdown(
-        project_name,
-        include_details=False,
+    """Render the same task-aware current-knowledge selection used by MCP."""
+    query = (current_task or "").strip()
+    entries = (
+        await search_current_knowledge(backend, query=query)
+        if query else await list_current_knowledge(backend)
     )
+
+    def render(page, reading, index):
+        lines = ["# Current memory"]
+        if "available_count" in reading:
+            lines.append(
+                f"{reading['available_count']} current memories available. "
+                "Use search_memory with the current task to find relevant knowledge."
+            )
+        for memory in project_memory_entries(page, include_project=True):
+            lines.extend(["", f"## {memory['title']} ({memory['project_name']})"])
+            if not index:
+                lines.append(memory["statement"])
+        if reading.get("message"):
+            lines.append(reading["message"])
+        if reading.get("continuation"):
+            call = reading["continuation"]
+            lines.extend([
+                "", "Continue reading: " + call["tool"] + " "
+                + json.dumps(call["arguments"], ensure_ascii=False),
+            ])
+        return "\n".join(lines)
+
+    page, reading, index = select_memory_page(
+        entries, query=query, project_name=None, scope="all",
+        budget_tokens=resolve_read_budget(
+            budget_tokens, surface="wake", project_name=project_name,
+        ),
+        availability_only=not query, render=render,
+    )
+    if apply_surface_side_effects and not index and page:
+        await _apply_surface_side_effects(backend, page)
+    return render(page, reading, index)
 
 
 __all__ = ["build_wake_injection"]

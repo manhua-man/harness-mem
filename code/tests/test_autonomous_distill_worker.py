@@ -533,16 +533,34 @@ def test_assimilation_preserves_unique_atomic_source_clause_after_lossy_retries(
     assert items[1].statement == "同一会话追加内容时必须创建新 revision"
 
 
+@pytest.mark.parametrize("correct_on_retry", [False, True])
+@pytest.mark.parametrize(
+    "source_clauses",
+    [
+        [
+            "revision 身份应由内容哈希确定",
+            "同一会话追加内容时必须创建新 revision",
+        ],
+        [
+            "Revision identity should derive from content hashes",
+            "Appended content must create a new revision",
+        ],
+    ],
+)
 def test_assimilation_repairs_combined_provider_item_from_verified_source(
-    tmp_path: Path,
+    tmp_path: Path, correct_on_retry: bool, source_clauses: list[str],
 ) -> None:
     candidate_id = "candidate-combined-revision"
+    attempts: list[dict] = []
+    source = "；".join(source_clauses) + "。"
 
     class _Provider:
         name = "combined-provider"
 
         def assimilate(self, manifest, *, runtime_dir, heartbeat=None):
-            del manifest, runtime_dir, heartbeat
+            del runtime_dir, heartbeat
+            attempts.append(manifest)
+            statements = source_clauses if correct_on_retry and len(attempts) > 1 else [source]
             return ProviderResult(
                 decision=AssimilationDecision.model_validate(
                     {
@@ -554,13 +572,11 @@ def test_assimilation_repairs_combined_provider_item_from_verified_source(
                                 "knowledge_items": [
                                     {
                                         "title": "Revision identity and growth",
-                                        "statement": (
-                                            "revision 身份应由内容哈希确定；"
-                                            "同一会话追加内容时必须创建新 revision。"
-                                        ),
+                                        "statement": statement,
                                         "topic_path": ["Revision identity"],
                                         "claim_kind": "design_requirement",
                                     }
+                                    for statement in statements
                                 ],
                                 "reason": "The provider combined two durable obligations.",
                             }
@@ -590,10 +606,7 @@ def test_assimilation_repairs_combined_provider_item_from_verified_source(
             "verified_candidates": [
                 {
                     "candidate_id": candidate_id,
-                    "statement": (
-                        "revision 身份应由内容哈希确定；"
-                        "同一会话追加内容时必须创建新 revision。"
-                    ),
+                    "statement": source,
                 }
             ]
         },
@@ -603,11 +616,107 @@ def test_assimilation_repairs_combined_provider_item_from_verified_source(
         _Provider(), prepared=prepared, runtime_dir=tmp_path, heartbeat=None
     )
 
-    assert result.provider.endswith("->runtime_source_clause")
-    assert [item.statement for item in result.decision.points[0].knowledge_items] == [
-        "revision 身份应由内容哈希确定",
-        "同一会话追加内容时必须创建新 revision",
-    ]
+    assert len(attempts) == (2 if correct_on_retry else 3)
+    assert "independent obligations" in attempts[1]["assimilation_validation_feedback"]["errors"][0]
+    assert result.provider == (
+        "combined-provider" if correct_on_retry else "combined-provider->runtime_source_clause"
+    )
+    items = result.decision.points[0].knowledge_items
+    assert [item.statement for item in items] == source_clauses
+    assert all(item.topic_path == ["Revision identity"] for item in items)
+    assert all(item.claim_kind == "design_requirement" for item in items)
+    assert result.decision.points[0].matched_truth_handles == []
+    validate_separated_assimilation_decision(prepared, result.decision)
+
+
+@pytest.mark.parametrize("canonical_fields", [False, True])
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "适配器必须通过增长测试与零丢失重建测试。",
+        "Adapter qualification must include growth and lossless reconstruction tests.",
+        "适配器必须具备真实路径、真实样本、项目匹配规则和支持声明。",
+        "适配器必须具备真实路径、真实样本和 hook/transcript 能力三者之一。",
+        "缓存记录必须一起发布；缓存记录必须属于同一事务。",
+        "如果缓存失效，必须重新读取；否则必须复用现有内容。",
+        "If the cache is stale, it must be refreshed; otherwise it must be reused.",
+        "缓存必须重新读取或者复用；调用方必须选择其中一种方式。",
+        "Cache records must be published together; cache records must share one transaction.",
+        "The parser preserves content; the worker must validate it.",
+    ],
+)
+def test_assimilation_preserves_related_or_conditional_source_clauses(
+    tmp_path: Path, canonical_fields: bool, statement: str,
+) -> None:
+    attempts: list[dict] = []
+    candidate_id = "related-obligation"
+    knowledge = {
+        "title": "Verified contract",
+        "statement": statement,
+        "topic_path": ["Runtime contract"],
+        "claim_kind": "design_requirement",
+    }
+    point = {
+        "candidate_id": candidate_id,
+        "disposition": "add",
+        "reason": "The related clauses describe one verified contract.",
+        **(
+            {
+                "canonical_title": knowledge["title"],
+                "canonical_statement": statement,
+                "topic_path": knowledge["topic_path"],
+            }
+            if canonical_fields
+            else {"knowledge_items": [knowledge]}
+        ),
+    }
+
+    class _Provider:
+        name = "related-provider"
+
+        def assimilate(self, manifest, *, runtime_dir, heartbeat=None):
+            del runtime_dir, heartbeat
+            attempts.append(manifest)
+            return ProviderResult(
+                decision=AssimilationDecision.model_validate({"points": [point]}),
+                provider=self.name,
+                model="deterministic-test",
+                duration_seconds=0.01,
+                input_sha256="a" * 64,
+                response_sha256="b" * 64,
+                input_tokens=10,
+                output_tokens=10,
+                total_tokens=20,
+                event_count=1,
+            )
+
+    prepared = SeparatedPreparedAssimilation(
+        project_name="demo",
+        project_root=str(tmp_path),
+        candidate_ids=(candidate_id,),
+        eligible_candidate_ids=(candidate_id,),
+        automatic_points=(),
+        answer_status_by_candidate={candidate_id: "ANSWERED"},
+        truth_by_handle={},
+        manifest={
+            "verified_candidates": [
+                {"candidate_id": candidate_id, "statement": statement}
+            ]
+        },
+    )
+    result = _assimilate_prepared_in_bounded_batches(
+        _Provider(), prepared=prepared, runtime_dir=tmp_path, heartbeat=None
+    )
+
+    assert len(attempts) == 1
+    assert result.provider == "related-provider"
+    assert result.schema_valid is True
+    accepted = result.decision.points[0]
+    assert accepted.disposition == "add"
+    assert (
+        accepted.canonical_statement if canonical_fields
+        else accepted.knowledge_items[0].statement
+    ) == statement
 
 
 def test_verified_source_split_preserves_adapter_subject_for_three_points() -> None:
@@ -1432,7 +1541,8 @@ def test_assimilation_retries_non_writing_canonical_payload(tmp_path: Path) -> N
     assert "leave canonical_title" in feedback["instruction"]
 
 
-def test_assimilation_retries_internal_processing_module(tmp_path: Path) -> None:
+@pytest.mark.parametrize("initial_path", [["candidate promotion"], ["稳定操作规则"], [], ["   "]])
+def test_assimilation_allows_internal_label_words_and_retries_empty_module(tmp_path: Path, initial_path: list[str]) -> None:
     attempts: list[dict] = []
 
     def validate_module(decision: AssimilationDecision) -> None:
@@ -1446,7 +1556,7 @@ def test_assimilation_retries_internal_processing_module(tmp_path: Path) -> None
             attempts.append(manifest)
             if heartbeat is not None:
                 heartbeat()
-            module = "candidate promotion" if len(attempts) == 1 else "revision identity"
+            module_path = initial_path if len(attempts) == 1 else ["revision identity"]
             return ProviderResult(
                 decision=AssimilationDecision.model_validate(
                     {
@@ -1459,7 +1569,7 @@ def test_assimilation_retries_internal_processing_module(tmp_path: Path) -> None
                                 "canonical_statement": (
                                     "A changed session must receive a content-hash revision."
                                 ),
-                                "topic_path": [module],
+                                "topic_path": module_path,
                                 "knowledge_items": [],
                                 "reason": "The verified point is durable project knowledge.",
                             }
@@ -1485,11 +1595,15 @@ def test_assimilation_retries_internal_processing_module(tmp_path: Path) -> None
         validate_decision=validate_module,
     )
 
-    assert result.decision.points[0].topic_path == ["revision identity"]
-    assert len(attempts) == 2
-    assert "internal processing label" in attempts[1][
-        "assimilation_validation_feedback"
-    ]["errors"][0]
+    invalid_structure = not initial_path or not any(part.strip() for part in initial_path)
+    assert result.decision.points[0].topic_path == (["revision identity"] if invalid_structure else initial_path)
+    assert len(attempts) == (2 if invalid_structure else 1)
+    if invalid_structure:
+        assert "natural project module" in attempts[1][
+            "assimilation_validation_feedback"
+        ]["errors"][0]
+    else:
+        assert "assimilation_validation_feedback" not in attempts[0]
 
 
 def test_assimilation_model_requires_a_target_for_refine() -> None:
@@ -1699,7 +1813,7 @@ def test_missing_legacy_confidence_uses_neutral_non_truth_default() -> None:
     assert _required_confidence(candidate) == 0.5
 
 
-def test_assimilation_model_rejects_broad_checklist_as_one_knowledge_item() -> None:
+def test_assimilation_atomic_validation_allows_checklists_commas_and_clauses() -> None:
     decision = AssimilationDecision.model_validate(
         {
             "points": [
@@ -1736,8 +1850,8 @@ def test_assimilation_model_rejects_broad_checklist_as_one_knowledge_item() -> N
         truth_by_handle={},
         manifest={},
     )
-    with pytest.raises(ValueError, match="not atomic"):
-        validate_separated_assimilation_decision(prepared, decision)
+    plan = validate_separated_assimilation_decision(prepared, decision)
+    assert plan["points"][0]["knowledge_items"][0]["statement"] == decision.points[0].knowledge_items[0].statement
 
     relational = AssimilationDecision.model_validate(
         {
@@ -1757,44 +1871,46 @@ def test_assimilation_model_rejects_broad_checklist_as_one_knowledge_item() -> N
     )
     assert relational.points[0].canonical_title == "Structure validation and business admission"
 
-    with pytest.raises(ValueError, match="title enumerates multiple facts"):
-        AssimilationDecision.model_validate(
-            {
-                "points": [
-                    {
-                        "candidate_id": "combined-title-point",
-                        "disposition": "add",
-                        "matched_truth_handles": [],
-                        "canonical_title": "Capture, normalization, and publication",
-                        "canonical_statement": "Validate the final API output.",
-                        "topic_path": ["ingestion"],
-                        "knowledge_items": [],
-                        "reason": "The candidate needs one independently searchable fact.",
-                    }
-                ]
-            }
-        )
+    comma_title = AssimilationDecision.model_validate(
+        {
+            "points": [
+                {
+                    "candidate_id": "combined-title-point",
+                    "disposition": "add",
+                    "matched_truth_handles": [],
+                    "canonical_title": "Capture, normalization, and publication",
+                    "canonical_statement": "Validate the final API output.",
+                    "topic_path": ["ingestion"],
+                    "knowledge_items": [],
+                    "reason": "The candidate needs one independently searchable fact.",
+                }
+            ]
+        }
+    )
+    assert comma_title.points[0].canonical_title == "Capture, normalization, and publication"
 
-    with pytest.raises(ValueError, match="independent obligations"):
-        AssimilationDecision.model_validate(
-            {
-                "points": [
-                    {
-                        "candidate_id": "combined-obligation-point",
-                        "disposition": "add",
-                        "matched_truth_handles": [],
-                        "canonical_title": "Publication and output validation",
-                        "canonical_statement": (
-                            "Must publish related records in one transaction; "
-                            "must validate the final public API output."
-                        ),
-                        "topic_path": ["publication"],
-                        "knowledge_items": [],
-                        "reason": "The candidate combines independent publication and output rules.",
-                    }
-                ]
-            }
-        )
+    combined_clauses = AssimilationDecision.model_validate(
+        {
+            "points": [
+                {
+                    "candidate_id": "combined-obligation-point",
+                    "disposition": "add",
+                    "matched_truth_handles": [],
+                    "canonical_title": "Publication and output validation",
+                    "canonical_statement": (
+                        "Must publish related records in one transaction; "
+                        "must validate the final public API output."
+                    ),
+                    "topic_path": ["publication"],
+                    "knowledge_items": [],
+                    "reason": "The Agent determines the useful canonical grouping.",
+                }
+            ]
+        }
+    )
+    assert combined_clauses.points[0].canonical_statement == (
+        "Must publish related records in one transaction; must validate the final public API output."
+    )
 
 
 def test_distill_candidate_allows_broad_discovery_for_later_atomic_split() -> None:

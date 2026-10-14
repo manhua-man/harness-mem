@@ -325,6 +325,7 @@ async def run_host_replay(
             backend,
             project_name,
             apply_surface_side_effects=False,
+            current_task=grounded_candidate,
         )
         if grounded_candidate not in wake:
             raise RuntimeError("promoted_candidate_missing_from_wake")

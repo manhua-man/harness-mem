@@ -9,25 +9,20 @@
 set -e
 
 PROJECT_ROOT=${PROJECT_ROOT_SHELL}
-TURN_ID="$${CLAUDE_CODE_TURN_ID:-session-start}"
+# Native JSON on stdin carries the actual session identity.
 
 if [ "$${HARNESS_MEM_HOOK_DEBUG:-0}" = "1" ]; then
     HARNESS_MEM_CLIENT=claude-code ${HOOK_RUNNER_SHELL} \
-        --action wake-start \
+        --adapter claude-code-start \
         --project-root "$$PROJECT_ROOT" \
-        --source ide_hook \
-        --trigger-id "$$TURN_ID" \
-        --client claude-code || {
+        || {
             STATUS=$$?
             echo "harness-mem-hook failed (client=claude-code action=wake-start status=$$STATUS)" >&2
         }
 else
     HARNESS_MEM_CLIENT=claude-code ${HOOK_RUNNER_SHELL} \
-        --action wake-start \
+        --adapter claude-code-start \
         --project-root "$$PROJECT_ROOT" \
-        --source ide_hook \
-        --trigger-id "$$TURN_ID" \
-        --client claude-code \
         2>/dev/null || true
 fi
 

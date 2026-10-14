@@ -5,33 +5,27 @@
 #
 # This hook runs post-turn maintenance after a turn.
 #
-# To remove this hook, delete this file. Reopen the workspace to let the MCP
-# bootstrap restore missing project-local hooks.
+# Hook registration is maintained by explicit integration repair.
 
 set -e
 
 PROJECT_ROOT=${PROJECT_ROOT_SHELL}
-TURN_ID="$${CLAUDE_CODE_TURN_ID:-unknown}"
+# Native JSON on stdin carries the actual session identity.
+STATUS=0
 
 if [ "$${HARNESS_MEM_HOOK_DEBUG:-0}" = "1" ]; then
     HARNESS_MEM_CLIENT=claude-code ${HOOK_RUNNER_SHELL} \
-        --action post-turn-maintenance \
+        --adapter claude-code-stop \
         --project-root "$$PROJECT_ROOT" \
-        --source ide_hook \
-        --trigger-id "$$TURN_ID" \
-        --client claude-code \
         >/dev/null || {
             STATUS=$$?
             echo "harness-mem-hook failed (client=claude-code action=post-turn-maintenance status=$$STATUS)" >&2
         }
 else
     HARNESS_MEM_CLIENT=claude-code ${HOOK_RUNNER_SHELL} \
-        --action post-turn-maintenance \
+        --adapter claude-code-stop \
         --project-root "$$PROJECT_ROOT" \
-        --source ide_hook \
-        --trigger-id "$$TURN_ID" \
-        --client claude-code \
-        >/dev/null 2>&1 || true
+        >/dev/null 2>&1 || STATUS=$$?
 fi
 
-exit 0
+exit "$$STATUS"

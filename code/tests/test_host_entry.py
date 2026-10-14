@@ -809,6 +809,98 @@ def test_codex_stop_adapter_consumes_hook_payload(
     assert capsys.readouterr().out == "{}\n"
 
 
+@pytest.mark.parametrize("client", ["claude-code", "cursor", "grok"])
+@pytest.mark.parametrize("phase", ["start", "stop"])
+def test_shell_host_adapter_keeps_native_identity_and_bound_root(
+    monkeypatch, tmp_path, capsys, client, phase,
+) -> None:
+    foreign = tmp_path / "foreign"
+    foreign.mkdir()
+    captured = {}
+
+    async def fake_run(args):
+        captured.update(vars(args))
+        return ExitCode.SUCCESS, "remember this"
+
+    monkeypatch.setattr(host_entry, "run", fake_run)
+    payload = {"conversation_id" if client == "cursor" else "session_id": "native-17", "cwd": str(foreign)}
+    monkeypatch.setattr(host_entry.sys, "stdin", io.StringIO(json.dumps(payload)))
+    assert host_entry.main(["--adapter", f"{client}-{phase}", "--project-root", str(tmp_path)]) == 0
+    assert captured["client"] == client
+    assert captured["trigger_id"] == "native-17"
+    assert captured["project_root"] == str(tmp_path)
+    assert captured["action"] == ("wake-start" if phase == "start" else "post-turn-maintenance")
+    output = capsys.readouterr().out
+    if phase == "stop":
+        assert json.loads(output) == {}
+    elif client == "cursor":
+        assert json.loads(output) == {"additional_context": "remember this"}
+    else:
+        assert output == "remember this\n"
+
+
+@pytest.mark.parametrize("client", ["claude-code", "cursor", "grok"])
+def test_shell_host_stop_does_not_dispatch_without_native_identity(monkeypatch, tmp_path, capsys, client) -> None:
+    monkeypatch.delenv("GROK_SESSION_ID", raising=False)
+    monkeypatch.setattr(host_entry.sys, "stdin", io.StringIO("{}"))
+    monkeypatch.setattr(host_entry, "_run_request", lambda _args: pytest.fail("must not dispatch an unidentified session"))
+    assert host_entry.main(["--adapter", f"{client}-stop", "--project-root", str(tmp_path)]) == ExitCode.ARG_VALIDATION_ERROR
+    assert json.loads(capsys.readouterr().out) == {}
+
+
+@pytest.mark.parametrize("phase", ["start", "stop"])
+@pytest.mark.parametrize("identity_source", ["native_camel_case", "native_environment"])
+def test_grok_adapter_consumes_official_native_session_identity(monkeypatch, tmp_path, capsys, phase, identity_source) -> None:
+    captured = {}
+
+    async def fake_run(args):
+        captured.update(vars(args))
+        return ExitCode.SUCCESS, ""
+
+    monkeypatch.setattr(host_entry, "run", fake_run)
+    payload = {"sessionId": "grok-native-17"} if identity_source == "native_camel_case" else {}
+    monkeypatch.setenv("GROK_SESSION_ID", "grok-env-17")
+    monkeypatch.setattr(host_entry.sys, "stdin", io.StringIO(json.dumps(payload)))
+    assert host_entry.main(["--adapter", f"grok-{phase}", "--project-root", str(tmp_path)]) == 0
+    assert captured["trigger_id"] == ("grok-native-17" if payload else "grok-env-17")
+    assert captured["client"] == "grok"
+    capsys.readouterr()
+
+
+def test_antigravity_stop_failure_is_not_reported_as_finished(monkeypatch, tmp_path, capsys) -> None:
+    async def fake_run(_args):
+        return ExitCode.HOOK_FAILED, None
+
+    monkeypatch.setattr(host_entry, "run", fake_run)
+    monkeypatch.setattr(host_entry.sys, "stdin", io.StringIO('{"conversationId":"native-17"}'))
+    assert host_entry.main(["--adapter", "antigravity-stop", "--project-root", str(tmp_path)]) == ExitCode.HOOK_FAILED
+    response = json.loads(capsys.readouterr().out)
+    assert "failed" in response["reason"]
+    assert "finished" not in response["reason"]
+
+
+@pytest.mark.parametrize("adapter", ["codex-start", "codex-stop", "antigravity-pre", "antigravity-stop"])
+def test_project_adapter_payload_cannot_override_bound_root(monkeypatch, tmp_path, capsys, adapter) -> None:
+    bound = tmp_path / "bound"
+    foreign = tmp_path / "foreign"
+    bound.mkdir()
+    foreign.mkdir()
+    captured = {}
+
+    async def fake_run(args):
+        captured.update(vars(args))
+        return ExitCode.SUCCESS, ""
+
+    monkeypatch.setattr(host_entry, "run", fake_run)
+    monkeypatch.setattr(host_entry.sys, "stdin", io.StringIO(json.dumps({
+        "session_id": "native-17", "conversationId": "native-17", "cwd": str(foreign),
+        "workspacePaths": [str(foreign), str(bound)],
+    })))
+    assert host_entry.main(["--adapter", adapter, "--project-root", str(bound)]) == 0
+    assert captured["project_root"] == str(bound)
+    capsys.readouterr()
+
+
 def test_codex_stop_adapter_propagates_dispatch_failure(
     monkeypatch, tmp_path, capsys
 ) -> None:

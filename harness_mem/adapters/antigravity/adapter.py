@@ -4,17 +4,24 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlsplit
 from uuid import uuid4
 
 from harness_mem.adapters.claude_code.project_profile_detector import normalize_project_root
 from harness_mem.adapters.protocol import Issue, SessionRecord
 from harness_mem.adapters.scan_scheduler import sync_sessions_fairly
 from harness_mem.adapters.snapshot import TranscriptSyncResult, persist_session_snapshot
+from harness_mem.adapters.source_metadata import (
+    metadata_record,
+    read_jsonl_metadata,
+    structured_metadata_roots,
+)
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.transcript_chunking import source_uri_from_path
@@ -55,6 +62,164 @@ class AntigravityAdapter:
         )
         self.history_file = self.cli_root / "history.jsonl" if self.cli_root else None
         self.project_root = _normalize_workspace_path(project_root)
+        self._discovered_roots: dict[tuple[Path, str], list[str]] = {}
+
+    def list_session_metadata(
+        self,
+        *,
+        min_size_kb: int = 0,
+        limit: int | None = None,
+        issues: list[Issue] | None = None,
+    ) -> list[SessionRecord]:
+        """Discover identities without rendering or reading complete transcripts.
+
+        History sizes count native selected rows plus the companion file's stat,
+        not the size of a generated export. History is streamed once, retaining
+        metadata only. A workspace conflict remains visible as unknown ownership.
+        """
+        history: dict[str, dict[str, Any]] = {}
+        if self.history_file is not None and self.history_file.is_file():
+            try:
+                history = _history_metadata(self.history_file)
+            except OSError as exc:
+                _metadata_issue(issues, self.history_file, exc)
+
+        sessions_by_id: dict[str, SessionRecord] = {}
+        brain_dirs = [self.brain_dir]
+        if self.cli_root is not None:
+            brain_dirs.append(self.cli_root / "brain")
+        for brain in dict.fromkeys(brain_dirs):
+            for path in brain.glob("*/.system_generated/logs/transcript*.jsonl"):
+                try:
+                    if path.name not in {"transcript.jsonl", "transcript_full.jsonl"}:
+                        continue
+                    if path.name == "transcript.jsonl" and (
+                        path.parent / "transcript_full.jsonl"
+                    ).is_file():
+                        continue
+                    stat = path.stat()
+                    if not path.is_file() or stat.st_size == 0:
+                        continue
+                    session_id = path.parents[2].name
+                    # Exact native conversation membership, never a helper/path
+                    # mention, can supply a brain transcript's discovery roots.
+                    roots = list(history.get(session_id, {}).get("project_roots", []))
+                    if not roots:
+                        roots, _ = read_jsonl_metadata(path, client="antigravity")
+                    record = metadata_record(
+                        path, session_id, project_roots=roots, source_kind="brain-jsonl",
+                    )
+                    record["metadata_paths"] = self._source_metadata_paths(path, session_id)
+                    _set_metadata_ownership(record, roots)
+                    sessions_by_id[session_id] = record
+                except OSError as exc:
+                    _metadata_issue(issues, path, exc)
+
+        for session_id, metadata in history.items():
+            assert self.history_file is not None
+            try:
+                record = metadata_record(
+                    self.history_file, session_id,
+                    project_roots=metadata["project_roots"],
+                    source_kind="antigravity-cli-session-export",
+                )
+                transcript = _find_cli_transcript(self.cli_root, session_id)
+                record["metadata_paths"] = self._source_metadata_paths(self.history_file, session_id)
+                transcript_stat = transcript.stat() if transcript is not None else None
+                size_bytes = metadata["size_bytes"] + (
+                    transcript_stat.st_size if transcript_stat is not None else 0
+                )
+                timestamp_ms = metadata["timestamp_ms"]
+                record["size_bytes"] = size_bytes
+                record["size_kb"] = size_bytes / 1024
+                record["mtime_ns"] = max(
+                    int(timestamp_ms * 1_000_000) if timestamp_ms else record["mtime_ns"],
+                    transcript_stat.st_mtime_ns if transcript_stat is not None else 0,
+                )
+                record["mtime"] = datetime.fromtimestamp(
+                    record["mtime_ns"] / 1_000_000_000, tz=timezone.utc,
+                )
+                _set_metadata_ownership(record, metadata["project_roots"])
+                sessions_by_id[session_id] = record
+            except OSError as exc:
+                _metadata_issue(issues, self.history_file, exc)
+
+        sessions = [
+            record for record in sessions_by_id.values()
+            if record["size_bytes"] / 1024 >= min_size_kb
+        ]
+        sessions.sort(key=lambda item: item["mtime_ns"], reverse=True)
+        sessions = sessions if limit is None else sessions[:limit]
+        self._discovered_roots = {
+            (record["path"].resolve(strict=False), record["session_id"]):
+            list(record["project_roots"])
+            for record in sessions
+        }
+        return sessions
+
+    def _source_metadata_paths(self, path: Path, session_id: str) -> list[Path]:
+        """Dependencies for ephemeral previews, including attachment replacement.
+
+        Directory stamps detect creation of a previously absent history or full
+        transcript. They are cache invalidation hints, never ownership evidence.
+        Only paths actually consulted by this adapter are dependencies; it does
+        not infer ownership from arbitrary sidecars.
+        """
+        candidates = [path, path.parent]
+        if self.history_file is not None:
+            candidates.append(self.history_file)
+        if self._is_history_file(path) and self.cli_root is not None and _safe_session_id(session_id):
+            log_dir = self.cli_root / "brain" / session_id / ".system_generated" / "logs"
+            candidates.extend(log_dir / name for name in ("transcript_full.jsonl", "transcript.jsonl"))
+        dependencies: list[Path] = []
+        for candidate in candidates:
+            while not candidate.exists() and candidate != candidate.parent:
+                candidate = candidate.parent
+            if candidate.exists() and candidate not in dependencies:
+                dependencies.append(candidate)
+        return dependencies
+
+    def read_session_source(self, session_path: Path, session_id: str, *, workspace_scoped: bool = True) -> dict[str, Any]:
+        """Read one complete source and recheck reliable native membership.
+
+        Discovery is only a hint. No cached history bodies or header budget is
+        used for this read, and compatibility sync matching stays independent.
+        """
+        uri = source_uri_from_path(session_path)
+        if self._is_history_file(session_path):
+            exported = _history_export_for_session(
+                session_path, session_id, cli_root=self.cli_root,
+            )
+            exported["source_uri"] = f"{uri}#conversation={quote(session_id, safe='')}"
+        else:
+            known = [self.brain_dir]
+            if self.cli_root is not None:
+                known.append(self.cli_root / "brain")
+            if not any(
+                session_path.resolve(strict=False)
+                == (brain / session_id / ".system_generated" / "logs" / name).resolve(strict=False)
+                for brain in known
+                for name in ("transcript_full.jsonl", "transcript.jsonl")
+            ) or not _safe_session_id(session_id):
+                raise ValueError("Antigravity source is outside known session locations")
+            raw = session_path.read_bytes()
+            text = raw.decode("utf-8-sig", errors="strict")
+            history_roots: list[str] = []
+            if self.history_file is not None and self.history_file.is_file():
+                history_roots = _native_roots(_history_records_for_session(self.history_file, session_id))
+            roots = [*history_roots, *_native_roots(_records_from_text(text), workspace_root=_single_native_root(history_roots))]
+            exported = {
+                "raw_bytes": raw, "source_text": text, "source_uri": uri,
+                "project_roots": list(dict.fromkeys(roots)),
+            }
+        roots = exported["project_roots"]
+        identities = {_metadata_root_identity(root) for root in roots}
+        if workspace_scoped and len(identities) > 1:
+            raise ValueError("Antigravity source has conflicting native workspace roots")
+        discovered = self._discovered_roots.get((session_path.resolve(strict=False), session_id))
+        if workspace_scoped and discovered and identities != {_metadata_root_identity(root) for root in discovered}:
+            raise ValueError("Antigravity source workspace metadata changed after discovery")
+        return exported
 
     def list_sessions(
         self,
@@ -379,8 +544,12 @@ class AntigravityAdapter:
 
 
 def _read_records(path: Path) -> list[dict[str, Any]]:
+    return _records_from_text(path.read_text(encoding="utf-8-sig", errors="replace"))
+
+
+def _records_from_text(text: str) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8-sig", errors="replace").splitlines():
+    for line in text.splitlines():
         try:
             value = json.loads(line)
         except json.JSONDecodeError:
@@ -430,7 +599,7 @@ def _history_export_for_session(
     *,
     cli_root: Path | None,
 ) -> dict[str, Any]:
-    records = _history_sessions(path).get(session_id)
+    records = _history_records_for_session(path, session_id)
     if not records:
         raise ValueError(f"Antigravity history session not found: {session_id}")
     return _history_export(
@@ -448,9 +617,7 @@ def _history_export(
         records[0].get("conversationId") or records[0].get("conversation_id")
     )
     transcript_bytes = transcript_path.read_bytes() if transcript_path is not None else b""
-    transcript_records = (
-        _read_records(transcript_path) if transcript_path is not None else []
-    )
+    transcript_records = _records_from_text(transcript_bytes.decode("utf-8-sig", errors="replace"))
     raw_export_records = [
         {
             "format": "harness-mem-antigravity-history-v1",
@@ -483,7 +650,102 @@ def _history_export(
         "transcript_records": transcript_records,
         "source_text": source_text,
         "raw_bytes": raw_export_text.encode("ascii"),
+        "project_roots": list(dict.fromkeys([
+            *_native_roots(records),
+            *_native_roots(transcript_records, workspace_root=_single_native_root(_native_roots(records))),
+        ])),
     }
+
+
+def _history_records_for_session(path: Path, session_id: str) -> list[dict[str, Any]]:
+    """Stream the shared container; retain only the exact selected conversation."""
+    records: list[dict[str, Any]] = []
+    for record, _ in _stream_history(path):
+        if str(record.get("conversationId") or record.get("conversation_id") or "") == session_id:
+            records.append(record)
+    return records
+
+
+def _stream_history(path: Path) -> Iterator[tuple[dict[str, Any], int]]:
+    with path.open("rb") as stream:
+        for line in stream:
+            try:
+                record = json.loads(line.decode("utf-8-sig", errors="replace"))
+            except ValueError:
+                continue
+            if isinstance(record, dict):
+                yield record, len(line)
+
+
+def _history_metadata(path: Path) -> dict[str, dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for record, size_bytes in _stream_history(path):
+        session_id = str(record.get("conversationId") or record.get("conversation_id") or "")
+        if not session_id:
+            continue
+        metadata = grouped.setdefault(session_id, {
+            "project_roots": [], "size_bytes": 0, "timestamp_ms": 0,
+        })
+        metadata["size_bytes"] += size_bytes
+        metadata["project_roots"] = list(dict.fromkeys(
+            [*metadata["project_roots"], *structured_metadata_roots(record)]
+        ))
+        timestamp = record.get("timestamp")
+        if isinstance(timestamp, (int, float)) and timestamp > 0:
+            metadata["timestamp_ms"] = max(metadata["timestamp_ms"], int(timestamp))
+    return grouped
+
+
+def _single_native_root(roots: list[str]) -> str | None:
+    identities = {_metadata_root_identity(root) for root in roots}
+    return roots[0] if roots and len(identities) == 1 and "" not in identities else None
+
+
+def _native_roots(records: list[dict[str, Any]], *, workspace_root: str | None = None) -> list[str]:
+    return list(dict.fromkeys(
+        root for record in records for root in structured_metadata_roots(record, workspace_root=workspace_root)
+    ))
+
+
+def _set_metadata_ownership(record: SessionRecord, roots: list[str]) -> None:
+    record["project_roots"] = list(dict.fromkeys(roots))
+    identities = {_metadata_root_identity(root) for root in roots}
+    record["metadata_status"] = "available" if len(identities) == 1 and "" not in identities else "unknown"
+    record.pop("cwd", None)
+    if record["metadata_status"] == "available":
+        record["cwd"] = roots[0]
+
+
+def _metadata_issue(issues: list[Issue] | None, path: Path, exc: OSError) -> None:
+    if issues is not None:
+        issues.append({
+            "level": "warning", "code": "session_metadata_unreadable",
+            "message": str(exc), "path": str(path),
+        })
+
+
+def _metadata_root_identity(value: str) -> str:
+    """Normalize local native identities without treating relative paths as owners."""
+    if "://" in value:
+        uri = urlsplit(value)
+        if uri.scheme != "file" or uri.netloc not in {"", "localhost"}:
+            return ""
+        value = unquote(uri.path)
+        if len(value) > 2 and value[0] == "/" and value[2] == ":":
+            value = value[1:]
+    windows_path = bool(re.match(r"^[A-Za-z]:[\\/]", value))
+    if not Path(value).is_absolute() and not windows_path:
+        return ""
+    normalized = _normalize_workspace_path(Path(value)) or value
+    if windows_path:
+        return normalized.replace("\\", "/").rstrip("/").casefold()
+    return os.path.normcase(normalized).rstrip("\\/")
+
+
+def _safe_session_id(session_id: str) -> bool:
+    return bool(session_id and session_id not in {".", ".."} and not any(
+        character in session_id for character in ("/", "\\", ":")
+    ))
 
 
 def _history_workspace(records: list[dict[str, Any]]) -> str:
@@ -524,7 +786,7 @@ def _history_timestamp_ms(records: list[dict[str, Any]]) -> int | None:
 
 
 def _find_cli_transcript(cli_root: Path | None, session_id: str) -> Path | None:
-    if cli_root is None:
+    if cli_root is None or not _safe_session_id(session_id):
         return None
     log_dir = cli_root / "brain" / session_id / ".system_generated" / "logs"
     for name in ("transcript_full.jsonl", "transcript.jsonl"):

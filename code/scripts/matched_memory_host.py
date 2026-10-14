@@ -67,6 +67,9 @@ class Manifest:
     def __init__(self, path: Path):
         self.path = absolute(path)
         self.raw = json.loads(self.path.read_text(encoding="utf-8"))
+        self.device_scope = self.raw.get("device_scope", False)
+        if type(self.device_scope) is not bool:
+            raise ScopeError("device_scope must be boolean")
         if type(self.raw.get("schema_version")) is not int or self.raw["schema_version"] != 1:
             raise ScopeError("schema_version must be 1")
         self.paths = {key: absolute(self.raw.get(key)) for key in PATH_FIELDS}
@@ -81,6 +84,8 @@ class Manifest:
         if (not isinstance(self.project_name, str) or not self.project_name.strip()
                 or any(c in self.project_name for c in "/\\")):
             raise ScopeError("project_name must be a nonempty project name")
+        if self.device_scope and self.project_name != "global":
+            raise ScopeError("device fixture uses the existing global memory context")
         ids = self.raw.get("session_ids")
         if not isinstance(ids, list) or not ids or len(set(ids)) != len(ids):
             raise ScopeError("session_ids must be a nonempty unique UUID array")
@@ -134,8 +139,8 @@ class Manifest:
                 with path.open(encoding="utf-8-sig") as handle:
                     header = json.loads(handle.readline())
                 meta = header.get("payload", {})
-                if (header.get("type") != "session_meta" or meta.get("id") != sid
-                        or absolute(meta.get("cwd")) != self.paths["project_root"]):
+                valid_context = (not meta.get("cwd") or within(absolute(meta["cwd"]), self.paths["run_root"])) if self.device_scope else absolute(meta.get("cwd")) == self.paths["project_root"]
+                if (header.get("type") != "session_meta" or meta.get("id") != sid or not valid_context):
                     raise ScopeError(f"native metadata does not match fixed scope: {path}")
                 found.add(sid)
         if found != set(self.session_ids):
@@ -159,13 +164,16 @@ class Manifest:
                 if key == "project_names" and item != [self.project_name]:
                     raise ScopeError("cross-project selection is not allowed")
                 if key in {"root", "project_root", "cwd", "workspace", "project_path"}:
-                    if absolute(item) != self.paths["project_root"]:
+                    if self.device_scope and key == "project_root" and item == "":
+                        continue
+                    if (not within(absolute(item), self.paths["run_root"]) if self.device_scope
+                            else absolute(item) != self.paths["project_root"]):
                         raise ScopeError("project root must match manifest")
                 if key in {"client", "host_client", "resolved_client"} and item != "codex":
                     raise ScopeError("only codex is allowed")
                 if key == "clients" and item != ["codex"]:
                     raise ScopeError("only codex is allowed")
-                if key == "scope" and item != "project":
+                if key == "scope" and item != ("all" if self.device_scope else "project"):
                     raise ScopeError("only project scope is allowed")
                 if key == "session_id":
                     self.require_session(item)
@@ -276,7 +284,8 @@ def run_hm(manifest: Manifest) -> int:
             raise ScopeError("only codex is allowed; no other native source scan")
         return CodexAdapter(backend, sessions_dir=manifest.paths["native_root"] / "sessions",
                             archive_dir=manifest.paths["native_root"] / "archived_sessions",
-                            project_root=manifest.paths["project_root"], scope="project")
+                            project_root=None if manifest.device_scope else manifest.paths["project_root"],
+                            scope="all" if manifest.device_scope else "project")
 
     AdapterRegistry.build = staticmethod(build)
     session_inventory.build_inspection_adapter = build
@@ -306,7 +315,9 @@ def run_hm(manifest: Manifest) -> int:
             manifest.check_native()
             arguments = params.get("arguments", {})
             manifest.validate_arguments(arguments)
-            if params.get("name") == "prepare_session_distill" and arguments.get("client") != "codex":
+            if (params.get("name") == "prepare_session_distill" and arguments.get("client") != "codex"
+                    and not (manifest.device_scope and arguments.get("client", "auto") == "auto"
+                             and (arguments.get("batch_id") or arguments.get("batch_sessions")))):
                 raise ScopeError("prepare_session_distill requires explicit client=codex")
             response = dispatch(request)
         except ScopeError as exc:

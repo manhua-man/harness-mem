@@ -68,7 +68,10 @@ def test_broken_and_future_records_never_count_as_empty(fixture_sources):
     bad.write_text("not JSON", encoding="utf-8")
     write("good", [{"type": "session_start", "cwd": str(root)}])
     result = collect_session_inventory(data, project_root=root, project_name="project", clients=["cursor"], adapter_factory=factory)
-    assert next(row for row in result.rows if row["session_id"] == "bad")["readability"] == "parse_failed"
+    bad_row = next(row for row in result.rows if row["session_id"] == "bad")
+    # Discovery cannot certify format/content without an owner and complete read.
+    assert bad_row["readability"] == "not_checked"
+    assert bad_row["ownership"] == "unknown"
     assert len(result.rows) == 2
 
 

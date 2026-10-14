@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import NAMESPACE_URL, uuid5
 
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
@@ -25,6 +26,9 @@ from harness_mem.transcript_chunking import (
 )
 from harness_mem.native_source_cleanup import build_native_cleanup_descriptor
 
+if TYPE_CHECKING:
+    from harness_mem.adapters.source_inspection import InspectedSource
+
 
 @dataclass(frozen=True)
 class TranscriptSyncResult:
@@ -39,6 +43,59 @@ class TranscriptSyncResult:
     @property
     def changed(self) -> bool:
         return self.action in {"ingested", "updated"}
+
+
+def _authored_capture_hashes(before: str, after: str, authored: list[str], *, private_tags: bool) -> list[str]:
+    """Bind every visible user marker to its original native message position."""
+    from harness_mem.capture_policy import PRIVATE_REDACTION, _PRIVATE_TEXT_RE
+    from harness_mem.mcp.distill_projection import _ENTRY_RE, _TURN_HEADING_RE, _parse_exchanges
+
+    expected = [text for text in authored if text.strip()]
+    original = list(_ENTRY_RE.finditer(before))
+    original_users: list[str] = []
+    native_markers: list[int] = []
+    for index, match in enumerate(original):
+        if match.group(1) == "User":
+            end = original[index + 1].start() if index + 1 < len(original) else len(before)
+            original_users.append(before[match.end():end].strip())
+            native_markers.append(match.start(1))
+    # Do not remove headings or fold duplicates before proving native roles.
+    if original_users != expected:
+        return []
+    privacy_edits = [(m.start(), m.end(), len(PRIVATE_REDACTION))
+                     for m in _PRIVATE_TEXT_RE.finditer(before)] if private_tags else []
+    if after != (redact_private_text(before)[0] if private_tags else before):
+        return []
+    heading_edits = [(m.start(), m.end(), 0) for m in _TURN_HEADING_RE.finditer(after)]
+
+    def surviving_position(position: int, edits: list[tuple[int, int, int]]) -> int | None:
+        delta = 0
+        for start, end, replacement_size in edits:
+            if start <= position < end:
+                return None
+            if end <= position:
+                delta += replacement_size - (end - start)
+        return position + delta
+
+    permitted = [(redact_private_text(text)[0] if private_tags else text).strip()
+                 for text in expected]
+    marker_bodies: dict[int, str] = {}
+    for position, body in zip(native_markers, permitted):
+        mapped = surviving_position(position, privacy_edits)
+        if mapped is not None:
+            mapped = surviving_position(mapped, heading_edits)
+        if mapped is not None:
+            marker_bodies[mapped] = body
+    normalized = _TURN_HEADING_RE.sub("", after)
+    visible = list(_ENTRY_RE.finditer(normalized))
+    for index, match in enumerate(visible):
+        if match.group(1) != "User":
+            continue
+        end = visible[index + 1].start() if index + 1 < len(visible) else len(normalized)
+        if marker_bodies.get(match.start(1)) != normalized[match.end():end].strip():
+            return []
+    captured_users = [user for exchange in _parse_exchanges(after)[1] for user in exchange["user"]]
+    return [sha256_text(user) for user in captured_users]
 
 
 async def persist_session_snapshot(
@@ -59,6 +116,9 @@ async def persist_session_snapshot(
     parser_version: str = "transcript-v1",
     reuse_logical_session: bool = False,
     authored_user_texts: list[str] | None = None,
+    capture_config: MergedConfig | None = None,
+    source_context_roots: list[str] | None = None,
+    native_input_digest: str | None = None,
 ) -> TranscriptSyncResult:
     """Persist a complete source revision and upsert its search observation."""
 
@@ -69,14 +129,21 @@ async def persist_session_snapshot(
     source_input = raw_bytes if raw_bytes is not None else source_text.encode("utf-8")
     native_input = native_input_bytes if native_input_bytes is not None else source_input
     native_input_sha256 = sha256_bytes(native_input)
+    if native_input_digest is not None:
+        if (len(native_input_digest) != 64
+                or any(char not in "0123456789abcdef" for char in native_input_digest)):
+            raise ValueError("native input digest must be SHA256")
+        if native_input_bytes is not None and native_input_digest != native_input_sha256:
+            raise ValueError("native input bytes and digest differ")
+        native_input_sha256 = native_input_digest
 
     # Legacy/import callers may preserve a no-longer-mounted project root in
     # transcript metadata.  They keep safe defaults; live project calls load
     # the merged user/project policy from the existing root.
-    config = (
+    config = capture_config or (
         load_merged_config(project_root)
         if Path(project_root).is_absolute() and Path(project_root).is_dir()
-        else MergedConfig()
+        else load_merged_config(None)
     )
     capture_decision = decide_capture(
         config,
@@ -93,10 +160,20 @@ async def persist_session_snapshot(
             reason=capture_decision.reason,
         )
 
+    original_source_text = source_text
     private_span_count = 0
     if config.capture_private_tags:
         source_text, text_redactions = redact_private_text(source_text)
-        native_bytes, byte_redactions = redact_private_bytes(source_input)
+        if (
+            client in {"codex", "codex-archive"}
+            and parser_version in {"codex-conversation-v2", "codex-conversation-v3", "codex-archive-conversation-v2"}
+            and source_input == original_source_text.encode("utf-8")
+        ):
+            # This is the adapter's permitted prose, not an encoded envelope.
+            # A literal field name mentioned by the user must not trigger decoding.
+            native_bytes, byte_redactions = source_text.encode("utf-8"), text_redactions
+        else:
+            native_bytes, byte_redactions = redact_private_bytes(source_input)
         private_span_count = max(text_redactions, byte_redactions)
         # The adapter's searchable rendering is also evidence and must not keep
         # private content that the immutable ledger rejected.
@@ -222,12 +299,12 @@ async def persist_session_snapshot(
             ),
             "capture_private_spans_removed": private_span_count,
             "capture_policy": "project_merged_v1",
+            **({"source_context_roots": source_context_roots} if source_context_roots is not None else {}),
             **({
-                "authored_user_text_sha256": [
-                    sha256_text((redact_private_text(text)[0]
-                                 if config.capture_private_tags else text).strip())
-                    for text in authored_user_texts if text.strip()
-                ],
+                "authored_user_text_sha256": _authored_capture_hashes(
+                    original_source_text, source_text, authored_user_texts,
+                    private_tags=config.capture_private_tags,
+                ),
                 "authored_rendering_sha256": normalized_digest,
             } if authored_user_texts is not None else {}),
         },
@@ -305,6 +382,43 @@ async def persist_session_snapshot(
         source=source,
         observation_id=observation_id,
         distill_job_id=distill_job.id,
+    )
+
+
+async def persist_inspected_session(
+    backend: MemoryBackend, native: InspectedSource, *, project_name: str,
+    project_root: str, capture_config: MergedConfig | None,
+) -> TranscriptSyncResult:
+    """Save a completely read selected session through the one snapshot owner.
+
+    Host exporters still own decoding. This path never invents a workspace or
+    calls a host-wide ingest, and private input bytes are hashed, not persisted.
+    """
+    if capture_config is None:
+        raise ValueError("selected source capture policy is unavailable")
+    if (native.readability != "readable" or native.captured_bytes is None
+            or sha256_bytes(native.captured_bytes) != native.native_digest):
+        raise ValueError("selected source has no verified complete capture")
+    from harness_mem.commands.session_inventory import _dependency_stamps, _unchanged
+
+    if not _unchanged(_dependency_stamps(native)):
+        raise ValueError("selected source changed before capture")
+    observation = native.adapter.session_to_observation(
+        native.record["path"], native.session_id, project_name,
+    )
+    if not _unchanged(_dependency_stamps(native)):
+        raise ValueError("selected source changed during observation projection")
+    observation.metadata["source_context_roots"] = native.project_roots or []
+    return await persist_session_snapshot(
+        backend, observation, project_name=project_name, project_root=project_root,
+        client=native.client, session_id=native.session_id,
+        source_kind="native-session-export", source_uri=native.source_uri,
+        source_text=native.text, raw_bytes=native.captured_bytes,
+        native_input_bytes=native.native_input_bytes,
+        native_input_digest=native.native_input_digest,
+        authored_user_texts=native.authored_user_texts, capture_config=capture_config,
+        source_context_roots=native.project_roots,
+        parser_version="codex-conversation-v3" if native.client == "codex" else "native-inspected-source-v1",
     )
 
 

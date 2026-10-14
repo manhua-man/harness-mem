@@ -1,6 +1,6 @@
 {
   "name": "govern_memory",
-  "description": "Composite write surface for candidate creation, review decisions, and task handoffs. Use action=suggest with arguments.kind=memory|rule|relation; action=decide with kind=knowledge, decision=confirm|reject, project_name, candidate_id, and an explicit disposition. To delete incorrect current knowledge, use action=decide with kind=knowledge, decision=delete, project_name, and exactly one target_knowledge selection; omit candidate_id and knowledge_items. Use action=handoff. Replacement is a normal knowledge decision that deletes the old current row; it is not a separate history action. Suggestions are stored as temporary knowledge candidates, not legacy MemoryEntry truth. Distill-bound suggestions should include evidence_basis, verification_outcome, and content-free verification_refs so Dream can verify repository or explicit user-statement evidence. The runtime derives the Answer Gate status; only ANSWERED candidates may enter the truth layer. Distill suggestions must include an assimilation_disposition and assimilation_reason; add/refine/replace also require canonical_title and topic_path, while confirm/refine/replace require an unambiguous current-memory selection. Use target_knowledge=[{title, statement, module}] copied from ordinary search; title or statement is required, module is optional. The runtime resolves exact project-scoped matches, never fuzzy guesses. Confirm may use its unchanged statement without an explicit selection. Internal IDs remain compatible for existing callers but must not be requested from users. An unresolved selection retains old memory and appears as unfinished work; unrelated verified points can still be saved. For kind=memory, category, content and source are required. EvidenceRef accepts kind, locator, content_sha256, exchange_index, chunk_index and role, not source/job IDs. Use evidence_basis=repository|user_statement|transcript. Handoff requires project_name, task_id, summary, status and, for distill work, distill_job_id.",
+  "description": "Composite write surface for candidate creation, review decisions, and task handoffs. Use action=suggest with arguments.kind=memory|rule|relation; action=decide with kind=knowledge, decision=confirm|reject, project_name, candidate_id, and an explicit disposition. To delete incorrect current knowledge, use action=decide with kind=knowledge, decision=delete, project_name, and exactly one target_knowledge selection; omit candidate_id and knowledge_items. Use action=handoff. Replacement is a normal knowledge decision that deletes the old current row; it is not a separate history action. Suggestions are stored as temporary knowledge candidates, not legacy MemoryEntry truth. Distill-bound suggestions should include evidence_basis, verification_outcome, and content-free verification_refs so Dream can verify repository or explicit user-statement evidence. The runtime derives the Answer Gate status; only ANSWERED candidates may enter the truth layer. Distill suggestions must include an assimilation_disposition and assimilation_reason; add/refine/replace also require canonical_title and topic_path (a JSON array of whole category names, never a slash-separated string), while confirm/refine/replace require an unambiguous current-memory selection. Use target_knowledge=[{title, statement, module}] copied from ordinary search; title or statement is required, module is optional. The runtime resolves exact project-scoped matches, never fuzzy guesses. Confirm may use its unchanged statement without an explicit selection. Internal IDs remain compatible for existing callers but must not be requested from users. An unresolved selection retains old memory and appears as unfinished work; unrelated verified points can still be saved. For kind=memory, category, content and source are required. EvidenceRef.kind is exactly repository, user_statement or transcript, never session_exchange. A user_statement ref uses exchange_index and the returned exchange content_sha256; do not add a transcript locator. EvidenceRef accepts kind, locator, content_sha256, exchange_index, chunk_index and role, not source/job IDs. Use evidence_basis=repository|user_statement|transcript. Handoff requires project_name, task_id, summary, status and, for distill work, distill_job_id.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -17,6 +17,127 @@
         "description": "Action-specific arguments; project_name is required for project writes.",
         "additionalProperties": true,
         "properties": {
+          "evidence_basis": {
+            "type": "string",
+            "enum": [
+              "repository",
+              "user_statement",
+              "transcript"
+            ]
+          },
+          "verification_outcome": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "unverified",
+              "contradicted",
+              "not_applicable"
+            ]
+          },
+          "verification_refs": {
+            "type": "array",
+            "items": {
+              "additionalProperties": false,
+              "description": "Integrity reference used by Dream admission, never evidence content.",
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "repository",
+                    "user_statement",
+                    "transcript"
+                  ],
+                  "title": "Kind",
+                  "type": "string"
+                },
+                "locator": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Transient project-relative repository path. Source/session refs use the owning distill job instead of storing a raw locator.",
+                  "title": "Locator"
+                },
+                "locator_sha256": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Locator Sha256"
+                },
+                "content_sha256": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Content Sha256"
+                },
+                "exchange_index": {
+                  "anyOf": [
+                    {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Exchange Index"
+                },
+                "chunk_index": {
+                  "anyOf": [
+                    {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Chunk Index"
+                },
+                "role": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "user",
+                        "assistant",
+                        "tool"
+                      ],
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Role"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "title": "EvidenceRef",
+              "type": "object"
+            },
+            "description": "Exact typed source references; user statements use kind=user_statement, exchange_index and the returned exchange digest."
+          },
           "target_knowledge": {
             "type": "array",
             "description": "Exact old memory text from ordinary search; no user-managed identifiers.",
@@ -28,6 +149,10 @@
                 },
                 "statement": {
                   "type": "string"
+                },
+                "project_name": {
+                  "type": "string",
+                  "description": "Optional unchanged context label returned by ordinary search."
                 },
                 "module": {
                   "type": "array",

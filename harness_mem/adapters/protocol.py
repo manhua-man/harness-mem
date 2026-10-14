@@ -31,6 +31,9 @@ class SessionRecord(TypedDict, total=False):
     source_kind: str
     cursor_project_dir: str
     source_status: str
+    project_roots: list[str]
+    metadata_status: str
+    metadata_paths: list[Path]
 
 
 class SessionAdapter(Protocol):

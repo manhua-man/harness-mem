@@ -486,60 +486,101 @@ def test_review_does_not_report_success_when_normal_search_cannot_read_write(
         _run(backend.close())
 
 
-def test_apply_rejects_processing_labels_in_untrusted_knowledge_payload(
-    tmp_path,
+@pytest.mark.parametrize(
+    "changes, expected_error",
+    [
+        ({"topic_path": ["稳定操作规则"]}, None),
+        ({"topic_path": ["candidate promotion"]}, None),
+        ({"title": "Fixtures, host contracts, and release tiers",
+          "statement": "Reuse test fixtures, parameterize host contracts, and separate quick checks from full release validation.",
+          "topic_path": ["测试维护", "candidate 合同"]}, None),
+        ({"title": "   "}, "title or statement is invalid"),
+        ({"statement": " \t\n "}, "title or statement is invalid"),
+        ({"topic_path": []}, "topic_path is invalid"),
+        ({"topic_path": ["   "]}, "topic_path is invalid"),
+        ({"topic_path": [None]}, "topic_path is invalid"),
+        ({"claim_kind": "unknown"}, "claim_kind is invalid"),
+        ({"processing_status": "verified"}, "invalid schema"),
+    ],
+)
+def test_apply_validates_structure_without_rejecting_normal_words(
+    tmp_path, changes, expected_error,
 ) -> None:
     project_root = _project_root(tmp_path)
+    item = {
+        "title": "Apply validates modules",
+        "statement": "Canonical knowledge may use natural project module names.",
+        "topic_path": ["Memory consistency"],
+        "claim_kind": "procedure",
+        **changes,
+    }
+    source_statement = item["statement"].strip() or "A blank statement must remain pending."
+    (project_root / "README.md").write_text(source_statement, encoding="utf-8")
     backend = LocalMemoryBackend(tmp_path / "data")
     _run(backend.init())
     try:
         store = backend.structured_store.knowledge_store
         candidate = KnowledgeCandidate(
-            id="invalid-module-at-apply",
+            id="canonical-structure-at-apply",
             project_name="demo",
             candidate_type="memory",
-            statement="The apply boundary must validate canonical knowledge.",
+            statement=source_statement,
         )
         _run(store.save_candidate(candidate))
         _run(
             store.save_evidence(
-                _verified_evidence(candidate, "invalid-module-evidence", project_root)
+                _verified_evidence(candidate, "canonical-structure-evidence", project_root)
             )
         )
 
-        with pytest.raises(ValueError, match="processing label"):
-            _run(
-                apply_separated_assimilation(
-                    backend,
-                    project_name="demo",
-                    project_root=str(project_root),
-                    candidate_ids=[candidate.id],
-                    plan={
-                        "version": "separated-v1",
-                        "candidate_ids": [candidate.id],
-                        "point_count": 1,
-                        "provider_candidate_ids": [candidate.id],
-                        "points": [
-                            {
-                                "candidate_id": candidate.id,
-                                "answer_status": "ANSWERED",
-                                "disposition": "add",
-                                "matched_truth_ids": [],
-                                "knowledge_items": [
-                                    {
-                                        "title": "Apply validates modules",
-                                        "statement": "The runtime rejects internal processing labels before truth is written.",
-                                        "topic_path": ["稳定操作规则"],
-                                        "claim_kind": "procedure",
-                                    }
-                                ],
-                                "reason": "The provider supplied an internal processing label.",
-                            }
-                        ],
-                    },
-                )
-            )
-        assert _run(store.list_entries("demo", project_root=project_root)) == []
+        plan = {
+            "version": "separated-v1",
+            "candidate_ids": [candidate.id],
+            "point_count": 1,
+            "provider_candidate_ids": [candidate.id],
+            "points": [{
+                "candidate_id": candidate.id,
+                "answer_status": "ANSWERED",
+                "disposition": "add",
+                "matched_truth_ids": [],
+                "knowledge_items": [item],
+                "reason": "A fictional repository source supports the current test policy.",
+            }],
+        }
+
+        def apply():
+            return _run(apply_separated_assimilation(
+                backend, project_name="demo", project_root=str(project_root),
+                candidate_ids=[candidate.id], plan=plan,
+            ))
+
+        if expected_error:
+            with pytest.raises(ValueError, match=expected_error):
+                apply()
+            assert _run(store.get_candidate(candidate.id)).status == "pending"
+            assert _run(store.list_entries("demo", project_root=project_root)) == []
+            return
+
+        result = apply()
+        assert result["promoted"] == 1
+        entries = _run(store.list_entries("demo", project_root=project_root))
+        assert len(entries) == 1
+        entry = entries[0]
+        assert result["points"][0]["canonical_truth_ids"] == [entry.id]
+        assert entry.title == item["title"]
+        assert entry.statement == item["statement"]
+        assert entry.module_path == item["topic_path"]
+        sources = _run(store.list_sources(entry.id))
+        assert len(sources) == 1
+        assert sources[0].content_sha256 == hashlib.sha256((project_root / "README.md").read_bytes()).hexdigest()
+        found = _run(search_current_knowledge(backend, query=item["title"], project_name="demo"))
+        assert [match.id for match in found] == [entry.id]
+        _run(backend.close())
+        _run(backend.init())
+        reopened = _run(backend.structured_store.knowledge_store.list_entries("demo"))
+        assert [(saved.id, saved.title, saved.statement, saved.module_path) for saved in reopened] == [
+            (entry.id, item["title"], item["statement"], item["topic_path"])
+        ]
     finally:
         _run(backend.close())
 

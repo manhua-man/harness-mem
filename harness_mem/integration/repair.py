@@ -46,28 +46,6 @@ def _quote_command(*values: str) -> str:
     return " ".join(shlex.quote(value) for value in values)
 
 
-def _host_entry_command(
-    hook_runner: Path,
-    action: str,
-    root: Path,
-    trigger_id: str,
-    client: CommandHost,
-) -> str:
-    return _quote_command(
-        hook_runner.as_posix(),
-        "--action",
-        action,
-        "--project-root",
-        root.resolve().as_posix(),
-        "--source",
-        "ide_hook",
-        "--trigger-id",
-        trigger_id,
-        "--client",
-        client,
-    )
-
-
 def _suite_specs(
     client: CommandHost, root: Path, hook_runner: Path
 ) -> tuple[HookSpec, ...]:
@@ -100,21 +78,15 @@ def _suite_specs(
                 root / ".grok" / "hooks" / "harness-mem.json",
                 template_vars={
                     "WAKE_COMMAND_JSON": json.dumps(
-                        _host_entry_command(
-                            hook_runner,
-                            "wake-start",
-                            root,
-                            "grok-session-start",
-                            client,
+                        _quote_command(
+                            hook_runner.as_posix(), "--adapter", "grok-start",
+                            "--project-root", root.resolve().as_posix(),
                         )
                     ),
                     "POST_TURN_COMMAND_JSON": json.dumps(
-                        _host_entry_command(
-                            hook_runner,
-                            "post-turn-maintenance",
-                            root,
-                            "grok-stop",
-                            client,
+                        _quote_command(
+                            hook_runner.as_posix(), "--adapter", "grok-stop",
+                            "--project-root", root.resolve().as_posix(),
                         )
                     ),
                 },
@@ -166,6 +138,12 @@ def _install_hooks(
 ) -> list[HookInstallResult]:
     resolved_runner = hook_runner or installer.verified_hook_runner()
     generated_at = datetime.now(timezone.utc)
+    if client in {"claude-code", "cursor"}:
+        return installer.install_shell_host_hook_suite(
+            client=client, specs=_suite_specs(client, root, resolved_runner),
+            project_root=root, force=force, harness_mem_version=__version__,
+            generated_at=generated_at, hook_runner=resolved_runner,
+        )
     if client == "hermes":
         return installer.install_hermes_hook_suite(
             project_root=root,

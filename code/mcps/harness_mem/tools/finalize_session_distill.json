@@ -68,7 +68,7 @@
           },
           "zero_candidate_challenge": {
             "type": "object",
-            "description": "Required for v1 jobs that produced no candidates. Use the content hashes returned by semantic exchange drilldown.",
+            "description": "Optional detailed review for compatibility; an explicit no_promotion review needs no extra questionnaire. Use the content hashes returned by semantic exchange drilldown.",
             "properties": {
               "version": {
                 "type": "string",

@@ -215,7 +215,7 @@ def test_stdio_search_uses_harness_mem_data_dir(tmp_path: Path) -> None:
     payload = json.loads(responses[1]["result"]["content"][0]["text"])
     assert payload["status"] == "answered"
     assert payload["memories"] == [
-        {"title": entry.title, "statement": entry.statement}
+        {"title": entry.title, "statement": entry.statement, "project_name": entry.project_name}
     ]
 
 

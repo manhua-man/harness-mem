@@ -58,8 +58,9 @@ coverage honestly. It is navigation assistance, not proof of knowledge value.
 
 `prepare_session_distill` accepts `batch_sessions` for a frozen manual selection
 and `batch_id` for resume. The temporary manifest pins project/root, source
-revisions, runtime fingerprint and prior-completed references alongside job
-bindings and unresolved failures. It is not a second knowledge store or a
+revisions and prior-completed references alongside job bindings and unresolved
+failures. The runtime fingerprint is diagnostic context, not a gate that blocks
+resuming unchanged sources after a code update. It is not a second knowledge store or a
 history of knowledge. Explicit `retry_failures=true` clears failures only for
 an active batch; a stopped batch cannot automatically resume.
 
@@ -327,6 +328,20 @@ a clean memory projection:
 ```text
 title + knowledge body
 ```
+
+Short answers return whole facts directly. Large results include a continuation
+call on the existing `search_memory` tool. Its `cursor` binds the reading position
+to the query, scope and current result revision; changed knowledge restarts from
+the first page with a notice. A long entry offers `detail="full"` to read that one
+fact completely. Explicit full reading can exceed the ordinary page size.
+
+`budget_tokens` selects facts using the complete serialized response, not only
+its body. Omitted search/wake budgets use the existing `cost_budget.search_tokens`
+and `cost_budget.wake_tokens` settings. Counting uses `cl100k_base` when available;
+minimal installations conservatively use UTF-8 bytes. Automatic recall counts its
+outer envelope and feedback as well. Taskless wake/SessionStart offers available
+memory and a reading call. Feedback binds only to whole facts actually returned,
+not hidden candidates or index-only titles.
 
 Default results do not include session/job/candidate/knowledge/evidence/source
 IDs, hashes, locators, reason codes, provider receipts, or storage-kind names.

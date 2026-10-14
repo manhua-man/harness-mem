@@ -172,6 +172,15 @@ def test_adapter_snapshot_preserves_allowed_transcript_and_native_cleanup_digest
         await backend.init()
         try:
             adapter = _make_adapter(kind, backend, root, workspace)
+            if kind == "antigravity":
+                # Default private-span filtering cannot safely inspect this
+                # deliberately malformed JSONL tail. It must retain the source
+                # and reject capture, not claim a complete private-safe copy.
+                with pytest.raises(ValueError, match="invalid encoded capture record"):
+                    await adapter.sync_session(path, "session-1", "repo")
+                assert path.read_bytes() == native
+                assert backend.transcript_store.list_sources(limit=None) == []
+                return
             result = await adapter.sync_session(path, "session-1", "repo")
 
             assert result.action == "ingested"

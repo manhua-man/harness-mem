@@ -182,7 +182,7 @@ def run_clean_retrieval_outcome_probe() -> dict[str, bool]:
             fields = {
                 "current_memory_retrievable": current.statement in default_statements,
                 "chinese_question_retrievable": chinese.get("memories") == [
-                    {"title": current.title, "statement": current.statement}
+                    {"title": current.title, "statement": current.statement, "project_name": project_name}
                 ],
                 "unrelated_chinese_question_empty": (
                     unrelated_chinese.get("status") == "empty"
@@ -197,7 +197,7 @@ def run_clean_retrieval_outcome_probe() -> dict[str, bool]:
                 "memory_search_has_no_raw_observation": "raw session evidence"
                 not in json.dumps(default),
                 "memory_search_has_no_internal_metadata": all(
-                    set(item) == {"title", "statement"}
+                    set(item) == {"title", "statement", "project_name"}
                     for item in default.get("memories") or []
                 )
                 and set(default)

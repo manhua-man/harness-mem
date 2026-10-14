@@ -1,15 +1,24 @@
 {
   "name": "inspect_sessions",
-  "description": "Read-only project session inventory, frozen batch progress, or complete revision source pages. Never imports, creates jobs, writes memory or triggers background work.",
+  "description": "Inspect native sessions on this device, read frozen batch progress, or page a selected complete source. Default inventory includes sessions with missing, absent or multiple workspace directories. A directory is optional context, never a requirement. Discovery references are not immutable revisions; prepare captures and binds one complete selected source at a time. Never imports, creates jobs, writes memory or triggers background work.",
   "inputSchema": {
     "type": "object",
     "properties": {
+      "scope": {
+        "type": "string",
+        "enum": [
+          "all",
+          "project"
+        ],
+        "description": "All device sessions by default; project is an explicitly requested optional source filter."
+      },
       "project_root": {
         "type": "string",
-        "description": "Absolute current project directory"
+        "description": "Optional source filter, including a historical missing directory. Omit for all device sessions. Do not ask users to fill this field."
       },
       "project_name": {
-        "type": "string"
+        "type": "string",
+        "description": "Optional context label; historical source roots never reserve this name. Selected sources are independently validated within their root."
       },
       "action": {
         "type": "string",
@@ -52,6 +61,19 @@
           },
           "reference_id": {
             "type": "string"
+          },
+          "project_root": {
+            "type": "string"
+          },
+          "project_name": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "all",
+              "project"
+            ]
           }
         },
         "required": [
@@ -96,6 +118,19 @@
             },
             "reference_id": {
               "type": "string"
+            },
+            "project_root": {
+              "type": "string"
+            },
+            "project_name": {
+              "type": "string"
+            },
+            "scope": {
+              "type": "string",
+              "enum": [
+                "all",
+                "project"
+              ]
             }
           },
           "required": [
@@ -178,8 +213,6 @@
         "description": "Agent-proposed themes with source locations; multiple themes per session are allowed"
       }
     },
-    "required": [
-      "project_root"
-    ]
+    "required": []
   }
 }

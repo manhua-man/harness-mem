@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 from uuid import uuid4
 
 from harness_mem.adapters.claude_code.project_profile_detector import (
@@ -15,6 +15,7 @@ from harness_mem.adapters.parser import list_session_files, parse_grok_jsonl_ses
 from harness_mem.adapters.protocol import Issue, SessionRecord
 from harness_mem.adapters.scan_scheduler import sync_sessions_fairly
 from harness_mem.adapters.snapshot import TranscriptSyncResult, persist_session_snapshot
+from harness_mem.adapters.source_metadata import metadata_record, read_jsonl_metadata
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.transcript_chunking import source_uri_from_path
@@ -39,6 +40,47 @@ class GrokAdapter:
             if project_root is not None
             else None
         )
+
+    def list_session_metadata(
+        self, *, min_size_kb: int = 0, limit: int | None = None,
+        issues: list[Issue] | None = None,
+    ) -> list[SessionRecord]:
+        """Discover reversible full-path buckets and check native header roots."""
+        sessions: list[SessionRecord] = []
+        if not self.sessions_dir.is_dir():
+            return sessions
+        for project_dir in self._matching_project_dirs(issues=issues):
+            decoded = unquote(project_dir.name)
+            bucket_root = (
+                decoded if Path(decoded).is_absolute()
+                and quote(decoded, safe="") == project_dir.name else None
+            )
+            for path in project_dir.glob("*/chat_history.jsonl"):
+                try:
+                    if not path.is_file() or path.stat().st_size / 1024 < min_size_kb:
+                        continue
+                    roots, _ = read_jsonl_metadata(path, client="grok", workspace_root=bucket_root)
+                    roots = list(dict.fromkeys(([bucket_root] if bucket_root else []) + roots))
+                    record = metadata_record(
+                        path, path.parent.name, project_roots=roots, source_kind="jsonl",
+                        metadata_paths=[path],
+                    )
+                    if len(roots) != 1 or not Path(roots[0]).is_absolute():
+                        record["metadata_status"] = "unknown"
+                        record.pop("cwd", None)
+                    if self.project_root is not None and (
+                        record["metadata_status"] != "available"
+                        or normalize_project_root(Path(roots[0])) != self.project_root
+                    ):
+                        continue
+                    sessions.append(record)
+                except OSError as exc:
+                    self._append_issue(
+                        issues, level="warning", code="session_scan_failed",
+                        message=str(exc), path=path,
+                    )
+        ordered = sorted(sessions, key=session_sort_key, reverse=True)
+        return ordered if limit is None else ordered[:limit]
 
     def list_sessions(
         self,

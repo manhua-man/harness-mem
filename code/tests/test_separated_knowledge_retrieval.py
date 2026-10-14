@@ -197,6 +197,7 @@ def test_separated_knowledge_search_is_current_only_and_clean(
         payload = read_search_handlers.tool_search_memory(
             query="evidence",
             project_name="demo",
+            scope="project",
         )
         assert payload["project_name"] == "demo"
         assert payload["query"] == "evidence"
@@ -217,6 +218,7 @@ def test_separated_knowledge_search_is_current_only_and_clean(
         diagnostics = read_search_handlers.tool_search_memory(
             query="evidence",
             project_name="demo",
+            scope="project",
             _include_diagnostics=True,
         )
         assert diagnostics["memory_count"] == 1
@@ -319,7 +321,8 @@ def test_chinese_questions_retrieve_only_matching_current_knowledge(
         )
         assert payload["status"] == ("answered" if expected else "empty")
         assert payload["memories"] == (
-            [{"title": entry.title, "statement": entry.statement}] if expected else []
+            [{"title": entry.title, "statement": entry.statement, "project_name": entry.project_name}]
+            if expected else []
         )
         assert _run(search_current_knowledge(
             backend, project_name="another-project", query=query,

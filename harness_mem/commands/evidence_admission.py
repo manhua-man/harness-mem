@@ -14,9 +14,12 @@ from uuid import NAMESPACE_URL, uuid5
 from harness_mem.adapters.parser import (
     _render_cursor_content_items,
     extract_archived_text,
+    is_codex_user_content_item,
     parse_codex_archive_jsonl_session,
+    render_codex_conversation,
     sanitize_archived_user_text,
 )
+from harness_mem.adapters.projection_repair import repair_source_observation_projection
 from harness_mem.core.schemas import EvidenceRef, KnowledgeSource
 from harness_mem.mcp.distill_projection import (
     _parse_exchanges,
@@ -167,7 +170,7 @@ async def validate_knowledge_sources(
     *,
     project_name: str,
     sources: Sequence[KnowledgeSource],
-    project_root: str | Path,
+    project_root: str | Path | None,
 ) -> EvidenceValidation:
     """Reopen the real sources attached to one current knowledge entry.
 
@@ -190,7 +193,7 @@ async def reopen_knowledge_sources(
     *,
     project_name: str,
     sources: Sequence[KnowledgeSource],
-    project_root: str | Path,
+    project_root: str | Path | None,
 ) -> tuple[EvidenceValidation, tuple[KnowledgeSourceReopen, ...]]:
     """Validate and boundedly reopen current sources without persisting text.
 
@@ -199,7 +202,10 @@ async def reopen_knowledge_sources(
     fail-closed and return no content until their dedicated revalidator exists.
     """
 
-    root = Path(project_root).expanduser().resolve(strict=False)
+    root = Path(project_root).expanduser() if project_root and str(project_root).strip() else None
+    if root is not None and not root.is_absolute():
+        return EvidenceValidation(None, "unverified", ("knowledge_source_root_invalid",), None), ()
+    root = root.resolve(strict=False) if root is not None else None
     if not sources:
         return (
             EvidenceValidation(
@@ -490,7 +496,7 @@ async def _reopen_knowledge_source(
     backend: LocalMemoryBackend,
     source: KnowledgeSource,
     *,
-    project_root: Path,
+    project_root: Path | None,
 ) -> tuple[str, str, str | None, bool]:
     parsed = urlparse(source.locator)
     digest = str(source.content_sha256 or "").lower()
@@ -502,6 +508,8 @@ async def _reopen_knowledge_source(
         return "unverified", "knowledge_source_scheme_unsupported", None, False
     path = _file_uri_path(parsed)
     if source.source_kind == "repository":
+        if project_root is None or not project_root.is_dir():
+            return "unverified", "repository_project_root_unavailable", None, False
         if not _is_relative_to(path, project_root) or path == project_root:
             return "unverified", "knowledge_source_outside_project", None, False
         if not path.is_file():
@@ -530,6 +538,8 @@ async def _reopen_knowledge_source(
     revision = backend.transcript_store.get_revision(source_id, source_revision)
     if revision is None:
         return "unverified", "knowledge_source_revision_missing", None, False
+    if revision.project_name != source.project_name:
+        return "unverified", "knowledge_source_project_mismatch", None, False
     if source.source_kind == "user_statement":
         exchange = _query_int(query, "exchange")
         if exchange is None:
@@ -701,6 +711,29 @@ def _frozen_user_exchange_indexes(
         return None
     if hashlib.sha256(raw).hexdigest() != revision.raw_sha256:
         return None
+    if revision.client == "cursor" and text.lstrip().startswith("{"):
+        from harness_mem.adapters.cursor.sqlite_history import cursor_export_messages
+        import json
+        try:
+            document = json.loads(text)
+        except ValueError:
+            document = None
+        try:
+            if isinstance(document, dict) and document.get("format") == "cursorDiskKV-v1":
+                messages = cursor_export_messages(raw, revision.session_id)
+                sqlite_users = [message["content"] for message in messages if message["role"] == "user"]
+                for message in messages:
+                    if message["role"] != "user":
+                        _, quoted, _ = _parse_exchanges(f"Assistant: {message['content']}")
+                        if any(exchange["user"] for exchange in quoted):
+                            return set()
+                _, exchanges, _ = _parse_exchanges(rendering)
+                rendered = [user for exchange in exchanges for user in exchange["user"]]
+                if sqlite_users != rendered:
+                    return None
+                return {index for index, exchange in enumerate(exchanges, 1) if exchange["user"]}
+        except (ValueError, TypeError, UnicodeError):
+            return None
     _header, exchanges, _summary = _parse_exchanges(rendering)
     rendered_user_indexes = {
         index for index, exchange in enumerate(exchanges, 1) if exchange["user"]
@@ -714,7 +747,7 @@ def _frozen_user_exchange_indexes(
         # or tool logs. Its adapter binds native user texts to this immutable
         # rendering at capture time. Never infer authors from role labels alone.
         if revision.client in {"codex", "codex-archive"} and revision.parser_version in {
-            "codex-conversation-v2", "codex-archive-conversation-v2",
+            "codex-conversation-v2", "codex-conversation-v3", "codex-archive-conversation-v2",
         }:
             captured = revision.metadata.get("authored_user_text_sha256")
             if captured is not None:
@@ -785,7 +818,7 @@ def _frozen_user_exchange_indexes(
                 return None
             content = message.get("content") if isinstance(message, dict) else message
             if revision.client != "cursor" and isinstance(content, list) and any(
-                not isinstance(item, dict) or item.get("type") not in ("text", "input_text")
+                not is_codex_user_content_item(item)
                 for item in content
             ):
                 return None
@@ -818,7 +851,10 @@ def _frozen_user_exchange_indexes(
         _metadata, turns = parse_codex_archive_jsonl_session(
             Path("frozen.jsonl"), content=text,
         )
-        users = [turn["user"] for turn in turns if turn["user"]]
+        # Reference windows fold duplicate native events. Author comparison must
+        # use that same normalization, after checking every native record above.
+        _, native_exchanges, _ = _parse_exchanges(render_codex_conversation(turns))
+        users = [user for exchange in native_exchanges for user in exchange["user"]]
     rendered_users = [user for exchange in exchanges for user in exchange["user"]]
     if users != rendered_users:
         return None
@@ -835,6 +871,21 @@ async def _validate_user_statement_refs(
         return "unverified", ["user_statement_job_missing"]
     observation_id = str(uuid5(NAMESPACE_URL, f"{job.source_id}:observation"))
     observation = await backend.verbatim_store.get(observation_id)
+    if observation is None or observation.metadata.get("source_revision") != job.source_revision:
+        return "unverified", ["user_statement_source_unavailable"]
+    revision = backend.transcript_store.get_revision(job.source_id, job.source_revision)
+    if revision is not None and revision.client in {"codex", "codex-archive"} and "jsonl" in revision.parser_version:
+        # Native legacy observations can predate the current parser. Rebuild
+        # only the derived view; the immutable source and old receipts stay put.
+        repaired = repair_source_observation_projection(
+            backend,
+            source_id=job.source_id, source_revision=job.source_revision,
+        )
+        if repaired is not None and repaired.raw_content and _frozen_user_exchange_indexes(
+            backend, source_id=job.source_id, source_revision=job.source_revision,
+            rendering=repaired.raw_content, allow_legacy_explicit=False,
+        ):
+            observation = repaired
     if (
         observation is None
         or observation.metadata.get("source_revision") != job.source_revision

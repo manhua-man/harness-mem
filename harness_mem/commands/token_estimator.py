@@ -92,7 +92,7 @@ def count_tokens(text: str) -> int:
         tokenizer_kind = "char-heuristic"
         return len(text) // 4
     try:
-        n = len(encoder.encode(text))
+        n = len(encoder.encode(text, disallowed_special=()))
         tokenizer_kind = "tiktoken"
         return n
     except Exception:

@@ -176,7 +176,7 @@ def test_mcp_autopilot_tick_executes_search_on_tool_failure(backend) -> None:
     feedback = payload["context_injection"]["record_outcome_call"]["arguments"]
     assert feedback["source_ids"] == [entry.id]
     assert feedback["retrieval_id"] == payload["context_injection"]["retrieval_id"]
-    assert feedback["surface"] == "search_memory"
+    assert feedback["surface"] == "search_all"
     recorded = server.tool_record_context_outcome(**feedback, outcome="used")
     assert recorded["success"] is True
 
@@ -233,17 +233,22 @@ def test_autopilot_search_unavailable_is_not_success(monkeypatch) -> None:
     assert recovered["context_injection"]["status"] == "empty"
 
 
-def test_autopilot_missing_project_does_not_search(monkeypatch) -> None:
+def test_autopilot_without_project_searches_all_current_memory(monkeypatch) -> None:
     from harness_mem.mcp import read_search_handlers
 
-    monkeypatch.setattr(read_search_handlers, "get_active_project", lambda: None)
-    def unexpected_search(**kwargs):
-        pytest.fail("Missing project must not execute search")
-    monkeypatch.setattr(read_search_handlers, "tool_search_memory", unexpected_search)
+    calls = []
+
+    def global_search(**kwargs):
+        calls.append(kwargs)
+        return {"status": "empty", "memories": []}
+
+    monkeypatch.setattr(read_search_handlers, "tool_search_memory", global_search)
     payload = read_search_handlers.tool_autopilot_search_tick(
         event_name="tool_result", is_error=True,
         tool_name="pytest", tool_result="TimeoutError",
     )
-    assert payload["success"] is False
-    assert payload["search_executed"] is False
-    assert "pass project_name" in payload["error"]
+    assert payload["success"] is True
+    assert payload["search_executed"] is True
+    assert len(calls) == 1
+    assert calls[0]["scope"] == "all"
+    assert calls[0]["project_name"] is None

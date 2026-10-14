@@ -17,10 +17,10 @@ async function withHarnessMemClient<T>(clientName: string, fn: () => Promise<T>)
   }
 }
 
-async function runWakeStart($$: any): Promise<string> {
+async function runWakeStart($$: any, sessionId: string): Promise<string> {
   return withHarnessMemClient("opencode", async () => {
     try {
-      return await $$`$${hookRunner} --action wake-start --project-root $${projectRoot} --source ide_hook --trigger-id opencode-session-created --client opencode`.text()
+      return await $$`$${hookRunner} --action wake-start --project-root $${projectRoot} --source ide_hook --trigger-id $${sessionId} --client opencode`.text()
     } catch {
       return ""
     }
@@ -38,19 +38,21 @@ async function runPostTurnMaintenance($$: any, triggerId: string): Promise<void>
 }
 
 const plugin: Plugin = async ({ $$, client }) => ({
-  event: async ({ event }: { event: { type?: string } }) => {
+  event: async ({ event }) => {
     const type = event?.type ?? ""
     if (type === "session.created") {
-      const wakeText = (await runWakeStart($$)).trim()
-      const tui = (client as { tui?: { appendPrompt?: (text: string) => Promise<void> } }).tui
-      if (wakeText && tui?.appendPrompt) {
-        await tui.appendPrompt(`$${wakeText}\n\n`)
+      const sessionId = event.properties.info.id
+      if (!sessionId) return
+      const wakeText = (await runWakeStart($$, sessionId)).trim()
+      if (wakeText && client.tui?.appendPrompt) {
+        await client.tui.appendPrompt({ body: { text: `$${wakeText}\n\n` } })
       }
       return
     }
 
     if (type === "session.idle") {
-      await runPostTurnMaintenance($$, "opencode-session-idle")
+      const sessionId = event.properties.sessionID
+      if (sessionId) await runPostTurnMaintenance($$, sessionId)
     }
   },
 })

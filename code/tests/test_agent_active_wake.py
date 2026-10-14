@@ -47,7 +47,7 @@ def test_wake_returns_machine_readable_distill_maintenance_offer(
         lambda: SimpleNamespace(runtime_state="ready", runtime_error=None),
     )
 
-    payload = read_wake_handlers.tool_wake(project_name="demo")
+    payload = read_wake_handlers.tool_wake(project_name="demo", scope="project")
 
     assert payload == {
         "success": True,

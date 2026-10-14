@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Callable
 
-from harness_mem.commands.support import get_active_project
 from harness_mem.autopilot_search import plan_autopilot_search
+from harness_mem.core.schemas import KnowledgeEntry
 from harness_mem.read_knowledge import list_current_knowledge, search_current_knowledge
 
 from .handler_facade_proxy import tool_handlers_facade as _core
@@ -15,7 +16,11 @@ from harness_mem.mcp.read_query_support import (
     _new_retrieval_id,
     _record_search_quality_signals,
 )
-from harness_mem.mcp.read_projection import project_memory_entries
+from harness_mem.mcp.read_projection import (
+    project_memory_entries,
+    resolve_read_budget,
+    select_memory_page,
+)
 from harness_mem.mcp.read_feedback_handlers import (
     VALID_CONTEXT_OUTCOMES,
     tool_record_context_outcome as _tool_record_context_outcome,
@@ -29,177 +34,182 @@ def _get_backend():
 def tool_search_memory(
     query: str,
     project_name: str | None = None,
-    scope: str = "project",
+    scope: str = "all",
     _include_diagnostics: bool = False,
+    budget_tokens: int | None = None,
+    cursor: str | None = None,
+    detail: str = "auto",
+    _render_response: Callable[[dict[str, Any]], Any] | None = None,
 ) -> dict:
-    """Search only current project memory.
-
-    Raw conversations and processing records have their own explicit tools and
-    never enter this result, including its internal diagnostic projection.
-    """
-    backend = _get_backend()
-
+    """Read useful current facts, with whole-entry continuation for larger sets."""
+    if scope not in {"all", "project"}:
+        return {"success": False, "error": "scope must be project or all"}
     if scope == "project" and not project_name:
+        return {"success": False, "error": "project_name is required when scope=project"}
+    selected_project = project_name if scope == "project" else None
+    query = query.strip()
+    try:
+        backend = _get_backend()
+        if backend.runtime_state == "degraded_fallback" or backend.runtime_error:
+            return {
+                "project_name": selected_project, "query": query,
+                "status": "unavailable", "memories": [],
+                "reason": "Memory storage is not ready. Run harness-mem doctor.",
+            }
+        entries = asyncio.run(
+            search_current_knowledge(backend, project_name=selected_project, query=query)
+            if query else list_current_knowledge(backend, project_name=selected_project)
+        )
+    except (OSError, ValueError, sqlite3.Error):
         return {
-            "success": False,
-            "error": "project_name is required when scope=project",
+            "project_name": selected_project, "query": query,
+            "status": "unavailable", "memories": [],
+            "reason": "Current memory could not be read. Run harness-mem doctor before retrying.",
         }
 
-    if scope == "project" and project_name:
-        try:
-            entries = asyncio.run(
-                search_current_knowledge(
-                    backend,
-                    project_name=project_name,
-                    query=query,
-                )
-                if query.strip()
-                else list_current_knowledge(backend, project_name=project_name)
-            )
-        except ValueError as error:
-            return {
-                "project_name": project_name,
-                "query": query,
-                "status": "unavailable",
-                "memories": [],
-                "reason": str(error),
-            }
-        retrieval_id = _new_retrieval_id()
-        receipt = asyncio.run(
-            _record_search_quality_signals(
-                backend,
-                project_name=project_name,
-                query=query,
-                entries=entries,
-                response=SimpleNamespace(results=entries),
-                context_plan=None,
-                historical_excluded=0,
-                retrieval_id=retrieval_id,
-            )
+    retrieval_id = _new_retrieval_id()
+    surface = "search_memory" if scope == "project" else "search_all"
+
+    def groups(surfaced: list[KnowledgeEntry]) -> dict[str, list[KnowledgeEntry]]:
+        grouped: dict[str, list[KnowledgeEntry]] = {}
+        for entry in surfaced:
+            grouped.setdefault(entry.project_name, []).append(entry)
+        if selected_project is not None:
+            grouped.setdefault(selected_project, [])
+        return grouped
+
+    def build_payload(
+        page: list[KnowledgeEntry],
+        reading: dict[str, Any],
+        index: bool,
+        receipts: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        memories = project_memory_entries(
+            page, include_project=scope == "all", include_modules=not query,
         )
-        # An explicit blank project query means "show current knowledge".
-        # Keep one projection; normal searches still return title/statement.
-        memories = project_memory_entries(entries, include_modules=not query.strip())
+        if index:
+            memories = [{key: value for key, value in row.items() if key != "statement"}
+                        for row in memories]
         payload = {
-            "project_name": project_name,
+            "project_name": selected_project,
             "query": query,
-            "status": "answered" if entries else "empty",
+            "status": "available" if index else "answered" if memories else "empty",
             "memories": memories,
+            **reading,
         }
+        if scope == "project" and query and not entries:
+            payload["message"] = (
+                "No match within this project filter. A task about a project can use global knowledge. "
+                "Unless the user requested project-only memory, repeat this query with scope='all' "
+                "before changing keywords."
+            )
         if not _include_diagnostics:
             return payload
-
-        source_ids = list(receipt.get("source_ids") or [])
+        surfaced = [] if index else page
+        if receipts is None:
+            # Size selection precedes writes. Model the longest receipt state
+            # with every source retained; real write failures only remove refs.
+            receipts = [
+                {
+                    "project_name": name,
+                    "contract_version": "retrieval-signal-receipt-v1",
+                    "retrieval_id": retrieval_id, "surface": surface,
+                    "attempted": max(1, len(rows)), "recorded": max(1, len(rows)),
+                    "failed": max(1, len(rows)), "state": "degraded",
+                    "source_ids": sorted({row.id for row in rows}),
+                    "content_recorded": False,
+                }
+                for name, rows in ({} if index else groups(surfaced)).items()
+            ]
+        source_ids = sorted({source_id for item in receipts for source_id in item["source_ids"]})
+        outcome_calls = [
+            {
+                "tool": "record_context_outcome",
+                "arguments": {
+                    "project_name": item["project_name"], "surface": surface,
+                    "source_ids": item["source_ids"], "retrieval_id": retrieval_id,
+                },
+                "required_argument": "outcome",
+                "allowed_outcomes": sorted(VALID_CONTEXT_OUTCOMES),
+            }
+            for item in receipts if item["source_ids"]
+        ]
+        failed = sum(item["failed"] for item in receipts)
+        receipt = {
+            "contract_version": "retrieval-signal-receipt-v1",
+            "retrieval_id": retrieval_id, "surface": surface,
+            "attempted": sum(item["attempted"] for item in receipts),
+            "recorded": sum(item["recorded"] for item in receipts),
+            "failed": failed, "state": "degraded" if failed else "ok",
+            "source_ids": source_ids, "content_recorded": False,
+        }
         truth = [
             {
                 "source_id": entry.id,
-                "reason": "current project knowledge matched the query",
+                "reason": ("current project knowledge matched the query"
+                           if scope == "project" else "current knowledge matched the query"),
                 "summary": f"{memory['title']}: {memory['statement']}",
+                **({"project_name": entry.project_name} if scope == "all" else {}),
             }
-            for entry, memory in zip(entries, memories, strict=True)
+            for entry, memory in zip(surfaced, [] if index else memories)
         ]
         return {
             **payload,
             "retrieval_id": retrieval_id,
             "retrieval_receipt": receipt,
-            "memory_count": len(memories),
+            "memory_count": len(surfaced),
             "context_plan": {
-                "project_name": project_name,
-                "query": query,
-                "source_ids": source_ids,
+                "project_name": selected_project, "query": query, "source_ids": source_ids,
             },
             "answer_ready_context": {
-                "project_name": project_name,
-                "query": query,
-                "current_task": None,
-                "safe_to_answer": bool(memories),
-                "sufficiency_status": "sufficient" if memories else "empty",
-                "support_level": "current_truth" if memories else "none",
+                "project_name": selected_project, "query": query, "current_task": None,
+                "safe_to_answer": bool(surfaced),
+                "sufficiency_status": "sufficient" if surfaced else "empty",
+                "support_level": "current_truth" if surfaced else "none",
                 "orchestration_actions": ["current_knowledge_search"],
-                "project_profile": [],
-                "truth": truth,
-                "active_task": [],
-                "topic_recall": [],
-                "supporting_evidence": [],
-                "caveats": [],
-                "recommended_action": [],
-                "drilldown_hints": [],
+                "project_profile": [], "truth": truth, "active_task": [],
+                "topic_recall": [], "supporting_evidence": [], "caveats": [],
+                "recommended_action": [], "drilldown_hints": [],
             },
-            "supporting_evidence": [],
-            "drilldown_hints": [],
-            "record_outcome_call": (
-                {
-                    "tool": "record_context_outcome",
-                    "arguments": {
-                        "project_name": project_name,
-                        "surface": "search_memory",
-                        "source_ids": source_ids,
-                        "retrieval_id": retrieval_id,
-                    },
-                    "required_argument": "outcome",
-                    "allowed_outcomes": sorted(VALID_CONTEXT_OUTCOMES),
-                }
-                if source_ids
-                else None
-            ),
+            "supporting_evidence": [], "drilldown_hints": [],
+            "record_outcome_call": outcome_calls[0] if len(outcome_calls) == 1 else None,
+            **({"record_outcome_calls": outcome_calls, "retrieval_receipts": receipts}
+               if scope == "all" else {}),
         }
 
-    if scope == "all":
-        entries = []
-        entries_by_project: dict[str, list[Any]] = {}
-        for known_project in asyncio.run(
-            backend.structured_store.knowledge_store.known_projects()
-        ):
-            try:
-                project_entries = asyncio.run(
-                    search_current_knowledge(
-                        backend,
-                        project_name=known_project,
-                        query=query,
-                    )
-                )
-            except ValueError:
-                # A deleted or moved authority is unavailable, not permission
-                # to fall back to legacy rows from canonical SQLite.
-                continue
-            entries_by_project[known_project] = project_entries
-            entries.extend(project_entries)
-        entries = sorted(
+    def render(page: list[KnowledgeEntry], reading: dict[str, Any], index: bool) -> Any:
+        payload = build_payload(page, reading, index)
+        return _render_response(payload) if _render_response else payload
+
+    try:
+        page, reading, index = select_memory_page(
             entries,
-            key=lambda entry: (entry.project_name, entry.title, entry.id),
-        )
-        surfaced_ids = {entry.id for entry in entries}
-        retrieval_id = _new_retrieval_id()
-        for known_project, project_entries in entries_by_project.items():
-            surfaced = [entry for entry in project_entries if entry.id in surfaced_ids]
-            if not surfaced:
-                continue
-            asyncio.run(
-                _record_search_quality_signals(
-                    backend,
-                    project_name=known_project,
-                    query=query,
-                    entries=surfaced,
-                    response=SimpleNamespace(results=surfaced),
-                    context_plan=None,
-                    retrieval_id=retrieval_id,
-                    surface="search_all",
-                )
-            )
-        return {
-            "project_name": None,
-            "query": query,
-            "status": "answered" if entries else "empty",
-            "memories": project_memory_entries(
-                entries,
-                include_project=True,
+            query=query, project_name=selected_project, scope=scope,
+            budget_tokens=resolve_read_budget(
+                budget_tokens, surface="search", project_name=project_name,
             ),
+            cursor=cursor, detail=detail, render=render,
+        )
+    except (ValueError, TypeError) as exc:
+        return {
+            "project_name": selected_project, "query": query,
+            "status": "invalid", "memories": [], "reason": str(exc),
         }
 
-    return {
-        "success": False,
-        "error": "scope must be project or all",
-    }
+    # Only whole facts actually returned receive search hits. An index is a
+    # reading aid, not evidence that its hidden statement reached the Agent.
+    receipts: list[dict[str, Any]] = []
+    for source_project, surfaced in ({} if index else groups(page)).items():
+        project_receipt = asyncio.run(
+            _record_search_quality_signals(
+                backend,
+                project_name=source_project, query=query, entries=surfaced,
+                response=SimpleNamespace(results=surfaced), context_plan=None,
+                historical_excluded=0, retrieval_id=retrieval_id, surface=surface,
+            )
+        )
+        receipts.append({"project_name": source_project, **project_receipt})
+    return build_payload(page, reading, index, receipts)
 
 
 def tool_autopilot_search_tick(
@@ -224,7 +234,7 @@ def tool_autopilot_search_tick(
     Cursor after-agent style hooks. It is not a session-start wake replacement.
     """
 
-    resolved_project = project_name or get_active_project()
+    resolved_project = project_name
     decision = plan_autopilot_search(
         event_name=event_name,
         current_task=current_task,
@@ -248,23 +258,47 @@ def tool_autopilot_search_tick(
             "decision": decision_payload,
             "context_injection": None,
         }
-    if not resolved_project:
+    def render(search_payload: dict[str, Any]) -> dict[str, Any]:
+        source_ids = [
+            source_id
+            for source_id in search_payload.get("context_plan", {}).get("source_ids", [])
+            if isinstance(source_id, str)
+        ]
+        calls = search_payload.get("record_outcome_calls", [])
+        receipt = search_payload.get("retrieval_receipt") or {}
+        context_injection = {
+            "target": decision.injection_target,
+            "trigger": decision.trigger,
+            "query": decision.query,
+            "source_ids": source_ids,
+            "status": search_payload["status"],
+            "memories": search_payload["memories"],
+            "retrieval_id": search_payload.get("retrieval_id"),
+            "record_outcome_call": search_payload.get("record_outcome_call"),
+            # A single call already carries its project and sources. Keep the
+            # plural form only for multiple projects, and avoid repeating ids
+            # and correlation fields inside a second full receipt.
+            "record_outcome_calls": calls if len(calls) > 1 else [],
+            "retrieval_receipt": {
+                key: receipt[key] for key in ("state", "attempted", "recorded", "failed", "content_recorded")
+                if key in receipt
+            },
+            **{key: search_payload[key] for key in ("total", "detail", "continuation", "message")
+               if key in search_payload},
+        }
         return {
-            "success": False,
-            "project_name": None,
-            "search_executed": False,
+            "success": True,
+            "project_name": resolved_project,
+            "search_executed": True,
             "decision": decision_payload,
-            "context_injection": None,
-            "error": "No project is available. Open the intended workspace or pass project_name.",
+            "context_injection": context_injection,
         }
 
     search_payload = tool_search_memory(
-        query=decision.query or "",
-        project_name=resolved_project,
-        scope="project",
-        _include_diagnostics=True,
+        query=decision.query or "", project_name=resolved_project, scope="all",
+        _include_diagnostics=True, budget_tokens=budget_tokens, _render_response=render,
     )
-    if search_payload.get("status") == "unavailable" or search_payload.get("success") is False:
+    if search_payload.get("status") in {"unavailable", "invalid"} or search_payload.get("success") is False:
         return {
             "success": False,
             "project_name": resolved_project,
@@ -273,30 +307,7 @@ def tool_autopilot_search_tick(
             "context_injection": None,
             "error": search_payload.get("reason") or search_payload.get("error"),
         }
-    source_ids = [
-        source_id
-        for source_id in search_payload.get("context_plan", {}).get("source_ids", [])
-        if isinstance(source_id, str)
-    ]
-    search_outcome_call = dict(search_payload.get("record_outcome_call") or {})
-    # Keep the actual retrieval surface: feedback must resolve the stored receipt.
-    context_injection = {
-        "target": decision.injection_target,
-        "trigger": decision.trigger,
-        "query": decision.query,
-        "source_ids": source_ids,
-        "status": search_payload["status"],
-        "memories": search_payload["memories"],
-        "retrieval_id": search_payload.get("retrieval_id"),
-        "record_outcome_call": search_outcome_call or None,
-    }
-    return {
-        "success": True,
-        "project_name": resolved_project,
-        "search_executed": True,
-        "decision": decision_payload,
-        "context_injection": context_injection,
-    }
+    return render(search_payload)
 
 
 def tool_record_context_outcome(

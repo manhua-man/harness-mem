@@ -10,7 +10,7 @@
       },
       "project_name": {
         "type": "string",
-        "description": "Project name (defaults to active project when omitted)."
+        "description": "Optional current-task context; automatic search still searches all memory by default."
       },
       "current_task": {
         "type": "string",
@@ -64,7 +64,8 @@
       },
       "budget_tokens": {
         "type": "integer",
-        "description": "Advisory budget for the bounded search tick.",
+        "description": "Size of the complete tick response, including feedback fields. Additional knowledge remains accessible through continuation.",
+        "minimum": 1,
         "default": 1600
       }
     },

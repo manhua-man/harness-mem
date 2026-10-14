@@ -17,6 +17,7 @@ from harness_mem.adapters.parser import (
 from harness_mem.adapters.protocol import Issue, SessionRecord
 from harness_mem.adapters.scan_scheduler import sync_sessions_fairly
 from harness_mem.adapters.snapshot import TranscriptSyncResult, persist_session_snapshot
+from harness_mem.adapters.source_metadata import metadata_record, read_jsonl_metadata
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.transcript_chunking import source_uri_from_path
@@ -67,6 +68,52 @@ class CodexAdapter:
         self.project_root = Path(project_root).expanduser() if project_root is not None else None
         self.scope = scope
 
+    def list_session_metadata(
+        self, *, min_size_kb: int = 0, limit: int | None = None,
+        issues: list[Issue] | None = None,
+    ) -> list[SessionRecord]:
+        """Discover both native rollout roots without rendering conversations."""
+        records: dict[str, SessionRecord] = {}
+        for source_kind, root in (
+            ("codex-current", self.sessions_dir), ("codex-archive", self.archive_dir),
+        ):
+            if not root.exists():
+                continue
+            if not root.is_dir():
+                self._append_issue(
+                    issues, level="warning", code="sessions_dir_invalid",
+                    message=f"Codex transcript path is not a directory: {root}", path=root,
+                )
+                continue
+            for path in root.glob("**/rollout-*.jsonl"):
+                try:
+                    if not path.is_file() or path.stat().st_size / 1024 < min_size_kb:
+                        continue
+                    roots, header = read_jsonl_metadata(path, client="codex")
+                    session_id = str(header.get("id") or path.stem.removeprefix("rollout-"))
+                    record = metadata_record(
+                        path, session_id, project_roots=roots, source_kind=source_kind,
+                        metadata_paths=[path],
+                    )
+                    if len(roots) != 1 or not Path(roots[0]).is_absolute():
+                        record["metadata_status"] = "unknown"
+                        record.pop("cwd", None)
+                    if self.scope == "project" and self.project_root is not None:
+                        if record["metadata_status"] != "available" or not _is_path_within(
+                            Path(roots[0]), self.project_root,
+                        ):
+                            continue
+                    # Paginated Desktop continuations retain the same session id.
+                    # Deduplicate locators, not identities, before reading bytes.
+                    records.setdefault(os.path.normcase(str(path.resolve())), record)
+                except OSError as exc:
+                    self._append_issue(
+                        issues, level="warning", code="session_scan_failed",
+                        message=f"Failed to inspect Codex session file {path}: {exc}", path=path,
+                    )
+        ordered = sorted(records.values(), key=session_sort_key, reverse=True)
+        return ordered if limit is None else ordered[:limit]
+
     def list_sessions(
         self,
         project_name: str | None = None,
@@ -116,13 +163,8 @@ class CodexAdapter:
 
         deduped: dict[str, SessionRecord] = {}
         for session in sessions:
-            session_id = session["session_id"]
-            previous = deduped.get(session_id)
-            if previous is None or (
-                previous.get("source_kind") == "codex-archive"
-                and session.get("source_kind") == "codex-current"
-            ):
-                deduped[session_id] = session
+            locator = os.path.normcase(str(session["path"].resolve()))
+            deduped.setdefault(locator, session)
 
         ordered = sorted(deduped.values(), key=self._session_sort_key, reverse=True)
         if limit is not None:
@@ -295,7 +337,7 @@ class CodexAdapter:
             native_input_bytes=native_bytes,
             mtime_ns=stat_result.st_mtime_ns,
             sequence_count=len(turns),
-            parser_version="codex-conversation-v2",
+            parser_version="codex-conversation-v3",
             authored_user_texts=[str(turn["user"]) for turn in turns if turn["user"]],
         )
 

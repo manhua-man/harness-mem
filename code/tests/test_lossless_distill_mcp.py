@@ -49,6 +49,22 @@ SEMANTIC_REVIEW = {
 }
 
 
+def _persisted_diagnostics(backend: LocalMemoryBackend, job_id: str) -> dict:
+    """Check durable diagnostics, not fields intentionally hidden by MCP."""
+    job = backend.transcript_store.get_distill_job(job_id)
+    assert job is not None
+    return {
+        "structural_audit": job.structural_audit,
+        "completion": {"disposition": job.completion_disposition,
+                       "reason_codes": job.completion_reason_codes},
+        "promotion": {key: value for key, value in job.promotion_summary.items()
+                      if key not in {"answer_packet", "readback"}},
+        "answer_packet": job.promotion_summary.get("answer_packet", {}),
+        "source_cleanup": {"status": job.source_cleanup_status,
+                           "receipt_id": job.source_cleanup_receipt_id},
+    }
+
+
 @pytest.mark.parametrize(
     ("client", "execution_source", "expected"),
     [
@@ -343,7 +359,8 @@ def test_explicit_session_rechecks_legacy_signal_false_negative(
         )
         assert explicit_completed["success"] is True
         assert explicit_completed["distill_job_id"] == old_job_id
-        assert explicit_completed["agent_execution"]["path"] == "already_completed"
+        assert explicit_completed["distill_status"] == "completed"
+        assert explicit_completed["knowledge_changes"] == []
 
         packet = tool_handlers.tool_prepare_session_distill(
             project_name="demo",
@@ -356,7 +373,7 @@ def test_explicit_session_rechecks_legacy_signal_false_negative(
 
         assert packet["success"] is True
         assert packet["distill_job_id"] != old_job_id
-        assert packet["agent_execution"]["path"] != "already_completed"
+        assert packet["distill_status"] in {"processing", "reviewing"}
         old_job = backend.transcript_store.get_distill_job(old_job_id)
         assert old_job is not None
         assert old_job.status == "completed"
@@ -474,7 +491,7 @@ def test_explicit_session_rechecks_completed_promotion_without_current_result(
 
         assert packet["success"] is True
         assert packet["distill_job_id"] != old_job_id
-        assert packet["agent_execution"]["path"] != "already_completed"
+        assert packet["distill_status"] in {"processing", "reviewing"}
         recheck_job = backend.transcript_store.get_distill_job(
             packet["distill_job_id"]
         )
@@ -664,12 +681,13 @@ def test_completed_finalize_replay_recovers_missing_outcome_when_config_unavaila
 
         assert replay["success"] is True
         assert replay["idempotent_replay"] is True
-        assert replay["completion_recovered"] is True
-        assert replay["completion"]["disposition"] == "no_candidate"
-        assert replay["source_cleanup"]["configured"] is False
+        assert replay["knowledge_changes"] == []
         stored = backend.transcript_store.get_distill_job(snapshot.distill_job_id)
         assert stored is not None
         assert stored.completion_disposition == "no_candidate"
+        assert stored.source_cleanup_status == "retained"
+        assert stored.source_cleanup_receipt_id is None
+        assert Path(replay["note"]["path"]).is_file()
     finally:
         tool_handlers._backend_provider = previous_backend_provider
         tool_handlers._observer_data_dir_provider = previous_observer_provider
@@ -833,7 +851,7 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
             if packet["distill_status"] == "reviewing":
                 assert len(packet["chunk_results"]) == packet["expected_chunk_count"]
                 break
-            assert packet["chunk_count"] == 1
+            assert len(packet["chunks"]) == 1
             chunk = packet["chunks"][0]
             assert "[TRUNCATED]" not in chunk["raw_content"]
             collected.append(chunk["raw_content"])
@@ -935,9 +953,12 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
             semantic_review=SEMANTIC_REVIEW,
         )
         assert finalized["success"] is True
-        assert finalized["structural_audit"]["coverage"] == "complete"
+        audit = _persisted_diagnostics(backend, job_id)
+        assert audit["structural_audit"]["coverage"] == "complete"
+        assert finalized["organization_status"] == "partial"
+        assert finalized["knowledge_changes"] == []
         assert "dream" not in finalized
-        assert finalized["completion"]["disposition"] == "deferred"
+        assert audit["completion"]["disposition"] == "deferred"
         assert finalized["unfinished_work"]
         expected_promotion = {
             "suggested": 3,
@@ -968,21 +989,21 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
         }
         assert {
             key: value
-            for key, value in finalized["promotion"].items()
+            for key, value in audit["promotion"].items()
             if key not in {"answer_packet", "points", "unfinished_work"}
         } == expected_promotion
-        assert "answer_packet" not in finalized["promotion"]
-        assert finalized["answer_packet"]["answer_status"] == "UNANSWERED"
-        assert finalized["answer_packet"]["promotion_status"] == "not_promoted"
-        assert finalized["answer_packet"]["promoted_items"] == []
-        assert finalized["queue_effect"]["removed_from_pending"] is True
+        assert "promotion" not in finalized and "answer_packet" not in finalized
+        assert audit["answer_packet"]["answer_status"] == "UNANSWERED"
+        assert audit["answer_packet"]["promotion_status"] == "not_promoted"
+        assert audit["answer_packet"]["promoted_items"] == []
+        assert job_id not in [job.id for job in pending_distill_jobs(backend, project_name="demo")]
         # Deferred points keep their source even for active user processing.
-        assert finalized["source_cleanup"]["configured"] is False
-        assert finalized["source_cleanup"]["status"] == "retained"
-        assert finalized["source_cleanup"]["receipt_id"] is None
-        assert finalized["source_cleanup"]["reason_codes"] == [
-            "unresolved_work_keeps_source"
-        ]
+        assert audit["source_cleanup"]["status"] == "retained"
+        assert audit["source_cleanup"]["receipt_id"] is None
+        completed_job = backend.transcript_store.get_distill_job(job_id)
+        assert backend.transcript_store.reconstruct_raw(
+            completed_job.source_id, source_revision=completed_job.source_revision,
+        ) == source_text.encode("utf-8")
         unrelated_entry = asyncio.run(
             backend.structured_store.knowledge_store.get_candidate(
                 unrelated["entry_id"]
@@ -1216,13 +1237,15 @@ def test_finalize_promotes_answered_candidate_independently_of_session_handoff(
             semantic_review=semantic_review,
         )
 
-        assert "completion" in finalized, finalized
-        assert finalized["completion"] == {
+        assert finalized["success"], finalized
+        assert finalized["knowledge_changes"][0]["title"] == "Only hm is generated"
+        audit = _persisted_diagnostics(backend, result.distill_job_id)
+        assert audit["completion"] == {
             "disposition": "promoted",
             "reason_codes": ["durable_memory_promoted"],
         }
-        assert finalized["promotion"]["promoted"] == 1
-        assert finalized["promotion"]["answer_gate"] == {
+        assert audit["promotion"]["promoted"] == 1
+        assert audit["promotion"]["answer_gate"] == {
             "ANSWERED": 1,
             "PARTIAL": 0,
             "UNANSWERED": 0,
@@ -1230,7 +1253,7 @@ def test_finalize_promotes_answered_candidate_independently_of_session_handoff(
             "STALE": 0,
             "NOT_APPLICABLE": 0,
         }
-        answer_packet = finalized["answer_packet"]
+        answer_packet = audit["answer_packet"]
         assert answer_packet["answer_status"] == "ANSWERED"
         assert answer_packet["promotion_status"] == "promoted"
         assert answer_packet["destination_project"] == "demo"
@@ -1279,6 +1302,7 @@ def test_finalize_promotes_answered_candidate_independently_of_session_handoff(
         searched = read_search_handlers.tool_search_memory(
             query="daily command",
             project_name="demo",
+            scope="project",
         )
         assert searched["memories"] == [
             {
@@ -1304,9 +1328,8 @@ def test_finalize_promotes_answered_candidate_independently_of_session_handoff(
             semantic_review=semantic_review,
         )
         assert replay["idempotent_replay"] is True
-        assert replay["completion"] == finalized["completion"]
-        assert replay["promotion"] == finalized["promotion"]
-        assert replay["answer_packet"] == answer_packet
+        assert replay["knowledge_changes"] == finalized["knowledge_changes"]
+        assert _persisted_diagnostics(backend, result.distill_job_id) == audit
     finally:
         tool_handlers._backend_provider = previous_backend_provider
         tool_handlers._observer_data_dir_provider = previous_observer_provider
@@ -1399,7 +1422,10 @@ def test_job_bound_handoff_satisfies_durable_signal_gate(
         )
 
         assert finalized["success"] is True
-        assert finalized["handoff_ids"] == [handoff["handoff_id"]]
+        assert finalized["organization_status"] == "partial"
+        assert finalized["unfinished_work"]
+        job = backend.transcript_store.get_distill_job(result.distill_job_id)
+        assert job.promotion_summary["readback"]["handoff_ids"] == [handoff["handoff_id"]]
         stored_handoff = asyncio.run(
             backend.structured_store.get_task_handoff(handoff["handoff_id"])
         )
@@ -1414,7 +1440,7 @@ def test_job_bound_handoff_satisfies_durable_signal_gate(
         asyncio.run(backend.close())
 
 
-def test_finalize_delete_toggle_runs_audited_source_cleanup(
+def test_manual_finalize_retains_sources_despite_legacy_auto_toggle(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -1497,18 +1523,21 @@ def test_finalize_delete_toggle_runs_audited_source_cleanup(
             },
         )
 
-        assert finalized["completion"]["disposition"] == "no_candidate"
-        assert finalized["source_cleanup"]["configured"] is True
-        assert finalized["source_cleanup"]["status"] == "deleted"
-        assert finalized["source_cleanup"]["receipt_id"]
-        assert not native_path.exists()
+        assert finalized["success"] and finalized["distill_status"] == "completed"
+        assert finalized["knowledge_changes"] == []
+        job = backend.transcript_store.get_distill_job(result.distill_job_id)
+        assert job.completion_disposition == "no_candidate"
+        assert job.retain_source is True
+        assert job.source_cleanup_status == "retained"
+        assert job.source_cleanup_receipt_id is None
+        assert native_path.read_bytes() == source_text.encode("utf-8")
         assert backend.transcript_store.reconstruct_raw(
             result.source.id,
             source_revision=result.source.source_revision,
-        ) == b""
+        ) == source_text.encode("utf-8")
         assert asyncio.run(
             backend.verbatim_store.get(str(result.observation_id))
-        ) is None
+        ) is not None
     finally:
         tool_handlers._backend_provider = previous_backend_provider
         tool_handlers._observer_data_dir_provider = previous_observer_provider
@@ -1518,7 +1547,18 @@ def test_finalize_delete_toggle_runs_audited_source_cleanup(
 
 def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Observe the actual internal projection while leaving the public compact
+    # output untouched. Counters/templates belong here, not in normal MCP.
+    diagnostic_packets = []
+    project_compact = distill_handlers._compact_prepare_result
+
+    def capture_projection(payload):
+        diagnostic_packets.append(payload)
+        return project_compact(payload)
+
+    monkeypatch.setattr(distill_handlers, "_compact_prepare_result", capture_projection)
     semantic_content = (
         "# Session\n\n"
         "## Turn 1 (turn-1)\n\n"
@@ -1584,31 +1624,24 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
         assert packet["evidence_mode"] == "semantic"
         assert packet["distill_status"] == "reviewing"
         assert packet["zero_candidate_challenge_version"] == "v1"
-        assert packet["chunks"] == []
+        diagnostic = diagnostic_packets[-1]
+        assert "chunks" not in packet
         assert packet["completed_chunk_count"] == packet["expected_chunk_count"]
-        evidence = packet["semantic_evidence"]
+        evidence = diagnostic["semantic_evidence"]
         projected = "".join(chunk["content"] for chunk in evidence["chunks"])
         assert evidence["projection"] == "exchange-outline-v2"
         assert evidence["detail_level"] == "compact"
         assert evidence["budget_state"] == "within_budget"
         assert evidence["output_tokens"] <= evidence["budget_tokens"]
-        serialized_tokens, tokenizer, serialized_chars = serialized_result_tokens(
-            packet
-        )
-        assert packet["response_budget"] == {
-            "contract_version": "serialized-response-budget-v1",
-            "scope": "mcp_content_text",
-            "requested_target_tokens": 3000,
-            "evidence_tokens": evidence["output_tokens"],
-            "protocol_tokens": serialized_tokens - evidence["output_tokens"],
-            "protocol_tokens_basis": "serialized_minus_evidence_estimate",
-            "serialized_tokens": serialized_tokens,
-            "serialized_chars": serialized_chars,
-            "tokenizer": tokenizer,
-            "outcome": "within_target",
-            "reason": None,
-            "hard_truncation_applied": False,
-        }
+        serialized_tokens, _tokenizer, serialized_chars = serialized_result_tokens(packet)
+        assert serialized_tokens < 3000
+        assert serialized_chars < len(source_text) * 0.01
+        assert "response_budget" not in packet
+        windows = packet["semantic_decision_exchanges"]
+        assert windows and len(windows) == packet["semantic_evidence"]["output_exchange_count"]
+        assert "We decided to keep raw audit" in windows[0]["content"]
+        assert windows[0]["preceding_assistant_messages"] == ["progress update"]
+        assert all(hashlib.sha256(window["content"].encode()).hexdigest() == window["content_sha256"] for window in windows)
         assert evidence["parser_render_char_count"] == len(semantic_content)
         assert evidence["duplicate_message_count"] == 1
         assert evidence["collapsed_assistant_message_count"] == 1
@@ -1629,17 +1662,17 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
         assert decision_indexes == evidence[
             "zero_candidate_required_exchange_indexes"
         ]
-        assert packet["semantic_decision_exchange_count"] == len(decision_indexes)
-        assert packet["zero_candidate_exchange_refs"] == [
+        assert diagnostic["semantic_decision_exchange_count"] == len(decision_indexes)
+        assert diagnostic["zero_candidate_exchange_refs"] == [
             {
                 "exchange_index": item["exchange_index"],
                 "content_sha256": item["content_sha256"],
             }
             for item in packet["semantic_decision_exchanges"]
         ]
-        challenge_template = packet["zero_candidate_challenge_template"]
+        challenge_template = diagnostic["zero_candidate_challenge_template"]
         assert challenge_template["source_revision"] == result.source.source_revision
-        assert challenge_template["inspected_exchange_refs"] == packet[
+        assert challenge_template["inspected_exchange_refs"] == diagnostic[
             "zero_candidate_exchange_refs"
         ]
         signaled_checks = {
@@ -1657,7 +1690,9 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
             assert finding == (
                 "candidate_required" if check_name in detected_checks else "absent"
             )
-        assert packet["agent_execution"] == {
+        assert packet["next_step"] == "finalize_session_distill"
+        assert "agent_execution" not in packet
+        assert diagnostic["agent_execution"] == {
             "contract_version": "agent-distill-fast-path-v1",
             "path": "prepare_then_finalize",
             "target_mcp_calls": 2,
@@ -1698,7 +1733,7 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
             evidence_mode="semantic",
             drilldown_exchange_indexes=[1],
         )
-        assert semantic_drilldown["semantic_drilldown_exchange_count"] == 1
+        assert len(semantic_drilldown["semantic_drilldown_exchanges"]) == 1
         assert "Assistant outcome: We decided to keep raw audit" in (
             semantic_drilldown["semantic_drilldown_exchanges"][0]["content"]
         )
@@ -1711,7 +1746,7 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
             evidence_mode="semantic",
             drilldown_chunk_indexes=[0],
         )
-        assert drilldown["raw_drilldown_chunk_count"] == 1
+        assert len(drilldown["raw_drilldown_chunks"]) == 1
         expected_first_chunk = backend.transcript_store.list_chunks(
             result.source.id,
             source_revision=result.source.source_revision,
@@ -1728,7 +1763,7 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
             evidence_mode="semantic",
             drilldown_query="encrypted_content",
         )
-        assert query_drilldown["raw_drilldown_chunk_count"] >= 1
+        assert len(query_drilldown["raw_drilldown_chunks"]) >= 1
         assert query_drilldown["raw_drilldown_query"] == "encrypted_content"
         assert all(
             "encrypted_content" in chunk["raw_content"]
@@ -1740,7 +1775,7 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
             job_id=result.distill_job_id,
             semantic_review={
                 **SEMANTIC_REVIEW,
-                "promotion_decision": "no_promotion",
+                "promotion_decision": "promote",
             },
         )
         assert missing_challenge["success"] is False
@@ -1841,13 +1876,15 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
             },
         )
         assert finalized["success"] is True
-        assert finalized["structural_audit"]["coverage"] == "complete"
-        assert finalized["answer_packet"] == {
+        audit = _persisted_diagnostics(backend, result.distill_job_id)
+        assert audit["structural_audit"]["coverage"] == "complete"
+        assert finalized["knowledge_changes"] == []
+        assert audit["answer_packet"] == {
             "answer_status": "NOT_APPLICABLE",
             "question": "finish the task",
             "core_conclusion": "本次会话没有需要写入的长期记忆。",
             "evidence_basis": [],
-            "evaluated_at": finalized["answer_packet"]["evaluated_at"],
+            "evaluated_at": audit["answer_packet"]["evaluated_at"],
             "verified_at": None,
             "promotion_status": "not_promoted",
             "promoted_items": [],
@@ -1856,14 +1893,11 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
                 "knowledge_category": [],
                 "point_results": [],
             }
-        assert finalized["session_summary"] == {
-            "session_id": "semantic-session",
-            "summary": SEMANTIC_REVIEW["session_summary"],
-            "final_outcome": "complete",
-            "last_turn_status": "answered",
-            "unfinished_work": [],
-            "memory_disposition": "no_candidate",
-        }
+        completed_job = backend.transcript_store.get_distill_job(result.distill_job_id)
+        assert completed_job.session_id == finalized["session_id"] == "semantic-session"
+        assert completed_job.semantic_review["session_summary"] == SEMANTIC_REVIEW["session_summary"]
+        assert completed_job.semantic_review["final_outcome"] == "complete"
+        assert completed_job.completion_disposition == "no_candidate"
         completed_replay = tool_handlers.tool_prepare_session_distill(
             project_name="demo",
             project_root=str(tmp_path),
@@ -1874,16 +1908,9 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
         )
         assert completed_replay["success"] is True, completed_replay
         assert completed_replay["distill_status"] == "completed"
-        assert completed_replay["selection_source"] == "explicit_session"
-        assert completed_replay["session_summary"] == finalized["session_summary"]
-        assert completed_replay["agent_execution"] == {
-            "contract_version": "agent-distill-fast-path-v1",
-            "path": "already_completed",
-            "target_mcp_calls": 1,
-            "completed_mcp_calls": 1,
-            "next_tool": None,
-            "additional_prepare_required": False,
-        }
+        assert completed_replay["session_id"] == finalized["session_id"]
+        assert completed_replay["knowledge_changes"] == finalized["knowledge_changes"]
+        assert _persisted_diagnostics(backend, result.distill_job_id) == audit
     finally:
         tool_handlers._backend_provider = previous_backend_provider
         tool_handlers._observer_data_dir_provider = previous_observer_provider
@@ -2343,7 +2370,8 @@ def test_legacy_observations_do_not_create_a_lossless_distill_job(tmp_path: Path
         assert payload["distill_job_id"] is None
         assert payload["distill_status"] == "not_queued"
         assert "status" not in payload
-        assert "not as complete lossless session evidence" in payload["distill_instructions"][1]
+        assert not backend.transcript_store.list_distill_jobs(project_name="demo")
+        assert "distill_instructions" not in payload
         assert backend.reflection_job_store.list(project_name="demo", limit=10) == []
     finally:
         tool_handlers._backend_provider = previous_backend_provider
@@ -2449,23 +2477,30 @@ def test_semantic_review_blocks_promotion_and_dream(
         )
 
         assert finalized["success"] is True
-        assert finalized["auto_review"]["skipped"] is True
+        assert finalized["knowledge_changes"] == []
+        audit = _persisted_diagnostics(backend, job_id)
         assert "dream" not in finalized
         stored = asyncio.run(
             backend.structured_store.get_memory_entry(candidate["entry_id"])
         )
         assert stored is None
-        assert (
-            asyncio.run(
-                backend.structured_store.knowledge_store.get_candidate(
-                    candidate["entry_id"]
-                )
-            )
-            is None
-        )
         completed = backend.transcript_store.get_distill_job(job_id)
         assert completed is not None
         assert completed.output_candidate_ids == [candidate["entry_id"]]
+        retained_candidate = asyncio.run(backend.structured_store.knowledge_store.get_candidate(candidate["entry_id"]))
+        if review_overrides.get("unfinished_work"):
+            # A partial session is not a rejection: retain the unverified point
+            # and its handoff so later review can resolve it, without writing it.
+            assert completed.completion_disposition == "deferred"
+            assert retained_candidate is not None and retained_candidate.status == "deferred"
+            assert finalized["organization_status"] == "partial"
+            assert finalized["unfinished_work"]
+            assert completed.promotion_summary["deferred"] == 1
+            assert completed.promotion_summary["readback"]["handoff_ids"]
+            assert completed.source_cleanup_status == "retained"
+            assert not asyncio.run(backend.structured_store.knowledge_store.list_entries("demo"))
+            return
+        assert retained_candidate is None
         assert completed.completion_disposition == "no_candidate"
         assert completed.completion_reason_codes == ["semantic_review_blocked"]
         expected_promotion = {
@@ -2497,13 +2532,13 @@ def test_semantic_review_blocks_promotion_and_dream(
         }
         assert {
             key: value
-            for key, value in finalized["promotion"].items()
+            for key, value in audit["promotion"].items()
             if key not in {"answer_packet", "points"}
         } == expected_promotion
-        assert "answer_packet" not in finalized["promotion"]
-        assert finalized["answer_packet"]["answer_status"] == "UNANSWERED"
-        assert finalized["answer_packet"]["promotion_status"] == "not_promoted"
-        assert finalized["answer_packet"]["promoted_items"] == []
+        assert "promotion" not in finalized and "answer_packet" not in finalized
+        assert audit["answer_packet"]["answer_status"] == "UNANSWERED"
+        assert audit["answer_packet"]["promotion_status"] == "not_promoted"
+        assert audit["answer_packet"]["promoted_items"] == []
         assert {
             key: value
             for key, value in completed.promotion_summary.items()
@@ -2520,9 +2555,9 @@ def test_semantic_review_blocks_promotion_and_dream(
         assert answer_packet["promoted_items"] == []
         assert answer_packet["destination_project"] == "demo"
         assert completed.source_cleanup_status == "retained"
-        assert finalized["completion"]["disposition"] == "no_candidate"
-        assert finalized["queue_effect"]["removed_from_pending"] is True
-        assert finalized["source_cleanup"]["status"] == "retained"
+        assert audit["completion"]["disposition"] == "no_candidate"
+        assert job_id not in [job.id for job in pending_distill_jobs(backend, project_name="demo")]
+        assert audit["source_cleanup"]["status"] == "retained"
     finally:
         tool_handlers._backend_provider = previous_backend_provider
         tool_handlers._observer_data_dir_provider = previous_observer_provider
@@ -2657,8 +2692,7 @@ def test_prepare_session_distill_claims_explicit_active_job(tmp_path: Path) -> N
         )
         assert missing == {
             "success": False,
-            "error": "distill_job_id does not belong to this project",
-            "distill_job_id": "missing-job",
+            "error": "selected session task is unavailable",
         }
 
         selected_without_prior_offer = tool_handlers.tool_prepare_session_distill(
@@ -2670,7 +2704,7 @@ def test_prepare_session_distill_claims_explicit_active_job(tmp_path: Path) -> N
         )
         assert selected_without_prior_offer["success"] is True
         assert selected_without_prior_offer["distill_job_id"] == older_job_id
-        assert selected_without_prior_offer["selection_source"] == "explicit"
+        assert selected_without_prior_offer["session_id"] == "explicit-older-session"
 
         offered = pending_distill_jobs(
             backend,
@@ -2688,7 +2722,7 @@ def test_prepare_session_distill_claims_explicit_active_job(tmp_path: Path) -> N
         )
         assert selected["success"] is True
         assert selected["distill_job_id"] == older_job_id
-        assert selected["selection_source"] == "explicit"
+        assert selected["session_id"] == selected_without_prior_offer["session_id"]
     finally:
         tool_handlers._backend_provider = previous_backend_provider
         tool_handlers._observer_data_dir_provider = previous_observer_provider
@@ -2754,7 +2788,7 @@ def test_prepare_session_distill_activates_explicit_parked_session(tmp_path: Pat
         )
         assert active_selected["success"] is True
         assert active_selected["distill_job_id"] == active_job_id
-        assert active_selected["selection_source"] == "explicit_session"
+        assert active_selected["session_id"] == "active-newer-1"
         selected = tool_handlers.tool_prepare_session_distill(
             project_name="demo",
             project_root=str(tmp_path),
@@ -2765,7 +2799,7 @@ def test_prepare_session_distill_activates_explicit_parked_session(tmp_path: Pat
         assert selected["success"] is True
         assert selected["distill_job_id"] == parked_job_id
         assert selected["session_id"] == "explicit-parked-oldest"
-        assert selected["selection_source"] == "explicit_session_parked"
+        assert "selection_source" not in selected
         activated = backend.transcript_store.get_distill_job(parked_job_id)
         assert activated is not None
         assert activated.status in {"processing", "reviewing"}
