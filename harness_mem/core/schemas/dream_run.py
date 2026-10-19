@@ -110,6 +110,8 @@ class DreamRun(BaseModel):
     notes: list[str] | None = None
     # Scheduling checkpoint only: no knowledge/source bodies or admission authority.
     continuation: dict[str, Any] = Field(default_factory=dict)
+    # Current-fingerprint-bound review metadata; never source/knowledge bodies.
+    source_reviews: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
     model_config = {"extra": "allow"}
 
@@ -131,11 +133,14 @@ class DreamRun(BaseModel):
             "duration_ms": self.duration_ms,
             "notes": self.notes,
             "continuation": dict(self.continuation),
+            "source_reviews": dict(self.source_reviews),
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "DreamRun":
         data = dict(data)
+        if data.get("source_reviews") is None:
+            data["source_reviews"] = {}
         for field in ("started_at", "completed_at"):
             value = data.get(field)
             if isinstance(value, str) and value:

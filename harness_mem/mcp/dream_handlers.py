@@ -90,15 +90,19 @@ def _dream_run_summary(run_payload: dict[str, Any] | None) -> dict[str, Any]:
     risk_level = _highest_risk(
         [str(item.get("risk") or "none") for item in items if isinstance(item, dict)]
     )
+    source_reviews = run_payload.get("source_reviews") or {}
+    retained_review = any(isinstance(row, dict) and row.get("needs_human_review")
+        for row in source_reviews.values())
     failed = int(summary.get("failed", 0) or 0)
     applied = int(summary.get("applied", 0) or 0)
     return _maintenance_summary(
         candidate_counts=summary,
         risk_level=risk_level,
         auto_applied=applied > 0,
-        needs_human_review=failed > 0,
+        needs_human_review=failed > 0 or retained_review,
         message=(
-            "Dream updated current knowledge."
+            "Source-unavailable memory remains recallable and awaits human judgment; no deletion was authorized."
+            if retained_review else "Dream updated current knowledge."
             if applied
             else "No maintenance was applied in this dream run."
         ),

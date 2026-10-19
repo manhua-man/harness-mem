@@ -81,6 +81,38 @@ def _scope_fingerprint(entry: KnowledgeEntry) -> str:
                                      separators=(",", ":")).encode()).hexdigest()
 
 
+SOURCE_REVIEW_INTERVAL_DAYS = 30
+DREAM_SOURCE_RECHECK_CONTRACT = "dream-source-recheck-v5"
+_MISSING_SOURCE_REASONS = frozenset({
+    "knowledge_source_missing", "knowledge_source_revision_missing",
+    "knowledge_source_observation_missing", "knowledge_source_exchange_missing",
+    "knowledge_source_chunk_missing", "repository_ref_missing",
+})
+
+
+def _source_review_due_at(review: dict[str, Any]) -> datetime | None:
+    try:
+        value = datetime.fromisoformat(str(review["next_review_at"]))
+        return value if value.tzinfo is not None else None
+    except (KeyError, ValueError, TypeError):
+        return None
+
+
+async def _current_source_reviews(
+    backend: LocalMemoryBackend, project_name: str,
+) -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
+    """Carry only reviews still bound to current content; no history side store."""
+    entries = await backend.structured_store.knowledge_store.list_entries(project_name)
+    fingerprints = {entry.id: _scope_fingerprint(entry) for entry in entries}
+    runs = await backend.structured_store.list_dream_runs(project_name, limit=1)
+    previous = runs[0].source_reviews if runs else {}
+    reviews = {entry_id: dict(row) for entry_id, row in previous.items()
+        if entry_id in fingerprints and row.get("policy_version") == "missing-source-review-v1"
+        and row.get("fingerprint") == fingerprints[entry_id]
+        and _source_review_due_at(row) is not None}
+    return reviews, fingerprints
+
+
 async def _scope_upgrade_coverage(backend: LocalMemoryBackend, project_name: str) -> dict[str, Any]:
     """Reuse existing run receipts for scheduling only, never source admission."""
     prefix = "dream scope_partition_v3: "
@@ -149,10 +181,16 @@ async def _detect_separated_rechecks(
     current = await store.list_entries(project_name)
     covered = await _scope_upgrade_coverage(backend, project_name)
     attempted = await _scope_recheck_attempt_times(backend, project_name)
+    source_reviews, _ = await _current_source_reviews(backend, project_name)
+    held_for_review = {entry_id for entry_id, row in source_reviews.items()
+        if cast(datetime, _source_review_due_at(row)) > _now()}
     signals: list[DreamRecheckSignal] = []
     seen: set[tuple[str, tuple[str, ...], str | None]] = set()
 
     def add(signal: DreamRecheckSignal) -> None:
+        # Preserve complete groups: do not silently remove an unavailable member.
+        if any(entry_id in held_for_review for entry_id in signal.target_ids):
+            return
         key = (signal.kind, signal.target_ids, signal.cause_id)
         if key not in seen:
             seen.add(key)
@@ -309,10 +347,28 @@ async def _prepare_source_backed_rechecks(
             project_root=project_root,
         )
         if validation.verification_outcome != "verified":
+            missing = (validation.verification_outcome == "unverified"
+                and bool(validation.reason_codes)
+                and set(validation.reason_codes) <= _MISSING_SOURCE_REASONS)
+            if missing and len(sources) > 1:
+                # The shared reopener stops at its first unavailable source.
+                # A missing first source must not mask a later role/hash/path failure.
+                for source_row in sources:
+                    source_validation, _source_text, _effective = await reopen_dream_knowledge_sources(
+                        backend, project_name=project_name, sources=[source_row], project_root=project_root,
+                    )
+                    if (source_validation.verification_outcome != "verified" and not (
+                            source_validation.verification_outcome == "unverified"
+                            and source_validation.reason_codes
+                            and set(source_validation.reason_codes) <= _MISSING_SOURCE_REASONS)):
+                        missing = False
+                        validation = source_validation
+                        break
             skipped[entry.id] = (
                 "Dream could not reopen every policy-eligible current source "
                 "for this entry; current knowledge was left unchanged.",
-                str(validation.verification_outcome or "unverified"),
+                ("source_missing:" + ",".join(validation.reason_codes)) if missing else
+                str(validation.verification_outcome or "unverified") + ":" + ",".join(validation.reason_codes),
             )
         elif any(item.truncated for item in reopened):
             skipped[entry.id] = (
@@ -350,13 +406,16 @@ async def _verify_source_backed_rechecks(
         return {}
 
     verification_manifest = {
-        "contract_version": "dream-source-recheck-v4",
+        "contract_version": DREAM_SOURCE_RECHECK_CONTRACT,
         "scope_partition_required": True,
         "project_name": project_name,
         "candidates": [
             {
                 "candidate_index": index,
                 "kind": "memory",
+                # This is an existing canonical entry's visible project scope,
+                # not a proposed write route inferred from candidate prose.
+                "current_knowledge_project": entry.project_name,
                 "statement": entry.statement,
                 "title": entry.title,
                 "scope_text": dream_scope_text(entry),
@@ -370,6 +429,7 @@ async def _verify_source_backed_rechecks(
                 "sources": [
                     {
                         "kind": source.source_kind,
+                        "project_name": source.project_name,
                         "content_sha256": source.content_sha256,
                         "content": item.content,
                         **({
@@ -751,6 +811,7 @@ async def _dream_once(
     started_at = _resume.started_at if _resume is not None else _now()
     notes: list[str] = list(_resume.notes or []) if _resume is not None else []
     items: list[DreamItem] = list(_resume.items) if _resume is not None else []
+    source_reviews, _review_fingerprints = await _current_source_reviews(backend, project_name)
 
     run_stub = DreamRun(
         id=_run_id or str(uuid4()),
@@ -763,6 +824,7 @@ async def _dream_once(
         items=[],
         notes=notes if notes else None,
         continuation=dict(_resume.continuation) if _resume is not None else {},
+        source_reviews=dict(source_reviews),
     )
     await store.save_dream_run(run_stub)
 
@@ -786,6 +848,7 @@ async def _dream_once(
         checkpoint["unresolved_scope"] = dict(unresolved_scope)
         checkpoint["verification"] = dict(saved_verification)
         run_stub.continuation = dict(checkpoint)
+        run_stub.source_reviews = dict(source_reviews)
         run_stub.items = list(items)
         run_stub.notes = list(notes)
         run_stub.handling_summary = {}
@@ -833,6 +896,8 @@ async def _dream_once(
     def source_binding(row: Any) -> str:
         entry, validation, reopened, sources = row
         payload = {
+            "verification_contract": DREAM_SOURCE_RECHECK_CONTRACT,
+            "current_knowledge_project": entry.project_name,
             "semantic_fingerprint": _scope_fingerprint(entry),
             "evidence_basis": validation.evidence_basis,
             "sources": [{"kind": source.source_kind, "locator": source.locator,
@@ -899,6 +964,51 @@ async def _dream_once(
             })
         except (KeyError, TypeError, ValueError):
             return None
+
+    async def review_missing_source(entry: KnowledgeEntry, item: DreamItem) -> bool:
+        current_entries = await backend.structured_store.knowledge_store.list_entries(project_name)
+        current_by_id = {row.id: row for row in current_entries}
+        current = current_by_id.get(entry.id)
+        fingerprint = _scope_fingerprint(entry)
+        if current is None or _scope_fingerprint(current) != fingerprint:
+            return False
+        duplicates = [row for row in current_entries if row.id != entry.id
+            and _scope_fingerprint(row) == fingerprint]
+        comparisons = [row for row in current_entries if row.id != entry.id
+            and entry.source_report is None and row.source_report is None
+            and row.module_path == entry.module_path and row.title == entry.title
+            and row.statement != entry.statement]
+        feedback = await backend.structured_store.query_retrieval_signals(
+            project_name, signal_type="context_outcome", target_kind="knowledge_entry", limit=200,
+        )
+        latest_feedback = next((row for row in feedback if row.target_id == entry.id), None)
+        negative = latest_feedback is not None and latest_feedback.value is not None and latest_feedback.value <= 0
+        recommendation = ("consider_exact_duplicate" if duplicates else
+            "compare_current_claims" if comparisons else
+            "review_deletion_candidate" if negative else "keep_pending_user_judgment")
+        explanation = ("Current entries have identical complete claim and attribution fingerprints; review the retained copy before deletion."
+            if duplicates else "Current ordinary entries share a title and module but differ in text; compare them without assuming a contradiction or replacement."
+            if comparisons else "Negative retrieval feedback warrants review; it does not establish falsehood or authorize deletion."
+            if negative else "The original source is unavailable; retain this recallable memory until the user judges its current usefulness.")
+        reviewed_at = _now()
+        row = {
+            "policy_version": "missing-source-review-v1", "fingerprint": fingerprint,
+            "last_reviewed_at": reviewed_at.isoformat(),
+            "next_review_at": (reviewed_at + timedelta(days=SOURCE_REVIEW_INTERVAL_DAYS)).isoformat(),
+            "interval_days": SOURCE_REVIEW_INTERVAL_DAYS,
+            "source_status": "unavailable", "verification_status": "not_reverified",
+            "disposition": "kept_unverified", "needs_human_review": True,
+            "recommendation": recommendation, "review_reason": explanation,
+            "reason_codes": str(item.result["source_status"]).split(":", 1)[1].split(","),
+            "related_current_entries": [{"entry_id": other.id, "fingerprint": _scope_fingerprint(other)}
+                for other in [*duplicates, *comparisons]],
+            "negative_feedback_id": latest_feedback.id if negative and latest_feedback is not None else None,
+            "automatic_deletion_authorized": False,
+        }
+        source_reviews[entry.id] = row
+        item.result.update(source_review=dict(row), truth_change="none")
+        item.reason = explanation
+        return True
 
     async def continue_later() -> DreamRun:
         update_remaining()
@@ -1145,7 +1255,15 @@ async def _dream_once(
                         "source_scope_session_only:retirement_not_authorized"
                     )
             if item.final_action == "skipped":
-                unresolved_scope[item.source_id] = str(item.result.get("source_status", "source_unavailable"))
+                status = str(item.result.get("source_status", "source_unavailable"))
+                original = entry_snapshots.get(item.source_id)
+                if (status.startswith("source_missing:") and original is not None
+                        and await review_missing_source(original, item)):
+                    unresolved_scope.pop(item.source_id, None)
+                else:
+                    unresolved_scope[item.source_id] = status
+            if item.final_action == "applied":
+                source_reviews.pop(item.source_id, None)
             if item.final_action == "applied" and item.result.get("truth_change") in {"refine", "deleted"}:
                 unresolved_scope.pop(item.source_id, None)
             if item.final_action == "applied" and item.result.get("truth_change") == "verification_refreshed":
@@ -1193,6 +1311,7 @@ async def _dream_once(
         notes=notes if notes else None,
         continuation={**checkpoint, "completed_signal_indexes": sorted(completed_signal_indexes),
             "unresolved_scope": dict(unresolved_scope), "verification": {}},
+        source_reviews=dict(source_reviews),
     )
     await store.save_dream_run(run)
     return run
@@ -1250,6 +1369,7 @@ async def dream_status_snapshot(
         failed_items = int(last_run.handling_summary.get("failed", 0))
         processed_items = int(last_run.handling_summary.get("processed", 0))
 
+    current_reviews, _current_fingerprints = await _current_source_reviews(backend, project_name)
     latest_tick = _latest_dream_tick_receipt(backend, project_name=project_name)
     payload: dict[str, Any] = {
         "enabled": bool(config.dream_auto_enabled) if config is not None else False,
@@ -1263,6 +1383,9 @@ async def dream_status_snapshot(
         "last_completed_at": _iso(last_run.completed_at) if last_run else None,
         "last_processed": processed_items,
         "last_failed": failed_items,
+        "source_reviews": dict(current_reviews),
+        "source_review_interval_days": SOURCE_REVIEW_INTERVAL_DAYS,
+        "needs_human_review": any(row.get("needs_human_review") for row in current_reviews.values()),
         "scheduler_eligible": False,
         "scheduler_reason": "dream config unavailable",
         "next_eligible_at": None,
@@ -1323,14 +1446,26 @@ async def dream_scheduler_decision(
     last_run = runs[0] if runs else None
     if last_run is not None and last_run.status == "continuing":
         return DreamSchedulerDecision(True, "dream continuation pending", last_run_id=last_run.id)
+    source_reviews, current_fingerprints = await _current_source_reviews(backend, project_name)
+    now = _now()
+    due_reviews = [entry_id for entry_id, row in source_reviews.items()
+        if cast(datetime, _source_review_due_at(row)) <= now]
+    changed_reviews = [entry_id for entry_id in (last_run.source_reviews if last_run else {})
+        if entry_id in current_fingerprints and entry_id not in source_reviews]
+    if due_reviews or changed_reviews:
+        return DreamSchedulerDecision(True, "retained memory source review is due",
+            last_run_id=last_run.id if last_run else None)
+    review_dates = [cast(datetime, _source_review_due_at(row)) for row in source_reviews.values()]
+    next_source_review = min(review_dates) if review_dates else None
     latest_activity = await _latest_project_activity(backend, project_name)
     if latest_activity is None:
-        return DreamSchedulerDecision(False, "no project activity to dream over")
+        return DreamSchedulerDecision(False, "no project activity to dream over",
+            next_eligible_at=next_source_review)
     if last_run is not None and latest_activity <= last_run.started_at:
         return DreamSchedulerDecision(
             False,
             "no new project activity since the last dream run",
-            last_run_id=last_run.id,
+            last_run_id=last_run.id, next_eligible_at=next_source_review,
         )
 
     now = _now()

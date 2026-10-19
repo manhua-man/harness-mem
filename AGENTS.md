@@ -38,6 +38,20 @@
 
 ## 当前版本与目标架构边界
 
+Retained missing-source review (2026-10-20, unreleased): missing original
+sources do not block normal recall or authorize deletion. Existing Dream
+receipts track current-content fingerprints, review reasons, recommendations
+and a 30-day next-review date. Review runs at the next natural maintenance
+tick when due; no independent timer or model test is introduced. Exact current
+duplicates, differing same-topic claims and negative retrieval feedback inform
+review suggestions, never deletion approval. Content changes invalidate the
+previous review. Physical source absence is retained unverified rather than
+reported as a failed cleanup; digest, role and project-boundary errors still
+fail. The user's explicit single-memory deletion is independently read back,
+with the other five missing-source entries unchanged. Four runtime owners are
+synchronized with backups; natural nonempty continuation and cleanup acceptance
+remains separate from installation. See `docs/background-memory.md`.
+
 Dream continuation and cleanup repair (2026-10-20, unreleased): the existing
 natural worker resumes a finite, source-bound Dream run in slices, with one
 new verification batch of at most four targets per slice and the original
