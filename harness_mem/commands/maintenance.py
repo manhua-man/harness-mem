@@ -523,16 +523,28 @@ async def run_post_turn_maintenance(
         # triggering session instead of only seeing older project activity.
         try:
             with temporarily_disable_embeddings():
-                dream_tick = await dream_auto_tick(
-                    backend,
-                    project_name=project_name,
-                    project_root=project_root,
-                    config=config,
-                    source=cast(DreamSource, source),
-                    trigger_id=trigger_id,
-                    trigger_job_id=str(job_id) if job_id else None,
-                    host_client=host_client,
-                )
+                if source == "ide_hook" and not evidence_packet.get("success", False):
+                    # A native event whose session was not staged cannot borrow
+                    # older project activity to start or resume semantic work.
+                    # Retained memories with missing historical evidence are
+                    # reviewed separately inside a valid Dream run.
+                    dream_tick = {
+                        "success": False, "status": "skipped",
+                        "project_name": project_name,
+                        "reason": "triggering_session_not_staged",
+                        "source_reason_codes": evidence_packet.get("reason_codes", []),
+                    }
+                else:
+                    dream_tick = await dream_auto_tick(
+                        backend,
+                        project_name=project_name,
+                        project_root=project_root,
+                        config=config,
+                        source=cast(DreamSource, source),
+                        trigger_id=trigger_id,
+                        trigger_job_id=str(job_id) if job_id else None,
+                        host_client=host_client,
+                    )
                 # Continue the same naturally triggered maintenance run in its
                 # existing detached owner; never restage or invent another Stop.
                 if source == "ide_hook" and os.environ.get("HARNESS_MEM_HOOK_BACKGROUND_WORKER") == "1":

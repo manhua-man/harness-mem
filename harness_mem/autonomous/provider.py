@@ -72,6 +72,7 @@ def verification_point_receipts(decision: CandidateVerificationDecision) -> list
                 "source_use": segment.source_use, "future_scope": segment.future_scope,
                 "standalone": segment.standalone,
                 "content_role": segment.content_role,
+                "source_support": segment.source_support,
             })
             offset = end
         rows.append({
@@ -81,6 +82,16 @@ def verification_point_receipts(decision: CandidateVerificationDecision) -> list
                 "".join(segment.text for segment in point.scope_segments).encode("utf-8")
             ).hexdigest(),
             "scope_segments": segments,
+            "claim_units": [{
+                "first_segment": unit.first_segment,
+                "end_segment_exclusive": unit.end_segment_exclusive,
+                "char_start": segments[unit.first_segment]["char_start"],
+                "char_end": segments[unit.end_segment_exclusive - 1]["char_end"],
+                "text_sha256": hashlib.sha256("".join(segment.text for segment in
+                    point.scope_segments[unit.first_segment:unit.end_segment_exclusive]).encode("utf-8")).hexdigest(),
+                "standalone": unit.standalone, "source_support": unit.source_support,
+                "source_use": unit.source_use, "future_scope": unit.future_scope,
+            } for unit in point.claim_units],
         })
     return rows
 
@@ -614,6 +625,48 @@ def _build_verification_prompt(manifest: dict[str, Any]) -> str:
         "source_excerpts": evidence,
     }
     packet = json.dumps(projected, ensure_ascii=False, separators=(",", ":"))
+    canonical_dream_units = (
+        manifest.get("contract_version") == "dream-source-recheck-v6"
+        and manifest.get("scope_partition_required") is True
+        and bool(manifest.get("project_name")) and bool(manifest.get("candidates"))
+        and all(isinstance(candidate, dict)
+            and candidate.get("current_knowledge_project") == manifest["project_name"]
+            and isinstance(candidate.get("scope_text"), str)
+            for candidate in manifest["candidates"])
+    )
+    claim_unit_contract = (
+        "For dream-source-recheck-v6 canonical existing-knowledge maintenance only, independently "
+        "judge source_support for every scope segment: supported when its complete wording is "
+        "entailed by its bound source and speaker; unsupported when not established there; "
+        "contradicted when the source says the opposite; unclear when undecidable. Do not copy "
+        "a point's partial judgment into every segment: supported parts stay supported while "
+        "the point remains partial. A necessary supported qualifier may be non-standalone. "
+        "Return claim_units as a complete inventory of substantive mechanisms, constraints, "
+        "configuration states, standing choices and subject/period/authority/evidence limits, "
+        "including units whose future_scope is session_only or unclear. Do not hide these "
+        "claims under temporary_context merely because they concern this task or past work. "
+        "Do not invent units for pure one-time authorization, progress or particular-run "
+        "numbers that establish no substantive claim. Each unit names first_segment and "
+        "end_segment_exclusive, selecting one original contiguous half-open segment range. "
+        "It cannot bridge a temporary_context segment or join separated prose. Include every "
+        "necessary qualifier in that range. Its standalone is a new explicit joint judgment "
+        "about that complete range, not permission to flip any segment's standalone false "
+        "to true. A claim and adjacent qualifier can jointly form a standalone unit even "
+        "when neither segment alone is standalone. Judge the unit's source_support, source_use "
+        "and future_scope independently; durable requires a continuing reusable use. "
+        "Use the declared current_knowledge_project scope under the same v5 limits, and retain "
+        "the original title for ordinary entries or the fixed speaker/source/period account "
+        "for source reports. Do not invent missing subject, condition, approval or state. "
+        "Only a source-supported, durable, standalone continuous unit can be retained by "
+        "Dream maintenance. Unsupported, unclear, incomplete or missing unit proof cannot "
+        "authorize retaining new knowledge or deleting neighboring qualifications. The "
+        "ordinary extraction admission rule is unchanged: a partial point is still partial "
+        "and cannot become a new accepted ordinary candidate through a supported unit. "
+    ) if canonical_dream_units else (
+        "For contracts other than canonical dream-source-recheck-v6, claim_units remains empty. "
+        "Still judge source_support for every requested scope segment; no unit grants the "
+        "canonical Dream maintenance exception or upgrades a partial ordinary candidate. "
+    )
     return (
         "Verify each candidate against only its supplied source excerpts and return one JSON "
         "point for every candidate_index. supported means the source entails the full wording; "
@@ -641,7 +694,7 @@ def _build_verification_prompt(manifest: dict[str, Any]) -> str:
         "is not a direct standing instruction; it belongs in a scoped source_report. "
         "Check the supplied contextual exchange as well as the decision excerpt; a named "
         "project's requirement must retain that project in the candidate wording. "
-        "For dream-source-recheck-v5 only, current_knowledge_project is the already persisted "
+        "For dream-source-recheck-v5 and dream-source-recheck-v6 only, current_knowledge_project is the already persisted "
         "entry's project scope also displayed by ordinary memory consumers, not a proposed "
         "routing choice. That field may supply an omitted project name when the bound sources "
         "support the same project's requirement; do not mark an otherwise fully supported "
@@ -688,6 +741,11 @@ def _build_verification_prompt(manifest: dict[str, Any]) -> str:
         "not the sequence of receipts. A standing rule that records must contain an identifier is durable; only "
         "the particular identifier value is session_only. Use unclear when reuse is not established. "
         "When scope_partition_required is true, return scope_segments for every candidate. "
+        "For each scope segment explicitly set source_support: supported when its wording is "
+        "entailed by the bound source and speaker, unsupported when not established there, "
+        "contradicted for an opposite source assertion, or unclear when undecidable. A whole "
+        "supported point must have supported substantive segments; its overall vote cannot "
+        "override an unsupported or unknown clause. Judge scope and future use separately. "
         "When scope_partition_boundaries are supplied, start a new segment at each character offset. "
         "Partition scope_text when supplied (the final title and statement together), otherwise "
         "its statement, into independently classified claims: each segment has text, "
@@ -701,8 +759,11 @@ def _build_verification_prompt(manifest: dict[str, Any]) -> str:
         "limitation or evidence boundary remains a claim or qualifier even when reported during "
         "this run. Do not demand the word permanent for a continuing project choice, and do "
         "not erase its project or period qualifier. A required qualifier must be kept with its "
-        "claim in one standalone continuous segment, not labelled temporary because it says this round. "
-        "Set standalone true only when that segment "
+        + ("claim within the same original continuous claim unit; neither an adjacent qualifier "
+           "nor its claim must be falsely marked standalone as an individual segment. "
+           if canonical_dream_units else
+           "claim in one standalone continuous segment, not labelled temporary because it says this round. ")
+        + "Set standalone true only when that segment "
         "retains its full subject, authority, modality and scope without another segment. "
         "Concatenating segment text in order must reproduce the "
         "entire selected text exactly, including punctuation, spaces and newlines. Assess a final "
@@ -712,15 +773,18 @@ def _build_verification_prompt(manifest: dict[str, Any]) -> str:
         "a useful clause cannot grant durability to neighboring clauses. Do not omit qualifiers "
         "or invent replacement prose. A single segment is appropriate only for one uniform claim. "
         "Reports' attribution wrappers are scope boundaries, not an extra durability claim. "
-        "The runtime checks the whole partition and will defer mixed or unclear claims intact. "
-        "A user instruction can establish a requirement or "
+        + ("The runtime checks the whole partition and the explicit continuous-unit proof; "
+           "mixed or partial points are not upgraded wholesale. " if canonical_dream_units else
+           "The runtime checks the whole partition and will defer mixed or unclear claims intact. ")
+        + "A user instruction can establish a requirement or "
         "preference but does not prove the code implements it. A bare Goal/Read/Write/Acceptance/"
         "Preflight/Hard boundary/Verification task envelope is session_only unless it separately "
         "states an ongoing project policy. A version number or runtime status reported in a "
         "historical session is only that session's state; treat it as session_only unless current "
         "repository evidence establishes that it still holds. This current-version/runtime "
         "restriction does not discard an explicitly time-bounded evidence-limit claim. "
-        "Return only JSON.\n\n"
+        + claim_unit_contract
+        + "Return only JSON.\n\n"
         f"<verification_manifest>{packet}</verification_manifest>"
     )
 

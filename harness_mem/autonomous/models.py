@@ -159,6 +159,30 @@ class CandidateScopeSegment(_StrictModel):
     future_scope: Literal["durable", "session_only", "unclear"]
     standalone: bool = False
     content_role: Literal["claim", "qualifier", "temporary_context", "unclear"] = "unclear"
+    source_support: Literal["supported", "unsupported", "contradicted", "unclear"] = "unclear"
+
+
+class CandidateClaimUnit(_StrictModel):
+    """Joint proof for one original contiguous claim including necessary qualifiers.
+
+    Segment indexes select an existing half-open range. A unit does not upgrade
+    any individual segment's standalone, support, source use or future scope.
+    """
+
+    first_segment: int = Field(ge=0)
+    end_segment_exclusive: int = Field(ge=1)
+    standalone: bool = False
+    source_support: Literal["supported", "unsupported", "contradicted", "unclear"] = "unclear"
+    source_use: Literal[
+        "standing_decision", "reusable_knowledge", "task_context", "unclear"
+    ] = "unclear"
+    future_scope: Literal["durable", "session_only", "unclear"] = "unclear"
+
+    @model_validator(mode="after")
+    def require_nonempty_range(self) -> "CandidateClaimUnit":
+        if self.end_segment_exclusive <= self.first_segment:
+            raise ValueError("claim unit must select a nonempty contiguous segment range")
+        return self
 
 
 class CandidateVerificationPoint(_StrictModel):
@@ -172,10 +196,17 @@ class CandidateVerificationPoint(_StrictModel):
     ] = "unclear"
     reason: str = Field(min_length=8, max_length=1000)
     scope_segments: list[CandidateScopeSegment] = Field(default_factory=list)
+    claim_units: list[CandidateClaimUnit] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def bind_future_scope_to_source_use(self) -> "CandidateVerificationPoint":
-        """A supported execution request cannot acquire standing authority."""
+        """Retain point-level authority and bind units to the original partition."""
+        for unit in self.claim_units:
+            if unit.end_segment_exclusive > len(self.scope_segments):
+                raise ValueError("claim unit extends beyond the supplied scope segments")
+            if any(segment.content_role == "temporary_context" for segment in
+                    self.scope_segments[unit.first_segment:unit.end_segment_exclusive]):
+                raise ValueError("claim unit cannot bridge a temporary-context segment")
         if self.source_use == "task_context":
             self.future_scope = "session_only"
         elif self.source_use == "unclear":
@@ -196,6 +227,14 @@ def verification_scope_status(point: CandidateVerificationPoint, statement: str)
         return "source_scope_partition_missing"
     if "".join(part.text for part in parts) != statement:
         return "source_scope_partition_mismatch"
+    if point.semantic_support == "supported" and (
+        any(part.text.strip() and part.source_support != "supported" for part in parts)
+        or any(unit.source_support != "supported" for unit in point.claim_units)
+    ):
+        # The whole-point vote cannot overrule an unknown or unsupported clause.
+        # This shared gate covers initial admission, final-plan verification and
+        # Dream confirmation without upgrading any partial point.
+        return "source_scope_support_inconsistent"
     scopes: set[str] = set()
     for part in parts:
         if part.content_role == "unclear":
@@ -205,6 +244,13 @@ def verification_scope_status(point: CandidateVerificationPoint, statement: str)
             scopes.add("session_only")
         elif part.source_use == "unclear" or part.future_scope == "unclear":
             scopes.add("unclear")
+        else:
+            scopes.add("durable")
+    for unit in point.claim_units:
+        if unit.source_use == "unclear" or unit.future_scope == "unclear":
+            scopes.add("unclear")
+        elif unit.source_use == "task_context" or unit.future_scope == "session_only":
+            scopes.add("session_only")
         else:
             scopes.add("durable")
     if "unclear" in scopes:

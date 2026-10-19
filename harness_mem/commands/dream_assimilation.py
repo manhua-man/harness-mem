@@ -79,17 +79,65 @@ def dream_temporary_retirement_allowed(
     return bool(
         point is not None and point.semantic_support == "supported"
         and verification_scope_status(point, dream_scope_text(entry)) == "source_scope_session_only"
+        # A substantive unit remains meaningful even when its later use is
+        # uncertain. Only an explicit inventory with no such claim may retire
+        # the whole row as disposable context.
+        and not point.claim_units
         and all(segment.content_role == "temporary_context"
                 and segment.source_use == "task_context" and segment.future_scope == "session_only"
+                and segment.source_support == "supported"
                 for segment in point.scope_segments)
     )
 
 
 def _retained_report_text(point: CandidateVerificationPoint) -> str:
-    return " ".join(segment.text.strip() for segment in point.scope_segments
-                    if segment.content_role == "claim" and segment.future_scope == "durable"
-                    and segment.source_use in {"standing_decision", "reusable_knowledge"}
-                    and segment.standalone)
+    units = _standalone_durable_units(point, body_start=0)
+    if len(units) != 1:
+        raise ValueError("Dream report refinement requires one complete continuous claim unit")
+    return units[0][0]
+
+
+def _standalone_durable_units(
+    point: CandidateVerificationPoint, *, body_start: int,
+) -> list[tuple[str, str, frozenset[int]]]:
+    """Read the verifier's joint proofs; never infer standalone from fragments."""
+    segments = point.scope_segments
+    starts: list[int] = []
+    offset = 0
+    for segment in segments:
+        starts.append(offset)
+        offset += len(segment.text)
+    retained: list[tuple[str, str, frozenset[int]]] = []
+    occupied: set[int] = set()
+    for unit in point.claim_units:
+        first, end = unit.first_segment, unit.end_segment_exclusive
+        if not (0 <= first < end <= len(segments)):
+            return []
+        if (unit.source_support != "supported" or not unit.standalone
+                or unit.future_scope != "durable"
+                or unit.source_use not in {"standing_decision", "reusable_knowledge"}):
+            continue
+        if starts[first] < body_start:
+            # The original title is checked separately and cannot become body.
+            continue
+        selected = segments[first:end]
+        substantive = [part for part in selected if part.text.strip()]
+        if (not substantive or not any(part.content_role == "claim" for part in substantive)
+                or any(part.source_support != "supported"
+                       or part.content_role not in {"claim", "qualifier"}
+                       for part in substantive)):
+            return []
+        indexes = frozenset(range(first, end))
+        if occupied.intersection(indexes):
+            return []
+        occupied.update(indexes)
+        # A unit is an original continuous range, never a collection assembled
+        # across a temporary or unknown clause.
+        text = "".join(part.text for part in selected).strip()
+        if not text:
+            return []
+        retained.append((text, unit.source_use, indexes))
+    return sorted(retained, key=lambda row: min(row[2]))
 
 
 @dataclass(frozen=True)
@@ -246,38 +294,56 @@ def build_dream_maintenance_plan(
 
 
 def _verified_durable_scope_items(candidate: DreamAssimilationCandidate) -> list[dict[str, Any]]:
-    """Derive only independently complete verbatim durable claims from mixed truth."""
+    """Retain complete source-supported units from an existing mixed row.
+
+    The original point may remain partial. No new extraction candidate becomes
+    verified through this maintenance-only literal derivation.
+    """
     point = candidate.scope_verification
     if (point is None
-            or candidate.semantic_support != "supported" or point.semantic_support != "supported"
-            or verification_scope_status(
-                point, dream_scope_text(candidate.entry),
-            ) != "source_scope_mixed"):
+            or candidate.semantic_support not in {"supported", "partial"}
+            or point.semantic_support != candidate.semantic_support
+            or not point.scope_segments
+            or "".join(part.text for part in point.scope_segments) != dream_scope_text(candidate.entry)):
         return []
-    durable = []
-    temporary = []
     body_start = len(candidate.entry.title) + 1 if candidate.entry.source_report is None else 0
+    units = _standalone_durable_units(point, body_start=body_start)
+    if not units or (candidate.entry.source_report is not None and len(units) != 1):
+        return []
+    retained_indexes = frozenset(index for _text, _use, indexes in units for index in indexes)
+    removed = False
     offset = 0
-    for segment in point.scope_segments:
+    for index, segment in enumerate(point.scope_segments):
         end = offset + len(segment.text)
         if offset < body_start:
             if (end > body_start or segment.future_scope != "durable"
                     or segment.source_use not in {"standing_decision", "reusable_knowledge"}
-                    or segment.content_role not in {"claim", "qualifier"}):
+                    or segment.content_role not in {"claim", "qualifier"}
+                    or segment.source_support != "supported"):
                 return []
             offset = end
             continue
         offset = end
-        if (segment.content_role == "temporary_context"
-                and segment.source_use == "task_context" and segment.future_scope == "session_only"):
-            temporary.append(segment)
-        elif (segment.content_role == "claim"
-              and segment.source_use in {"standing_decision", "reusable_knowledge"}
-              and segment.future_scope == "durable" and segment.standalone):
-            durable.append(segment)
-        else:
+        if index in retained_indexes or not segment.text.strip():
+            continue
+        # A claim-unit inventory cannot disagree with a disposable segment.
+        # In particular, an uncertain or session-scoped constraint is not
+        # silently discarded because it was also labelled temporary.
+        if any(unit.first_segment <= index < unit.end_segment_exclusive
+               and unit.source_support not in {"unsupported", "contradicted"}
+               for unit in point.claim_units):
             return []
-    if not durable or not temporary:
+        temporary = (segment.content_role == "temporary_context"
+            and segment.source_support == "supported"
+            and segment.source_use == "task_context" and segment.future_scope == "session_only")
+        unsupported = (point.semantic_support == "partial"
+            and segment.source_support in {"unsupported", "contradicted"}
+            and segment.content_role == "claim" and segment.standalone)
+        if not temporary and not unsupported:
+            # Unknown text and detached qualifiers stay in current knowledge.
+            return []
+        removed = True
+    if not removed:
         return []
     if candidate.entry.source_report is not None:
         report = candidate.entry.source_report.model_copy(update={
@@ -289,10 +355,10 @@ def _verified_durable_scope_items(candidate: DreamAssimilationCandidate) -> list
         }]
     else:
         items = [{
-            "title": candidate.entry.title, "statement": segment.text.strip(),
+            "title": candidate.entry.title, "statement": text,
             "topic_path": list(candidate.entry.module_path),
-            "claim_kind": "design_requirement" if segment.source_use == "standing_decision" else "procedure",
-        } for segment in durable]
+            "claim_kind": "design_requirement" if source_use == "standing_decision" else "procedure",
+        } for text, source_use, _indexes in units]
     try:
         _validate_writing_items(knowledge_items=items, canonical_title=None,
                                 canonical_statement=None, topic_path=[], disposition="refine")

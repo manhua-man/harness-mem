@@ -82,7 +82,7 @@ def _scope_fingerprint(entry: KnowledgeEntry) -> str:
 
 
 SOURCE_REVIEW_INTERVAL_DAYS = 30
-DREAM_SOURCE_RECHECK_CONTRACT = "dream-source-recheck-v5"
+DREAM_SOURCE_RECHECK_CONTRACT = "dream-source-recheck-v6"
 _MISSING_SOURCE_REASONS = frozenset({
     "knowledge_source_missing", "knowledge_source_revision_missing",
     "knowledge_source_observation_missing", "knowledge_source_exchange_missing",
@@ -821,7 +821,9 @@ async def _dream_once(
         status="processing",
         trigger_source=source,
         reflection_job_id=reflection_job_id,
-        items=[],
+        # Preserve prior slice receipts even if this process exits before its
+        # first progress checkpoint. A processing stub must not erase them.
+        items=list(items),
         notes=notes if notes else None,
         continuation=dict(_resume.continuation) if _resume is not None else {},
         source_reviews=dict(source_reviews),
@@ -886,6 +888,15 @@ async def _dream_once(
     checkpoint["slice_count"] = int(checkpoint.get("slice_count", 0)) + 1
     completed_signal_indexes: set[int] = set(checkpoint.get("completed_signal_indexes", []))
     unresolved_scope: dict[str, str] = dict(checkpoint.get("unresolved_scope", {}))
+    if _resume is not None and checkpoint.get("verification_contract") != DREAM_SOURCE_RECHECK_CONTRACT:
+        applied_targets = {item.source_id for item in items if item.final_action == "applied"}
+        # A new source-support contract may resolve an earlier no-write result.
+        # Keep its actual failed attempt in the ledger, but never reapply an
+        # already changed group or replace the original complete manifest.
+        completed_signal_indexes = {index for index in completed_signal_indexes
+            if not (set(recheck_signals[index].target_ids).intersection(unresolved_scope)
+                    and not set(recheck_signals[index].target_ids).intersection(applied_targets))}
+    checkpoint["verification_contract"] = DREAM_SOURCE_RECHECK_CONTRACT
     saved_verification: dict[str, Any] = dict(checkpoint.get("verification", {}))
     new_verification_batches = 0
     verification_deadline = deadline
@@ -921,21 +932,28 @@ async def _dream_once(
                 "text_sha256": hashlib.sha256(part.text.encode()).hexdigest(),
                 "content_role": part.content_role, "source_use": part.source_use,
                 "future_scope": part.future_scope, "standalone": part.standalone,
+                "source_support": part.source_support,
             })
             offset = end
         return {
-            "proof_version": "scope-offsets-v1",
+            "proof_version": "scope-offsets-v2",
             "candidate_index": point.candidate_index,
             "semantic_support": point.semantic_support, "future_scope": point.future_scope,
             "source_use": point.source_use,
             "reason_sha256": hashlib.sha256(point.reason.encode()).hexdigest(),
             "scope_text_sha256": hashlib.sha256(text.encode()).hexdigest(),
             "scope_segments": segments,
+            "claim_units": [{
+                **unit.model_dump(mode="json"),
+                "text_sha256": hashlib.sha256("".join(
+                    part.text for part in point.scope_segments[unit.first_segment:unit.end_segment_exclusive]
+                ).encode()).hexdigest(),
+            } for unit in point.claim_units],
         }
 
     def restore_point(proof: Any, text: str) -> CandidateVerificationPoint | None:
         try:
-            if (not isinstance(proof, dict) or proof.get("proof_version") != "scope-offsets-v1"
+            if (not isinstance(proof, dict) or proof.get("proof_version") != "scope-offsets-v2"
                     or proof.get("scope_text_sha256") != hashlib.sha256(text.encode()).hexdigest()):
                 return None
             segments = []
@@ -950,17 +968,30 @@ async def _dream_once(
                 if hashlib.sha256(current_text.encode()).hexdigest() != part["text_sha256"]:
                     return None
                 segments.append({"text": current_text, **{key: part[key] for key in (
-                    "content_role", "source_use", "future_scope", "standalone",
+                    "content_role", "source_use", "future_scope", "standalone", "source_support",
                 )}})
                 offset = end
             if offset != len(text) or not segments:
                 return None
+            units = []
+            for unit in proof["claim_units"]:
+                first, end = unit["first_segment"], unit["end_segment_exclusive"]
+                if (type(first) is not int or type(end) is not int
+                        or not 0 <= first < end <= len(segments)
+                        or hashlib.sha256("".join(part["text"] for part in segments[first:end]).encode()).hexdigest()
+                        != unit["text_sha256"]):
+                    return None
+                units.append({key: unit[key] for key in (
+                    "first_segment", "end_segment_exclusive", "standalone",
+                    "source_support", "source_use", "future_scope",
+                )})
             return CandidateVerificationPoint.model_validate({
                 **{key: proof[key] for key in (
                     "candidate_index", "semantic_support", "future_scope", "source_use",
                 )},
                 "reason": "Reused this run's source-bound verification after current content and partition hash checks.",
                 "scope_segments": segments,
+                "claim_units": units,
             })
         except (KeyError, TypeError, ValueError):
             return None
@@ -1159,7 +1190,9 @@ async def _dream_once(
                                 "kind": source.source_kind,
                                 "locator_sha256": hashlib.sha256(source.locator.encode()).hexdigest(),
                                 "content_sha256": source.content_sha256,
-                                "source_revision": parse_qs(urlparse(source.locator).query).get("source_revision", [None])[0],
+                                "source_revision": parse_qs(
+                                    urlparse(source.locator).fragment or urlparse(source.locator).query
+                                ).get("source_revision", [None])[0],
                             } for source in row[3]],
                             "point": proof,
                             }
@@ -1310,7 +1343,9 @@ async def _dream_once(
         duration_ms=duration_ms,
         notes=notes if notes else None,
         continuation={**checkpoint, "completed_signal_indexes": sorted(completed_signal_indexes),
-            "unresolved_scope": dict(unresolved_scope), "verification": {}},
+            # Retain finite metadata proofs for deletion/refinement audit after
+            # source locator rows are normally removed; never retain bodies.
+            "unresolved_scope": dict(unresolved_scope), "verification": dict(saved_verification)},
         source_reviews=dict(source_reviews),
     )
     await store.save_dream_run(run)

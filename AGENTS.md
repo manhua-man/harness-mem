@@ -38,6 +38,22 @@
 
 ## 当前版本与目标架构边界
 
+Dream claim-unit repair (2026-10-20, unreleased): the v6 source recheck
+records explicit source support per segment and complete contiguous claim
+units, including their necessary qualifiers. Existing mixed rows may retain
+verified durable units through literal refinement while the original point
+remains partial; initial admission does not acquire that exception. Unknown
+clauses and detached qualifiers prevent refinement. Whole-row temporary
+retirement requires supported disposable content with no substantive claim
+unit. Shared verification rejects a supported whole-point vote inconsistent
+with its segment or unit support. Slice proofs retain only offsets, hashes and
+classifications after completion. An unstaged Hook session cannot start or
+resume Dream by borrowing older project activity. Static checks pass; no new
+model test or manual trigger is dispatched. The preceding 103-target run
+finished traversal but failed with 60 unresolved targets and zero refinements;
+its continuation caller has unresolved native provenance. This is not complete
+natural acceptance. See `docs/background-memory.md`.
+
 Retained missing-source review (2026-10-20, unreleased): missing original
 sources do not block normal recall or authorize deletion. Existing Dream
 receipts track current-content fingerprints, review reasons, recommendations
