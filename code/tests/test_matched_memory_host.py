@@ -1,7 +1,8 @@
 """No-model wrapper contracts using disposable, self-contained fixtures.
 
 The two native upstream integration tests require HARNESS_MEM_TEST_UPSTREAM_ROOT
-to name an existing absolute clone path below REPO/.tmp. They never download it.
+to name an existing read-only mirror. All generated fixtures use pytest's
+external basetemp. They never download an upstream.
 """
 
 from __future__ import annotations
@@ -10,10 +11,8 @@ import importlib.util
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
-import tempfile
 from uuid import uuid4
 
 import pytest
@@ -26,13 +25,13 @@ spec.loader.exec_module(host)
 
 
 @pytest.fixture
-def experiment():
-    temp_root = REPO / ".tmp"
-    temp_root.mkdir(exist_ok=True)
-    run = Path(tempfile.mkdtemp(prefix="matched-host-fixture-", dir=temp_root)).resolve()
+def experiment(tmp_path):
+    temp_root = tmp_path.resolve()
+    run = temp_root / "run"
+    run.mkdir()
     project = run / "project"
     project.mkdir()
-    upstream = run / "upstream-source"
+    upstream = temp_root / "upstream-source"
     upstream.mkdir()  # Scope/HM contracts do not execute upstream code.
     (project / ".harness-mem.toml").write_text("[distill.autonomous]\nenabled = false\n", encoding="utf-8")
     sid = str(uuid4())
@@ -47,7 +46,8 @@ def experiment():
     ]
     source.write_text("\n".join(json.dumps(item) for item in records) + "\n", encoding="utf-8")
     payload = {
-        "schema_version": 1, "run_root": str(run), "project_root": str(project),
+        "schema_version": 2, "artifact_root": str(temp_root),
+        "run_root": str(run), "project_root": str(project),
         "project_name": "project", "native_root": str(run / "native-codex"),
         "data_dir": str(run / "isolateddata"), "notes_dir": str(run / "isolatednotes"),
         "audit_path": str(run / "audit" / "calls.ndjson"), "upstream_root": str(upstream),
@@ -58,7 +58,6 @@ def experiment():
     manifest_path.write_text(json.dumps(payload), encoding="utf-8")
     yield payload, manifest_path, source
     assert host.within(run.resolve(), temp_root.resolve()) and run != temp_root
-    shutil.rmtree(run)
 
 
 @pytest.fixture
@@ -91,6 +90,28 @@ def rewrite(experiment, **changes):
     payload, path, _ = experiment
     payload.update(changes)
     path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_external_scope_rejects_repository_ancestor_and_read_only_source_overlap(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    for root in (repo, tmp_path):
+        with pytest.raises(host.ScopeError, match="outside and disjoint"):
+            host.validate_external_scope(root, root / "run", root / "source", repo=repo)
+    root = tmp_path / "artifacts"
+    root.mkdir()
+    with pytest.raises(host.ScopeError, match="overlaps"):
+        host.validate_external_scope(root, root / "run", root / "run/source", repo=repo)
+    with pytest.raises(host.ScopeError, match="task-owned"):
+        host.validate_external_scope(root, root / "run", tmp_path / "unapproved-source", repo=repo)
+
+
+def test_external_manifest_cannot_be_loaded_from_outside_its_run(experiment):
+    payload, path, _ = experiment
+    outside = Path(payload["artifact_root"]) / "outside-manifest.json"
+    outside.write_bytes(path.read_bytes())
+    with pytest.raises(host.ScopeError, match="manifest must be below"):
+        host.Manifest(outside)
 
 
 @pytest.mark.parametrize("field", ["run_root", "project_root", "native_root", "data_dir",
@@ -133,7 +154,7 @@ def test_isolated_device_host_lists_and_prepares_without_a_source_directory(expe
 
 def test_manifest_rejects_missing_upstream_directory(experiment):
     payload, path, _ = experiment
-    rewrite(experiment, upstream_root=str(Path(payload["run_root"]) / "missing-upstream"))
+    rewrite(experiment, upstream_root=str(Path(payload["artifact_root"]) / "missing-upstream"))
     with pytest.raises(host.ScopeError, match="upstream_root must exist"):
         host.Manifest(path)
 
@@ -159,6 +180,26 @@ def test_manifest_requires_disabled_background_and_absolute_paths(experiment):
     {"action": "suggest", "arguments": {"client": "hermes"}},
 ])
 def test_nested_scope_rejected(experiment, arguments):
+    with pytest.raises(host.ScopeError):
+        host.Manifest(experiment[1]).validate_arguments(arguments)
+
+
+def test_device_scope_keeps_native_logical_project_names(experiment):
+    rewrite(experiment, device_scope=True)
+    manifest = host.Manifest(experiment[1])
+    manifest.validate_arguments({"project_name": "project", "scope": "all"})
+    manifest.validate_arguments({"project_name": "global", "scope": "all"})
+    manifest.validate_arguments({"project_names": ["project", "global"], "scope": "project"})
+
+
+@pytest.mark.parametrize("arguments", [
+    {"project_root": str(REPO)},
+    {"evidence": [{"path": str(REPO / "AGENTS.md")}]},
+    {"session_id": "00000000-0000-0000-0000-000000000000"},
+    {"client": "hermes"},
+])
+def test_device_scope_still_guards_physical_sources_and_hosts(experiment, arguments):
+    rewrite(experiment, device_scope=True)
     with pytest.raises(host.ScopeError):
         host.Manifest(experiment[1]).validate_arguments(arguments)
 

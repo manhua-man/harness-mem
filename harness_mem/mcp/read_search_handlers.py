@@ -103,6 +103,11 @@ def tool_search_memory(
                 "Unless the user requested project-only memory, repeat this query with scope='all' "
                 "before changing keywords."
             )
+            payload["retry_without_project_filter"] = {
+                "only_if": "user_did_not_request_project_only",
+                "tool": "search_memory",
+                "arguments": {"query": query, "scope": "all"},
+            }
         if not _include_diagnostics:
             return payload
         surfaced = [] if index else page

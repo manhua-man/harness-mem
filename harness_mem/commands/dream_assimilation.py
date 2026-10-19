@@ -1,10 +1,11 @@
 """Trusted application of bounded Dream comparison decisions.
 
 Dream works over already-governed current knowledge rather than over a
-session-distill job.  This module gives that maintenance path the same
-separation as ordinary assimilation: an untrusted provider proposes one
-strictly bounded decision, then the runtime rechecks the real sources and
-directly updates or deletes current knowledge.
+session-distill job. Its automatic maintenance plan is derived from completed
+source verification, then the runtime rechecks the real sources and directly
+confirms or retires current knowledge. The comparative decision validator is
+retained for existing callers; automatic Dream does not request another model
+decision over dispositions that verification has already constrained.
 
 The caller keeps reopened source text in memory.  It is present in the
 provider manifest only for the immediate no-tool semantic call and is never
@@ -17,10 +18,12 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal, Mapping, Sequence
+from typing import Any, Literal, Mapping, Sequence, cast
 from uuid import NAMESPACE_URL, uuid5
 
-from harness_mem.autonomous.models import AssimilationDecision
+from harness_mem.autonomous.models import (
+    AssimilationDecision, CandidateVerificationPoint, verification_scope_status,
+)
 from harness_mem.commands.evidence_admission import validate_knowledge_sources
 from harness_mem.commands.knowledge_assimilation import (
     delete_current_knowledge,
@@ -36,6 +39,7 @@ from harness_mem.core.schemas import (
     ProjectKnowledgeSourceRef,
 )
 from harness_mem.knowledge_validation import validate_atomic_knowledge_statement
+from harness_mem.storage.canonical_store import CanonicalTransactionPreconditionError
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
@@ -55,6 +59,37 @@ class DreamAssimilationCandidate:
     future_scope: DreamFutureScope
     verification_reason: str
     source_excerpts: tuple[dict[str, str], ...]
+    scope_verification: CandidateVerificationPoint | None = None
+
+
+def dream_scope_text(entry: KnowledgeEntry) -> str:
+    """Classify report prose without treating its generated attribution as a claim."""
+    report = entry.source_report
+    if report is None:
+        return entry.title + "\n" + entry.statement
+    if entry.title != report.render_title() or entry.statement != report.render_statement():
+        raise ValueError("Dream report rendering does not match its bound attribution")
+    return report.text
+
+
+def dream_temporary_retirement_allowed(
+    entry: KnowledgeEntry, point: CandidateVerificationPoint | None,
+) -> bool:
+    """Only an explicit complete disposable partition may retire supported text."""
+    return bool(
+        point is not None and point.semantic_support == "supported"
+        and verification_scope_status(point, dream_scope_text(entry)) == "source_scope_session_only"
+        and all(segment.content_role == "temporary_context"
+                and segment.source_use == "task_context" and segment.future_scope == "session_only"
+                for segment in point.scope_segments)
+    )
+
+
+def _retained_report_text(point: CandidateVerificationPoint) -> str:
+    return " ".join(segment.text.strip() for segment in point.scope_segments
+                    if segment.content_role == "claim" and segment.future_scope == "durable"
+                    and segment.source_use in {"standing_decision", "reusable_knowledge"}
+                    and segment.standalone)
 
 
 @dataclass(frozen=True)
@@ -103,6 +138,8 @@ def prepare_dream_assimilation(
                 "title": candidate.entry.title,
                 "statement": candidate.entry.statement,
                 "topic_path": list(candidate.entry.module_path),
+                **({"source_report": candidate.entry.source_report.model_dump(mode="json", exclude={"text"})}
+                   if candidate.entry.source_report is not None else {}),
             }
         )
         verified_candidates.append(
@@ -143,6 +180,127 @@ def prepare_dream_assimilation(
     )
 
 
+def build_dream_maintenance_plan(
+    prepared: DreamPreparedAssimilation,
+) -> list[dict[str, Any]]:
+    """Derive maintenance from completed verification, not a second model vote.
+
+    Source reopening has already admitted every supplied candidate. Unclear
+    or partial semantic results remain unchanged; a supported durable row is
+    refreshed, and an explicitly contradicted row may retire only itself.
+    Only complete disposable content-role partitions may retire temporary rows.
+    A complete mixed partition may retain verbatim, independently
+    complete durable claims; it cannot manufacture rewritten knowledge.
+    """
+
+    plan: list[dict[str, Any]] = []
+    for candidate in prepared.candidates:
+        disposition = "no_write"
+        target_ids: list[str] = []
+        reason = candidate.verification_reason
+        retained_items = _verified_durable_scope_items(candidate)
+        if retained_items:
+            disposition = "refine"
+            target_ids = [candidate.entry.id]
+        elif candidate.future_scope != "unclear":
+            if candidate.semantic_support == "supported":
+                if candidate.future_scope == "session_only":
+                    if dream_temporary_retirement_allowed(candidate.entry, candidate.scope_verification):
+                        disposition = "reject"
+                        target_ids = [candidate.entry.id]
+                    else:
+                        reason = (
+                            "The complete content-role partition has not established "
+                            "that all supported content is disposable; scope remains unresolved."
+                        )
+                elif candidate.future_scope == "durable":
+                    disposition = "confirm"
+                    target_ids = [candidate.entry.id]
+                    if prepared.signal_kind == "duplicate":
+                        survivors = [
+                            other for other in prepared.candidates
+                            if other.semantic_support == "supported"
+                            and other.future_scope == "durable"
+                            and other.entry.source_report == candidate.entry.source_report
+                            and other.entry.statement == candidate.entry.statement
+                        ]
+                        survivor = min(survivors, key=lambda item: item.entry.id)
+                        if survivor.entry.id != candidate.entry.id:
+                            disposition = "reject"
+                            target_ids = [survivor.entry.id]
+            elif candidate.semantic_support == "contradicted":
+                disposition = "reject"
+                target_ids = [candidate.entry.id]
+        plan.append({
+            "candidate_id": candidate.candidate_id,
+            "entry_id": candidate.entry.id,
+            "disposition": disposition,
+            "matched_truth_ids": target_ids,
+            "canonical_title": None,
+            "canonical_statement": None,
+            "topic_path": [],
+            "knowledge_items": retained_items,
+            "reason": reason,
+        })
+    return plan
+
+
+def _verified_durable_scope_items(candidate: DreamAssimilationCandidate) -> list[dict[str, Any]]:
+    """Derive only independently complete verbatim durable claims from mixed truth."""
+    point = candidate.scope_verification
+    if (point is None
+            or candidate.semantic_support != "supported" or point.semantic_support != "supported"
+            or verification_scope_status(
+                point, dream_scope_text(candidate.entry),
+            ) != "source_scope_mixed"):
+        return []
+    durable = []
+    temporary = []
+    body_start = len(candidate.entry.title) + 1 if candidate.entry.source_report is None else 0
+    offset = 0
+    for segment in point.scope_segments:
+        end = offset + len(segment.text)
+        if offset < body_start:
+            if (end > body_start or segment.future_scope != "durable"
+                    or segment.source_use not in {"standing_decision", "reusable_knowledge"}
+                    or segment.content_role not in {"claim", "qualifier"}):
+                return []
+            offset = end
+            continue
+        offset = end
+        if (segment.content_role == "temporary_context"
+                and segment.source_use == "task_context" and segment.future_scope == "session_only"):
+            temporary.append(segment)
+        elif (segment.content_role == "claim"
+              and segment.source_use in {"standing_decision", "reusable_knowledge"}
+              and segment.future_scope == "durable" and segment.standalone):
+            durable.append(segment)
+        else:
+            return []
+    if not durable or not temporary:
+        return []
+    if candidate.entry.source_report is not None:
+        report = candidate.entry.source_report.model_copy(update={
+            "text": _retained_report_text(point),
+        })
+        items = [{
+            "title": report.render_title(), "statement": report.render_statement(),
+            "topic_path": list(candidate.entry.module_path), "claim_kind": "source_report",
+        }]
+    else:
+        items = [{
+            "title": candidate.entry.title, "statement": segment.text.strip(),
+            "topic_path": list(candidate.entry.module_path),
+            "claim_kind": "design_requirement" if segment.source_use == "standing_decision" else "procedure",
+        } for segment in durable]
+    try:
+        _validate_writing_items(knowledge_items=items, canonical_title=None,
+                                canonical_statement=None, topic_path=[], disposition="refine")
+    except ValueError:
+        return []
+    return items
+
+
 def validate_dream_assimilation_decision(
     prepared: DreamPreparedAssimilation,
     decision: AssimilationDecision,
@@ -150,9 +308,9 @@ def validate_dream_assimilation_decision(
     """Bind an untrusted provider decision to rechecked current knowledge.
 
     A Dream ``reject`` has deliberately narrower semantics than a session
-    candidate rejection: it can retire *its own* contradicted row, or an exact
-    duplicate whose equivalent survivor is named by the provider.  No other
-    provider choice may remove current truth.
+    candidate rejection: it can retire *its own* contradicted row,
+    or an exact duplicate whose equivalent survivor is named
+    by the provider. Partial or unclear evidence cannot retire current truth.
     """
 
     points = list(decision.points)
@@ -174,6 +332,15 @@ def validate_dream_assimilation_decision(
         if any(handle not in prepared.truth_by_handle for handle in handles):
             raise ValueError("Dream assimilation point references an unavailable truth handle")
         disposition = str(point.disposition)
+        if candidate.entry.source_report is not None and disposition == "replace":
+            raise ValueError("source-report authority cannot be rewritten by Dream")
+        for handle in handles:
+            target_entry = entry_by_id[prepared.truth_by_handle[handle]]
+            if ((candidate.entry.source_report is None) != (target_entry.source_report is None)):
+                raise ValueError("Dream cannot cross source-report and fact authority boundaries")
+            if (candidate.entry.source_report is not None
+                    and candidate.entry.source_report != target_entry.source_report):
+                raise ValueError("Dream cannot merge reports with distinct source attribution")
         if disposition not in {
             "confirm",
             "refine",
@@ -211,12 +378,18 @@ def validate_dream_assimilation_decision(
                 topic_path=point.topic_path,
                 disposition=disposition,
             )
-        elif knowledge_items or point.canonical_title or point.canonical_statement or point.topic_path:
-            raise ValueError(f"Dream {disposition} cannot carry canonical knowledge")
+        else:
+            # These actions never write text. Ignore redundant proposals rather
+            # than interpreting them or rejecting an otherwise safe outcome.
+            knowledge_items = []
 
         support = candidate.semantic_support
         durable = candidate.future_scope == "durable"
-        if support == "supported" and durable:
+        retained_items = _verified_durable_scope_items(candidate)
+        if disposition == "refine" and retained_items:
+            if handles != [own_handle] or knowledge_items != retained_items:
+                raise ValueError("Dream refinement must preserve its exact verified literal claims")
+        elif support == "supported" and durable:
             if disposition == "reject":
                 survivor_id = prepared.truth_by_handle[handles[0]]
                 survivor = entry_by_id[survivor_id]
@@ -230,6 +403,14 @@ def validate_dream_assimilation_decision(
                     )
             elif disposition not in {"confirm", "no_write", "defer", "conflict"}:
                 raise ValueError("supported Dream knowledge cannot be rewritten")
+        elif support == "supported" and candidate.future_scope == "session_only":
+            if disposition == "reject" and (
+                handles != [own_handle]
+                or not dream_temporary_retirement_allowed(candidate.entry, candidate.scope_verification)
+            ):
+                raise ValueError("Dream retirement requires a complete disposable content partition")
+            if disposition not in {"reject", "no_write", "defer", "conflict"}:
+                raise ValueError("session-only scope cannot authorize a Dream truth mutation")
         elif support == "contradicted":
             if disposition in {"confirm"}:
                 raise ValueError("contradicted Dream knowledge cannot be confirmed")
@@ -244,9 +425,9 @@ def validate_dream_assimilation_decision(
                 "entry_id": candidate.entry.id,
                 "disposition": disposition,
                 "matched_truth_ids": [prepared.truth_by_handle[handle] for handle in handles],
-                "canonical_title": point.canonical_title,
-                "canonical_statement": point.canonical_statement,
-                "topic_path": list(point.topic_path),
+                "canonical_title": point.canonical_title if disposition in {"refine", "replace"} else None,
+                "canonical_statement": point.canonical_statement if disposition in {"refine", "replace"} else None,
+                "topic_path": list(point.topic_path) if disposition in {"refine", "replace"} else [],
                 "knowledge_items": knowledge_items,
                 "reason": reason,
             }
@@ -269,18 +450,63 @@ async def apply_dream_assimilation(
     """
 
     candidates = {candidate.candidate_id: candidate for candidate in prepared.candidates}
-    if {str(point.get("candidate_id") or "") for point in plan} != set(candidates):
+    if (len(plan) != len(candidates)
+            or {str(point.get("candidate_id") or "") for point in plan} != set(candidates)):
         raise ValueError("Dream assimilation plan is not bound to its candidates")
+    derived = {point["candidate_id"]: point for point in build_dream_maintenance_plan(prepared)}
+    for point in plan:
+        candidate = candidates[str(point["candidate_id"])]
+        if (str(point.get("disposition")) == "reject"
+                and candidate.semantic_support == "supported"
+                and candidate.future_scope == "session_only"
+                and not dream_temporary_retirement_allowed(candidate.entry, candidate.scope_verification)):
+            raise ValueError("Dream retirement requires a complete disposable content partition")
+        if str(point.get("disposition")) in {"refine", "replace"}:
+            expected = derived[str(point["candidate_id"])]
+            if expected["disposition"] != "refine" or dict(point) != expected:
+                raise ValueError("Dream refinement must exactly retain its verified standalone durable segments")
     store = backend.structured_store.knowledge_store
     outcomes: list[dict[str, Any]] = []
     for point in plan:
         candidate = candidates[str(point["candidate_id"])]
         disposition = str(point["disposition"])
+        if disposition in {"no_write", "defer", "conflict"}:
+            outcomes.append(
+                {
+                    "candidate_id": candidate.candidate_id,
+                    "entry_id": candidate.entry.id,
+                    "status": "rejected",
+                    "reason": str(point["reason"]),
+                }
+            )
+            continue
         target_candidates = [candidate]
-        if disposition in {"refine", "replace"}:
+        if disposition in {"refine", "replace", "reject"}:
             target_ids = [str(value) for value in point.get("matched_truth_ids") or []]
             by_id = {item.entry.id: item for item in prepared.candidates}
-            target_candidates = [by_id[target_id] for target_id in target_ids]
+            target_candidates.extend(
+                by_id[target_id] for target_id in target_ids
+                if target_id != candidate.entry.id
+            )
+        current_targets = [
+            await store.get_entry(target.entry.id, project_name=prepared.project_name)
+            for target in target_candidates
+        ]
+        if any(
+            current is None
+            or current.statement != target.entry.statement
+            or current.title != target.entry.title
+            or current.module_path != target.entry.module_path
+            or current.source_report != target.entry.source_report
+            for target, current in zip(target_candidates, current_targets)
+        ):
+            outcomes.append({
+                "candidate_id": candidate.candidate_id,
+                "entry_id": candidate.entry.id,
+                "status": "source_changed",
+                "reason": "Dream current knowledge changed after its source recheck.",
+            })
+            continue
         validations = [
             await validate_knowledge_sources(
                 backend,
@@ -301,24 +527,35 @@ async def apply_dream_assimilation(
                 }
             )
             continue
-        if disposition in {"no_write", "defer", "conflict"}:
-            outcomes.append(
-                {
+        if disposition == "confirm":
+            verified_at = validation.verified_at or datetime.now().astimezone()
+            try:
+                await store.refresh_entry_verification(
+                    project_name=prepared.project_name,
+                    entry_id=candidate.entry.id,
+                    verified_at=verified_at,
+                    refresh_id=f"dream:{prepared.run_id}:{candidate.candidate_id}:confirm",
+                    refreshed_sources=candidate.sources,
+                    expected_entry=current_targets[0],
+                )
+            except CanonicalTransactionPreconditionError:
+                outcomes.append({
                     "candidate_id": candidate.candidate_id,
                     "entry_id": candidate.entry.id,
-                    "status": "rejected",
-                    "reason": str(point["reason"]),
-                }
+                    "status": "source_changed",
+                    "reason": "Dream confirmation target changed before commit.",
+                })
+                continue
+            refreshed = await store.get_entry(
+                candidate.entry.id, project_name=prepared.project_name,
             )
-            continue
-        if disposition == "confirm":
-            await store.refresh_entry_verification(
-                project_name=prepared.project_name,
-                entry_id=candidate.entry.id,
-                verified_at=validation.verified_at or datetime.now().astimezone(),
-                refresh_id=f"dream:{prepared.run_id}:{candidate.candidate_id}:confirm",
-                refreshed_sources=candidate.sources,
-            )
+            if (
+                refreshed is None
+                or refreshed.statement != candidate.entry.statement
+                or refreshed.source_report != candidate.entry.source_report
+                or refreshed.verified_at != verified_at
+            ):
+                raise RuntimeError("Dream confirmation readback did not match verified knowledge")
             outcomes.append(
                 {
                     "candidate_id": candidate.candidate_id,
@@ -330,11 +567,22 @@ async def apply_dream_assimilation(
             )
             continue
         if disposition == "reject":
-            await delete_current_knowledge(
-                backend,
-                project_name=prepared.project_name,
-                target_knowledge_ids=[candidate.entry.id],
-            )
+            try:
+                await delete_current_knowledge(
+                    backend,
+                    project_name=prepared.project_name,
+                    target_knowledge_ids=[candidate.entry.id],
+                    expected_entry=current_targets[0],
+                    retained_entries=[entry for entry in current_targets[1:] if entry is not None],
+                )
+            except CanonicalTransactionPreconditionError:
+                outcomes.append({
+                    "candidate_id": candidate.candidate_id,
+                    "entry_id": candidate.entry.id,
+                    "status": "source_changed",
+                    "reason": "Dream deletion target or retained knowledge changed before commit.",
+                })
+                continue
             outcomes.append(
                 {
                     "candidate_id": candidate.candidate_id,
@@ -348,6 +596,11 @@ async def apply_dream_assimilation(
 
         if disposition not in {"refine", "replace"}:  # pragma: no cover - validator owns this.
             raise ValueError(f"unsupported Dream assimilation disposition: {disposition}")
+        retained_report = candidate.entry.source_report
+        if retained_report is not None:
+            retained_report = retained_report.model_copy(update={
+                "text": _retained_report_text(cast(CandidateVerificationPoint, candidate.scope_verification)),
+            })
         workspace_candidate = KnowledgeCandidate(
             id=str(
                 uuid5(
@@ -357,7 +610,8 @@ async def apply_dream_assimilation(
             ),
             project_name=prepared.project_name,
             candidate_type="memory",
-            statement=candidate.entry.statement,
+            statement=retained_report.text if retained_report else candidate.entry.statement,
+            source_report=retained_report,
         )
         record_point = {
             **dict(point),
@@ -371,13 +625,21 @@ async def apply_dream_assimilation(
             for target in target_candidates
             for ref in _source_refs(target.sources)
         ]
-        truth_ids = await record_assimilation_result(
-            backend,
-            candidate=workspace_candidate,
-            point=record_point,
-            project_root=prepared.project_root,
-            source_refs=source_refs,
-        )
+        try:
+            truth_ids = await record_assimilation_result(
+                backend,
+                candidate=workspace_candidate,
+                point=record_point,
+                project_root=prepared.project_root,
+                source_refs=source_refs,
+                expected_predecessor_entries=[entry for entry in current_targets if entry is not None],
+            )
+        except CanonicalTransactionPreconditionError:
+            outcomes.append({
+                "candidate_id": candidate.candidate_id, "entry_id": candidate.entry.id,
+                "status": "source_changed", "reason": "Dream refinement target changed before commit.",
+            })
+            continue
         await store.cleanup_candidate(workspace_candidate.id)
         outcomes.append(
             {
@@ -475,6 +737,7 @@ __all__ = [
     "DreamAssimilationCandidate",
     "DreamPreparedAssimilation",
     "apply_dream_assimilation",
+    "build_dream_maintenance_plan",
     "prepare_dream_assimilation",
     "validate_dream_assimilation_decision",
 ]

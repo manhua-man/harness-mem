@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 from uuid import NAMESPACE_URL, uuid5
 
 from harness_mem.core.schemas.knowledge import (
@@ -17,6 +17,7 @@ from harness_mem.core.schemas.knowledge import (
 )
 from harness_mem.core.schemas.project_knowledge_base import ProjectKnowledgeSourceRef
 from harness_mem.knowledge_renderer import render_knowledge_markdown
+from harness_mem.storage.canonical_store import CanonicalTransactionPreconditionError
 from harness_mem.storage.knowledge_job_workspace import KnowledgeJobWorkspace
 
 if TYPE_CHECKING:
@@ -127,6 +128,7 @@ class KnowledgeStore:
         verified_at: datetime,
         refresh_id: str,
         refreshed_sources: Sequence[KnowledgeSource] | None = None,
+        expected_entry: KnowledgeEntry | None = None,
     ) -> dict:
         """Record a source-backed freshness check without changing knowledge.
 
@@ -136,7 +138,12 @@ class KnowledgeStore:
         receipts are nevertheless updated atomically with CAS preconditions.
         """
 
+        expected_sha = self._store.record_payload_sha256("knowledge_entries", entry_id)
         current = await self.get_entry(entry_id, project_name=project_name)
+        if expected_entry is not None and (
+            current is None or current.to_dict() != expected_entry.to_dict()
+        ):
+            raise CanonicalTransactionPreconditionError("confirmation target changed after verification")
         if current is None:
             raise ValueError("knowledge verification target is not current")
         sources = await self.list_sources(entry_id)
@@ -178,6 +185,7 @@ class KnowledgeStore:
                 project_name=project_name,
             )
         ]
+        operations[0]["expected_sha256"] = expected_sha
         operations.extend(
             _replace_operation(
                 self._store,
@@ -249,6 +257,36 @@ class KnowledgeStore:
                 raise ValueError("knowledge change output crosses projects")
             if not source_refs_by_entry.get(entry.id):
                 raise ValueError("knowledge write requires a real source reference")
+            refs = source_refs_by_entry[entry.id]
+            report = entry.source_report
+            if any(ref.kind == "source_report" for ref in refs) != (report is not None):
+                raise ValueError("source-report and fact authority boundary cannot be crossed")
+            if report is not None:
+                if candidate_before.source_report != report:
+                    raise ValueError("source-report write must retain its verified candidate account")
+                if any(
+                    old.source_report is None or not report.same_account_source(old.source_report)
+                    for old in predecessor_entries
+                ):
+                    raise ValueError("source-report replacement cannot cross source, speaker or period")
+                indexes: set[int] = set()
+                for ref in refs:
+                    query = parse_qs(urlparse(ref.target).fragment)
+                    if (ref.kind != "source_report"
+                            or query.get("source_id") != [report.source_id]
+                            or query.get("source_revision") != [report.source_revision]
+                            or query.get("role") != [report.speaker]
+                            or len(query.get("exchange", [])) != 1):
+                        raise ValueError("source-report authority does not match retained source scope")
+                    try:
+                        indexes.add(int(query["exchange"][0]))
+                    except ValueError as exc:
+                        raise ValueError("source-report exchange is invalid") from exc
+                if indexes != set(report.exchange_indexes):
+                    raise ValueError("source-report exchanges do not match retained source scope")
+            if any((predecessor.source_report is None) != (report is None)
+                   for predecessor in predecessor_entries):
+                raise ValueError("source-report and fact authority boundary cannot be crossed")
 
         new_sources: list[KnowledgeSource] = []
         for entry in added_entries:
@@ -299,14 +337,31 @@ class KnowledgeStore:
         *,
         project_name: str,
         entry_id: str,
+        expected_entry: KnowledgeEntry | None = None,
+        retained_entries: Sequence[KnowledgeEntry] = (),
     ) -> dict:
         """Delete one current entry and its source locators without a history copy."""
 
+        expected_sha = self._store.record_payload_sha256("knowledge_entries", entry_id)
         current = await self.get_entry(entry_id, project_name=project_name)
+        if expected_entry is not None and (
+            current is None or current.to_dict() != expected_entry.to_dict()
+        ):
+            raise CanonicalTransactionPreconditionError("delete target changed after verification")
         if current is None:
             return {"deleted": False, "knowledge_id": entry_id}
         sources = await self.list_sources(current.id)
         operations: list[dict] = []
+        for retained in retained_entries:
+            retained_sha = self._store.record_payload_sha256("knowledge_entries", retained.id)
+            retained_current = await self.get_entry(retained.id, project_name=project_name)
+            if retained_current is None or retained_current.to_dict() != retained.to_dict():
+                raise CanonicalTransactionPreconditionError("retained knowledge changed after verification")
+            operations.append({
+                "operation": "assert", "collection": "knowledge_entries",
+                "entity_id": retained.id, "project_name": retained.project_name,
+                "expected_sha256": retained_sha,
+            })
         for source in sources:
             operations.append(
                 _delete_operation(
@@ -324,6 +379,7 @@ class KnowledgeStore:
                 project_name=current.project_name,
             )
         )
+        operations[-1]["expected_sha256"] = expected_sha
         result = self._store.apply_canonical_payload_transaction(
             idempotency_key=(
                 f"knowledge-delete:{project_name}:{entry_id}:"

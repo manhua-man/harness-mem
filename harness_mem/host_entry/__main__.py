@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import logging
 import math
@@ -28,6 +29,7 @@ import os
 from pathlib import Path
 import sys
 import time
+from contextlib import nullcontext
 from typing import Any, Literal, Sequence
 
 from harness_mem import __version__
@@ -140,7 +142,11 @@ def _post_turn_host_result(payload: dict[str, Any]) -> dict[str, Any]:
     elif status == "skipped":
         next_step = "skipped: this maintenance session was not ingested"
     else:
-        next_step = "failed: transcript evidence staging did not complete"
+        next_step = (
+            "failed: memory maintenance did not complete"
+            if summary.get("dream_tick_status") == "failed"
+            else "failed: transcript evidence staging did not complete"
+        )
     return {
         "action": action,
         "status": status or "failed",
@@ -152,6 +158,7 @@ def _post_turn_host_result(payload: dict[str, Any]) -> dict[str, Any]:
         "evidence_packet": payload.get("evidence_packet"),
         "distill_job": payload.get("distill_job"),
         "autonomous": payload.get("autonomous"),
+        "dream_tick": payload.get("dream_tick"),
         "summary": summary,
     }
 
@@ -171,6 +178,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source", choices=_VALID_SOURCES)
     parser.add_argument("--trigger-id", default=None)
     parser.add_argument("--client", choices=_VALID_CLIENTS, default=None)
+    parser.add_argument("--current-task", default=None)
+    parser.add_argument("--native-transcript-path", default=None, help=argparse.SUPPRESS)
     parser.add_argument(
         "--wait",
         action="store_true",
@@ -303,6 +312,7 @@ def _wait_for_autonomous_receipt(
             and trigger_matches
             and generation_matches
             and state in _TERMINAL_AUTONOMOUS_STATES
+            and receipt.get("maintenance_status") != "running"
         ):
             error = receipt.get("error") or receipt.get("last_batch_error")
             success = state in {"succeeded", "idle"} and not error
@@ -316,6 +326,8 @@ def _wait_for_autonomous_receipt(
                 "job": receipt.get("job_id"),
                 "job_id": receipt.get("job_id"),
                 "error": error,
+                "maintenance_status": receipt.get("maintenance_status"),
+                "dream": receipt.get("maintenance_dream"),
                 "receipt": str(receipt_path),
             }
             code = ExitCode.SUCCESS if success else ExitCode.HOOK_FAILED
@@ -385,8 +397,8 @@ def _adapter_request(
         args.project_root,
         os.getcwd(),
     ]
-    # Project registrations are bound to one root. Only a global adapter with
-    # no explicit root (Hermes) derives its scope from the native payload.
+    # Explicit project registrations keep their root; user-level hooks derive
+    # the task workspace from the host payload instead of the installation path.
     project_root = args.project_root or next(
         (
             str(Path(str(value)).expanduser().resolve())
@@ -432,12 +444,30 @@ def _adapter_request(
             payload.get("session_id") or extra_dict.get("task_id") or default_trigger
         )
 
+    current_task = next((text for text in (payload.get("prompt"), payload.get("user_message"),
+                                         extra_dict.get("user_message"), payload.get("query"),
+                                         getattr(args, "current_task", None))
+                         if isinstance(text, str) and text.strip()), None)
+    if adapter == "antigravity-pre":
+        from harness_mem.adapters.antigravity.adapter import current_hook_task
+
+        native_task = current_hook_task(payload)
+        if native_task is not None:
+            current_task, step = native_task
+            task_hash = hashlib.sha256(current_task.encode("utf-8")).hexdigest()[:16]
+            trigger_id = f"{trigger_id}:user:{step}:{task_hash}"
+
     return argparse.Namespace(
         action=action,
         project_root=project_root,
         source="ide_hook",
         trigger_id=str(trigger_id),
         client=client,
+        current_task=current_task,
+        native_transcript_path=(payload.get("transcript_path") if client == "codex"
+                                and isinstance(payload.get("transcript_path"), str) else None),
+        session_id=(payload.get("conversationId") if client == "antigravity" else trigger_id),
+        user_activity=(adapter == "antigravity-pre" or payload.get("hook_event_name") == "UserPromptSubmit"),
         wait=getattr(args, "wait", False),
         wait_timeout=getattr(args, "wait_timeout", None),
     )
@@ -507,7 +537,10 @@ def _run_adapter(args: argparse.Namespace) -> int:
         return int(ExitCode.ARG_VALIDATION_ERROR)
     request = _adapter_request(args, payload)
     try:
-        exit_code, stdout_payload = _run_request(request)
+        if args.adapter == "codex-stop" and not getattr(args, "wait", False):
+            exit_code, stdout_payload = _run_codex_stop_event(args, request, payload)
+        else:
+            exit_code, stdout_payload = _run_request(request)
     except Exception:  # noqa: BLE001 - adapters are passive by contract.
         logger.exception("hook adapter failed: %s", args.adapter)
         exit_code, stdout_payload = ExitCode.HOOK_FAILED, None
@@ -516,19 +549,45 @@ def _run_adapter(args: argparse.Namespace) -> int:
     assert adapter is not None
     if getattr(args, "wait", False):
         sys.stdout.write((stdout_payload or "{}") + "\n")
-    elif adapter in {"codex-start", "claude-code-start", "grok-start"}:
+    elif adapter in {"codex-start", "claude-code-start"}:
         context = (
             stdout_payload.rstrip("\n")
             if exit_code == ExitCode.SUCCESS and stdout_payload
             else ""
         )
-        sys.stdout.write(context + "\n")
+        notice = getattr(request, "recall_notice", None)
+        if adapter == "codex-start" and context and notice:
+            event = payload.get("hook_event_name") or "UserPromptSubmit"
+            context = (
+                "harness-mem 本轮召回已完成。请在本轮第一条用户可见进展或回复的开头"
+                f"简短提示：{notice} 本轮只提示一次，不介绍内部处理步骤。\n\n{context}"
+            )
+            sys.stdout.write(json.dumps({
+                "systemMessage": notice,
+                "hookSpecificOutput": {"hookEventName": event, "additionalContext": context},
+            }, ensure_ascii=False) + "\n")
+        else:
+            sys.stdout.write(context + "\n")
+    elif adapter == "grok-start":
+        # Grok only reads systemMessage on SessionStart. Allowing prompt
+        # hooks discard stdout instead of injecting additionalContext.
+        context = stdout_payload.strip() if exit_code == ExitCode.SUCCESS and stdout_payload else ""
+        sys.stdout.write(json.dumps({"systemMessage": context} if context else {}) + "\n")
     elif adapter == "antigravity-pre":
         message = (
             stdout_payload.strip()
             if exit_code == ExitCode.SUCCESS and stdout_payload
             else ""
         )
+        notice = getattr(request, "recall_notice", None)
+        if message and notice:
+            # Antigravity exposes context injection, not Codex's user-warning
+            # channel. Ask the current Agent to show one short progress notice;
+            # never impersonate user input or start an extra model invocation.
+            message = (
+                "harness-mem 本轮召回已完成。请在本轮第一条用户可见回复的开头"
+                f"简短提示：{notice} 本轮只提示一次，不介绍内部处理步骤。\n\n{message}"
+            )
         response: dict[str, Any] = (
             {"injectSteps": [{"ephemeralMessage": message}]}
             if message
@@ -560,6 +619,66 @@ def _run_adapter(args: argparse.Namespace) -> int:
     ):
         return int(exit_code)
     return int(ExitCode.SUCCESS)
+
+
+def _run_codex_stop_event(
+    args: argparse.Namespace, request: argparse.Namespace, payload: dict[str, Any],
+) -> tuple[int, str | None]:
+    """Queue identical native Stop deliveries once; retain caller provenance.
+
+    A session alone is not an event identity: subsequent turns, and a changed
+    reply after a blocking Stop hook, must remain eligible for processing.
+    """
+    session_id, turn_id = payload.get("session_id"), payload.get("turn_id")
+    if not all(isinstance(value, str) and value for value in (session_id, turn_id)):
+        return _run_request(request)
+    from harness_mem.hook_receipts import serialize_native_hook_event
+    from harness_mem.storage.local_memory_backend import DEFAULT_DATA_DIR
+
+    identity = {
+        "client": "codex", "event": "Stop", "session_id": session_id,
+        "turn_id": turn_id, "project_root": str(Path(request.project_root).resolve()),
+        "reply_sha256": hashlib.sha256(json.dumps(
+            [payload.get("last_assistant_message"), payload.get("stop_hook_active")],
+            ensure_ascii=False, sort_keys=True,
+        ).encode("utf-8")).hexdigest(),
+        **({"native_transcript_path": request.native_transcript_path}
+           if getattr(request, "native_transcript_path", None) else {}),
+    }
+    caller = {
+        "pid": os.getpid(), "parent_pid": os.getppid(),
+        "python": sys.executable, "launcher": sys.argv[0],
+        "adapter": args.adapter, "explicit_project_root": args.project_root,
+        "native_thread_id": os.environ.get("CODEX_THREAD_ID"),
+        "observed_at": time.time(),
+    }
+    with serialize_native_hook_event(DEFAULT_DATA_DIR, identity=identity) as receipt_path:
+        try:
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            receipt = {}
+        if not isinstance(receipt, dict):
+            receipt = {}
+        prior = receipt.get("result")
+        duplicate = receipt.get("identity") == identity and isinstance(prior, dict) and prior.get("status") == "queued"
+        exit_code: int
+        stdout_payload: str | None
+        if duplicate and isinstance(prior, dict):
+            result = {**prior, "summary": {**prior.get("summary", {}), "native_event_duplicate": True}}
+            exit_code, stdout_payload = int(ExitCode.SUCCESS), json.dumps(result, sort_keys=True)
+        else:
+            exit_code, stdout_payload = _run_request(request)
+            try:
+                result = json.loads(stdout_payload or "{}")
+            except ValueError:
+                result = {}
+        observations = receipt.get("callers")
+        callers = observations if isinstance(observations, list) else []
+        record = {"identity": identity, "callers": [*callers[-7:], caller], "result": result}
+        temporary = receipt_path.with_suffix(f".{os.getpid()}.tmp")
+        temporary.write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        os.replace(temporary, receipt_path)
+        return exit_code, stdout_payload
 
 
 async def run(args: argparse.Namespace) -> tuple[int, str | None]:
@@ -707,6 +826,16 @@ async def _run_core(args: argparse.Namespace) -> tuple[int, str | None]:
             }
             return (ExitCode.SUCCESS, json.dumps(payload, sort_keys=True))
 
+        if args.action == "wake-start" and (
+            getattr(args, "current_task", None) or getattr(args, "user_activity", False)
+        ):
+            from harness_mem.hook_background import record_background_activity
+
+            record_background_activity(
+                DEFAULT_DATA_DIR, project_root=project_root, client=client_override or "",
+                session_id=getattr(args, "session_id", None) or args.trigger_id,
+            )
+
         if args.action in {"post-turn-maintenance", "dream-end"}:
             from harness_mem.maintenance_lock import maintenance_is_locked
 
@@ -763,6 +892,7 @@ async def _run_core(args: argparse.Namespace) -> tuple[int, str | None]:
                     client=client_override,
                     source=args.source,
                     trigger_id=args.trigger_id,
+                    native_transcript_path=getattr(args, "native_transcript_path", None),
                 )
                 payload = {
                     "action": "post-turn-maintenance",
@@ -817,6 +947,7 @@ async def _run_core(args: argparse.Namespace) -> tuple[int, str | None]:
         if (
             args.action == "wake-start"
             and client_override in _REPEATED_WAKE_CLIENTS
+            and (client_override == "antigravity" or not getattr(args, "current_task", None))
             and args.trigger_id
             and args.trigger_id not in _WAKE_FALLBACK_TRIGGERS
             and project_context.project_root is not None
@@ -828,6 +959,7 @@ async def _run_core(args: argparse.Namespace) -> tuple[int, str | None]:
                 project_root=project_context.project_root,
                 client=client_override,
                 action="wake-start",
+                session_id=getattr(args, "session_id", None) if client_override == "antigravity" else None,
             )
             if receipt is not None and receipt.get("trigger_id") == args.trigger_id:
                 return (ExitCode.SUCCESS, "")
@@ -853,6 +985,13 @@ async def _run_core(args: argparse.Namespace) -> tuple[int, str | None]:
                         source=args.source,
                         trigger_id=args.trigger_id,
                     )
+                    if client_override == "antigravity" and getattr(args, "session_id", None):
+                        record_hook_execution(
+                            backend.data_dir, project_root=project_context.project_root,
+                            project_name=project_name, client=client_override, action=action,
+                            source=args.source, trigger_id=args.trigger_id,
+                            session_id=args.session_id,
+                        )
                 except Exception:  # noqa: BLE001 - receipt failure must not fail the hook.
                     logger.warning(
                         "could not persist hook execution receipt",
@@ -863,10 +1002,21 @@ async def _run_core(args: argparse.Namespace) -> tuple[int, str | None]:
                 from harness_mem.commands.wake import build_wake_injection
 
                 try:
-                    text = await build_wake_injection(backend, project_name)
+                    selection: dict[str, Any] = {}
+                    text = await build_wake_injection(
+                        backend, project_name, current_task=getattr(args, "current_task", None),
+                        selection_receipt=selection,
+                    )
                 except Exception:  # noqa: BLE001 - host entry is total.
                     logger.exception("host_entry caught unhandled wake exception")
                     return (ExitCode.HOOK_FAILED, None)
+                if selection.get("query_present"):
+                    count = int(selection.get("returned_count") or 0)
+                    args.recall_notice = (
+                        f"记忆：已召回 {count} 条相关内容。" if count
+                        else "记忆：已找到相关内容，可按需展开。" if selection.get("matched_count")
+                        else "记忆：暂无匹配。"
+                    )
                 record_success("wake-start")
                 return (ExitCode.SUCCESS, text)
 
@@ -911,9 +1061,12 @@ async def _run_core(args: argparse.Namespace) -> tuple[int, str | None]:
                         config=merged,
                         source=args.source,
                         trigger_id=args.trigger_id,
+                        native_transcript_path=getattr(args, "native_transcript_path", None),
+                        background_requested_at=getattr(args, "background_requested_at", None),
                     )
                     if (
-                        not maintenance_payload.get("success")
+                        isinstance(maintenance_payload.get("evidence_packet"), dict)
+                        and not maintenance_payload["evidence_packet"].get("success")
                         and os.environ.get("HARNESS_MEM_HOOK_BACKGROUND_WORKER")
                         == "1"
                     ):
@@ -974,6 +1127,10 @@ async def _run_core(args: argparse.Namespace) -> tuple[int, str | None]:
                                         evidence_error
                                         or "post-turn transcript staging did not complete"
                                     )[:512],
+                                    "reason_codes": (evidence_packet.get("reason_codes", [])
+                                                     if isinstance(evidence_packet, dict) else []),
+                                    "failure_details": (evidence_packet.get("failure_details", {})
+                                                        if isinstance(evidence_packet, dict) else {}),
                                 },
                             )
                 except Exception as exc:  # noqa: BLE001 - host entry is total.
@@ -1042,8 +1199,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"{_MAX_WAIT_TIMEOUT_SECONDS:g} seconds"
         )
     if args.adapter:
-        if args.project_root is None and not args.adapter.startswith("hermes-"):
-            parser.error("--project-root is required with --adapter")
         return _run_adapter(args)
     if args.action is None:
         parser.error("--action is required")
@@ -1055,30 +1210,55 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("--wait requires --source ide_hook")
     worker_generation: str | None = None
     worker_client = normalize_client_name(args.client)
-    if (
+    background_worker = (
         os.environ.get("HARNESS_MEM_HOOK_BACKGROUND_WORKER") == "1"
         and args.action == "post-turn-maintenance"
         and worker_client
         and worker_client != "auto"
-    ):
+    )
+    request = None
+    if background_worker:
         from harness_mem.hook_background import (
             background_generation_from_env,
-            load_background_request,
+            wait_for_background_request,
+            background_request_cancelled,
         )
         from harness_mem.storage.local_memory_backend import DEFAULT_DATA_DIR
 
-        request = load_background_request(
+        request = wait_for_background_request(
             DEFAULT_DATA_DIR,
             project_root=Path(args.project_root),
             client=worker_client,
         )
         if request is not None:
             args.trigger_id = request.trigger_id
+            args.native_transcript_path = request.native_transcript_path
+            args.background_requested_at = request.requested_at
             worker_generation = request.generation
+            os.environ["HARNESS_MEM_HOOK_BACKGROUND_GENERATION"] = request.generation
         else:
             worker_generation = background_generation_from_env()
     try:
-        exit_code, stdout_payload = _run_request(args)
+        exit_code: int
+        stdout_payload: str | None
+        if background_worker and (
+            request is None or background_request_cancelled(DEFAULT_DATA_DIR, request)
+        ):
+            exit_code, stdout_payload = ExitCode.SUCCESS, json.dumps({
+                "action": "post-turn-maintenance", "success": True, "status": "skipped",
+                "reason": "new_user_input" if request is not None else "no_pending_request",
+            })
+        else:
+            lease: Any
+            if background_worker:
+                from harness_mem.hook_background import keep_background_worker_alive
+                lease = keep_background_worker_alive(
+                    DEFAULT_DATA_DIR, project_root=Path(args.project_root), client=worker_client,
+                )
+            else:
+                lease = nullcontext()
+            with lease:
+                exit_code, stdout_payload = _run_request(args)
     finally:
         if worker_generation is not None and worker_client:
             from harness_mem.hook_background import finish_background_worker

@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from pathlib import Path
 import time
 from typing import Any, cast
 
 from harness_mem.config.merge import MergedConfig
+from harness_mem.diagnostic_events import exception_locations
 from harness_mem.commands.dream import DreamSource, dream_auto_tick
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
@@ -391,6 +393,8 @@ async def run_post_turn_maintenance(
     config: MergedConfig,
     source: str = "ide_hook",
     trigger_id: str | None = None,
+    native_transcript_path: str | None = None,
+    background_requested_at: float | None = None,
 ) -> dict[str, Any]:
     """Sync transcript evidence and queue Agent-led distillation work."""
     from harness_mem.maintenance_lock import maintenance_is_locked
@@ -465,6 +469,7 @@ async def run_post_turn_maintenance(
                 run_ingest=True,
                 session_id=trigger_id if source == "ide_hook" else None,
                 _distill_source=source,
+                _native_transcript_path=native_transcript_path,
             )
 
         ingest_attempts = 0
@@ -497,6 +502,7 @@ async def run_post_turn_maintenance(
                 "project_name": project_name,
                 "project_root": project_root,
                 "error": f"{type(exc).__name__}: {exc}"[:512],
+                "failure_details": exception_locations(exc),
             }
 
         job_id = evidence_packet.get("distill_job_id")
@@ -527,6 +533,42 @@ async def run_post_turn_maintenance(
                     trigger_job_id=str(job_id) if job_id else None,
                     host_client=host_client,
                 )
+                # Continue the same naturally triggered maintenance run in its
+                # existing detached owner; never restage or invent another Stop.
+                if source == "ide_hook" and os.environ.get("HARNESS_MEM_HOOK_BACKGROUND_WORKER") == "1":
+                    from harness_mem.hook_background import (
+                        BackgroundRequest, background_generation_from_env,
+                        background_request_cancelled, heartbeat_background_worker,
+                    )
+                    worker_client = host_client or os.environ.get("HARNESS_MEM_CLIENT", "")
+                    original_run = dream_tick.get("run_id")
+                    metadata = dream_tick.get("continuation") or {}
+                    max_slices = int(metadata.get("max_slices", 0)) if isinstance(metadata, dict) else 0
+                    request = BackgroundRequest(
+                        generation=background_generation_from_env() or "",
+                        project_root=project_root, client=worker_client, source=source,
+                        trigger_id=trigger_id, requested_at=background_requested_at or 0.0,
+                    )
+                    for _slice in range(max(0, max_slices)):
+                        if dream_tick.get("status") != "continuing" or not isinstance(original_run, str):
+                            break
+                        if (maintenance_is_locked(backend.data_dir, trigger_id=trigger_id)
+                                or (background_requested_at is not None
+                                    and background_request_cancelled(backend.data_dir, request))):
+                            dream_tick = {**dream_tick, "continuation_paused": True,
+                                          "reason": "new_user_input_or_exclusive_maintenance"}
+                            break
+                        if not heartbeat_background_worker(
+                            backend.data_dir, project_root=Path(project_root), client=worker_client,
+                        ):
+                            dream_tick = {**dream_tick, "continuation_paused": True,
+                                          "reason": "background_worker_lease_lost"}
+                            break
+                        dream_tick = await dream_auto_tick(
+                            backend, project_name=project_name, project_root=project_root,
+                            config=config, source=cast(DreamSource, source), trigger_id=trigger_id,
+                            trigger_job_id=None, host_client=host_client, resume_run_id=original_run,
+                        )
         except Exception as exc:  # noqa: BLE001 - transcript staging must survive Dream.
             dream_tick = {
                 "success": False,
@@ -535,18 +577,29 @@ async def run_post_turn_maintenance(
                 "reason": f"{type(exc).__name__}: {exc}"[:512],
                 "tick_receipt": {"state": "degraded"},
             }
+        job = backend.transcript_store.get_distill_job(str(job_id)) if job_id else None
+        if source == "ide_hook" and os.environ.get("HARNESS_MEM_HOOK_BACKGROUND_WORKER") == "1":
+            from harness_mem.autonomous.worker import record_post_turn_maintenance_outcome
+            from harness_mem.hook_background import background_generation_from_env
+            record_post_turn_maintenance_outcome(
+                backend.data_dir, project_name=project_name, project_root=project_root,
+                trigger_id=trigger_id, dispatch_generation=background_generation_from_env(),
+                dream=dream_tick,
+            )
         return {
             "action": "post-turn-maintenance",
-            "success": bool(evidence_packet.get("success", False)),
+            "success": bool(evidence_packet.get("success", False)) and dream_tick.get("status") != "failed",
             "status": (
                 "deferred"
                 if retry_backoff
                 else "failed"
                 if not evidence_packet.get("success", False)
+                else "failed"
+                if dream_tick.get("status") == "failed"
                 else "queued"
                 if job is not None and job.status in queued_statuses
                 else "in_progress"
-                if job is not None and job.status in processing_statuses
+                if dream_tick.get("status") == "continuing" or (job is not None and job.status in processing_statuses)
                 else "completed"
             ),
             "project_name": project_name,

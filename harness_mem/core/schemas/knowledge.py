@@ -11,10 +11,11 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from harness_mem.core.schemas.assimilation import AssimilationDisposition
 from harness_mem.core.schemas.evidence import EvidenceBasis, EvidenceRef, VerificationOutcome
+from harness_mem.core.schemas.source_report import SourceReport
 
 
 KnowledgeCandidateStatus = Literal[
@@ -26,6 +27,7 @@ ClaimKind = Literal[
     "implementation_fact",
     "durable_preference",
     "procedure",
+    "source_report",
 ]
 
 
@@ -59,11 +61,21 @@ class KnowledgeEntry(BaseModel):
     module_path: list[str] = Field(min_length=1)
     title: str = Field(min_length=1)
     statement: str = Field(min_length=1)
+    source_report: SourceReport | None = None
     verified_at: datetime | None = None
     created_at: datetime = Field(default_factory=_utc_now)
     updated_at: datetime = Field(default_factory=_utc_now)
 
     model_config = {"extra": "forbid"}
+
+    @model_validator(mode="after")
+    def retain_report_boundary(self) -> "KnowledgeEntry":
+        if self.source_report is not None and (
+            self.statement != self.source_report.render_statement()
+            or self.title != self.source_report.render_title()
+        ):
+            raise ValueError("source-report knowledge must retain its attribution boundary")
+        return self
 
     @field_validator("project_name", "title", "statement")
     @classmethod
@@ -78,7 +90,7 @@ class KnowledgeEntry(BaseModel):
     def to_dict(self) -> dict:
         """Return the complete persistence payload, including hidden controls."""
 
-        return {
+        payload: dict[str, Any] = {
             "id": self.id,
             "project_name": self.project_name,
             "module_path": list(self.module_path),
@@ -88,6 +100,9 @@ class KnowledgeEntry(BaseModel):
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }
+        if self.source_report is not None:
+            payload["source_report"] = self.source_report.model_dump(mode="json")
+        return payload
 
     @classmethod
     def from_dict(cls, data: dict) -> "KnowledgeEntry":
@@ -161,6 +176,7 @@ class KnowledgeCandidate(BaseModel):
     project_name: str
     candidate_type: KnowledgeCandidateType
     statement: str = Field(min_length=1)
+    source_report: SourceReport | None = None
     status: KnowledgeCandidateStatus = "pending"
     assimilation_disposition: AssimilationDisposition | None = None
     assimilation_reason: str | None = None
@@ -179,6 +195,8 @@ class KnowledgeCandidate(BaseModel):
             "project_name": self.project_name,
             "candidate_type": self.candidate_type,
             "statement": self.statement,
+            **({"source_report": self.source_report.model_dump(mode="json")}
+               if self.source_report is not None else {}),
             "status": self.status,
             "assimilation_disposition": self.assimilation_disposition,
             "assimilation_reason": self.assimilation_reason,

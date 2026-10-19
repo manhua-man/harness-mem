@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from harness_mem.core.schemas import KnowledgeEntry
-from harness_mem.read_knowledge import list_current_knowledge, search_current_knowledge
+from harness_mem.read_knowledge import _rank_current_entries, list_current_knowledge, search_current_knowledge
 
 
 def _entry(identifier, title, statement, *, module="General", project="aurora"):
@@ -139,6 +139,69 @@ def test_question_scaffolding_and_one_shared_cjk_pair_are_not_topics(query):
     assert _search([entry], query) == []
 
 
+@pytest.mark.parametrize("query, statement", [
+    ("Honestly, how should I configure alerts for our service?",
+     "Our editors use a compact layout for this handbook."),
+    ("What's my alert policy?", "My report's cover uses blue links."),
+])
+def test_english_question_clauses_ignore_grammar_even_after_an_introduction(query, statement):
+    relevant = _entry("alerts", "Service alert policy", "Send alert events to the on-call operator.")
+    noise = _entry("layout", "Document layout", statement)
+    assert _search([noise, relevant], query) == [relevant]
+
+
+def test_each_explicit_mixed_case_identifier_survives_a_stronger_topic_match():
+    errors = _entry("errors", "Frontend error handling",
+                    "The frontend catches error handling exceptions from UI jobs.")
+    storage = _entry("storage", "Storage choice", "CloudPebble collections reuse one connection.")
+    language = _entry("language", "Service language", "TypedWeave uses checked values.")
+    noise = _entry("layout", "Site layout", "Use a centered column.")
+    query = ("When our RiftUI frontend catches error handling exceptions, how should "
+             "the jobs running CloudPebble TypedWeave services report?")
+    assert {entry.id for entry in _search([noise, errors, storage, language], query)} == {
+        "errors", "storage", "language",
+    }
+
+
+def test_unique_lowercase_topic_survives_a_stronger_compound_question_match():
+    deployment = _entry("deployment", "Atlas frontend deployment", "Reuse the frontend deployment plan.")
+    failures = _entry("failures", "Failure policy", "Record failures before recovery.")
+    background = _entry("theme", "Atlas colors", "Use blue links.")
+    query = "Given Atlas frontend deployment, how should we report failures?"
+    assert {entry.id for entry in _search([background, deployment, failures], query)} == {
+        "deployment", "failures",
+    }
+
+
+@pytest.mark.parametrize("query", [
+    "How should I handle alert failures when it's late and I'm away for a day?",
+    "How should clients' alert failures appear in operators' reports for a day?",
+])
+def test_apostrophes_in_contractions_do_not_restore_grammar_as_quoted_topics(query):
+    relevant = _entry("alerts", "Alert failures", "Record alert failures before recovery.")
+    noise = _entry("decoration", "Decorations", "Choose a layout and colors for a card.")
+    assert _search([noise, relevant], query) == [relevant]
+
+
+@pytest.mark.parametrize("query", [
+    "Thinking about telemetry and latency dashboards",
+    "Set up telemetry with the on-call operator",
+])
+def test_nonquestion_grammar_cannot_establish_an_unrelated_topic(query):
+    noise = _entry("decoration", "Decorations", "A card with the blue border and icons.")
+    assert _search([noise], query) == []
+
+
+@pytest.mark.parametrize("query", [
+    "sql and", "sql with", "How do I use 'and'?", "How do I use ‘and’?",
+    "How do I use 'it's and that's'?",
+])
+def test_explicit_sql_keywords_and_real_quotes_survive_grammar_filtering(query):
+    keyword = "WITH" if "with" in query else "AND"
+    relevant = _entry("clause", "Query clauses", f"{keyword} defines this clause.")
+    assert _search([relevant], query) == [relevant]
+
+
 # Keep every punctuation family, sampling both query forms without their cross-product.
 @pytest.mark.parametrize("term, distractor, question", [
     (".env", "env", False), ("C++", "C", True), ("C#", "C", False),
@@ -178,6 +241,30 @@ def test_blank_query_keeps_existing_title_order_and_dedup(query):
 @pytest.mark.parametrize("query", ["unmatched-token", "!!!"])
 def test_no_match_does_not_fall_back_to_listing(query):
     assert _search([_entry("one", "Ordinary fact", "Use blue links.")], query) == []
+
+
+@pytest.mark.parametrize("conjunction", ["和", "与", "以及"])
+def test_empty_conjoined_query_recovers_each_independently_supported_topic(conjunction):
+    export = _entry("export", "导出格式使用 TSV", "导出格式使用 TSV。")
+    logs = _entry("logs", "日志保留十二天", "日志保留十二天。")
+    noise = _entry("noise", "配色规则", "页面使用蓝色。")
+    assert _search([noise, logs, export], f"导出格式{conjunction}日志保留期限") == [export, logs]
+
+
+def test_conjoined_fallback_requires_every_topic_and_keeps_explicit_scope():
+    export = _entry("export", "导出格式使用 TSV", "导出格式使用 TSV。", project="alpha")
+    logs = _entry("logs", "日志保留十二天", "日志保留十二天。", project="beta")
+    assert _search([export, logs], "导出格式和日志保留期限") == [export, logs]
+    assert _search([export, logs], "导出格式和日志保留期限", project_name="alpha") == []
+    assert _search([export, logs], "导出格式和火星着陆预算") == []
+
+
+@pytest.mark.parametrize("query", ["【导出格式和日志保留期限】", "docs/导出格式和日志保留期限.md", "协和医院"])
+def test_conjoined_fallback_does_not_reinterpret_literals_or_short_word_fragments(query):
+    entries = [_entry("export", "导出格式", "使用 TSV。"),
+               _entry("logs", "日志保留期限", "保留十二天。"),
+               _entry("clinic", "医院", "门诊时间。")]
+    assert _search(entries, query) == _rank_current_entries(entries, query)
 
 
 def test_empty_knowledge_has_no_search_results():

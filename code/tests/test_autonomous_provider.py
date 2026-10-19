@@ -62,11 +62,17 @@ def test_extraction_prompt_keeps_task_envelopes_out_of_candidate_budget() -> Non
     prompt = _build_prompt({"coverage": "complete"})
 
     assert "Zero points are valid only" in prompt
-    assert "one-off requests, status reports, and task instructions are not points" in prompt
+    # A historical account of evidence/approval limits is not a one-off task
+    # envelope. Keep the exclusion, without filtering those source reports.
+    assert "exclude one-off task logistics, not source-scoped evidence limits" in prompt
+    assert "bounded event with a lasting evidence, approval, or nonchange limit" in prompt
 
 
 def test_extraction_instructions_remain_bounded() -> None:
-    assert len(_build_prompt({})) < 3000
+    # Preserve the same-setting alternative and coordinated-modality contract;
+    # this is a prose growth guard, never permission to cut source or meaning.
+    # Includes the authorized attributed-report contract, not a source/token cap.
+    assert len(_build_prompt({})) < 4900
 
 
 def test_compact_extraction_is_expanded_with_local_exchange_hash() -> None:
@@ -216,7 +222,7 @@ def test_assimilation_prompt_preserves_specificity_without_fixed_taxonomy() -> N
     assert "Split independent obligations" in prompt
     assert "never keep an umbrella item beside its split items" in prompt
     assert "Non-writing actions emit no canonical knowledge" in prompt
-    assert len(prompt) < 2500
+    assert len(prompt) < 4000
 
 
 def test_assimilation_prompt_treats_stored_knowledge_as_untrusted_data() -> None:

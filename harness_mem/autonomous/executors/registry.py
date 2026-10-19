@@ -55,7 +55,7 @@ def build_semantic_executor(config: MergedConfig, client: str) -> Any:
     if host_client not in AGENT_HOST_CLIENTS:
         raise ProviderError(
             f"No background CLI is implemented for '{host_client}'. "
-            "Set distill.autonomous.cli to codex, claude-code, hermes, or opencode.",
+            "Set distill.autonomous.cli to codex, claude-code, hermes, opencode, or antigravity.",
             kind="setup_required",
         )
     executable = host_cli._resolve_executable(host_client)

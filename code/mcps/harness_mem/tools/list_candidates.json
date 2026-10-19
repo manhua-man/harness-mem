@@ -5,8 +5,7 @@
     "type": "object",
     "properties": {
       "project_name": {
-        "type": "string",
-        "description": "Project name"
+        "type": "string"
       },
       "status": {
         "type": "string",
@@ -17,7 +16,6 @@
           "rejected",
           "assimilated"
         ],
-        "description": "Temporary candidate status.",
         "default": "pending"
       },
       "limit": {

@@ -35,6 +35,34 @@ def emit_current_stage(stage: str, *, details: Mapping[str, Any] | None = None) 
     if active is not None:
         active.emit(stage, "running", details=details)
 
+
+def exception_locations(exc: BaseException, *, _chain_depth: int = 0) -> dict[str, Any]:
+    """Record bounded package code locations without source, SQL or locals."""
+    locations: list[str] = []
+    package_root = Path(__file__).resolve().parent
+    traceback = exc.__traceback__
+    while traceback is not None:
+        code = traceback.tb_frame.f_code
+        try:
+            relative = Path(code.co_filename).resolve().relative_to(package_root)
+        except (ValueError, OSError):
+            pass
+        else:
+            locations.append(f"{relative.as_posix()}:{code.co_name}:{traceback.tb_lineno}")
+        traceback = traceback.tb_next
+    details: dict[str, Any] = {"exception_locations": locations[-8:]}
+    for name in ("sqlite_errorcode", "sqlite_errorname"):
+        value = getattr(exc, name, None)
+        if isinstance(value, (int, str)):
+            details[name] = value
+    previous = exc.__cause__ or exc.__context__
+    if previous is not None and previous is not exc and _chain_depth < 3:
+        details["previous_exception"] = {
+            "exception_type": type(previous).__name__,
+            **exception_locations(previous, _chain_depth=_chain_depth + 1),
+        }
+    return details
+
 LOGGER = logging.getLogger(__name__)
 
 RUN_EVENT_SCHEMA_VERSION = "harness_mem.run_event.v1"

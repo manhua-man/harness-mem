@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from harness_mem.mcp.response_budget import (
     attach_response_budget_receipt,
     refresh_response_budget_receipt,
@@ -7,6 +9,15 @@ from harness_mem.mcp.response_budget import (
     serialized_result_tokens,
 )
 from harness_mem.runtime_cost import analyze_mcp_surface_cost
+
+
+def test_wire_json_removes_only_layout_not_values_or_source_text() -> None:
+    payload = {"title": "完整事实", "statement": 'line one\n  exact indentation\n"quoted" \\ tail',
+               "refs": [{"index": 0, "valid": False, "unknown": None}], "empty": []}
+    rendered = serialize_mcp_result(payload)
+    assert json.loads(rendered) == payload
+    assert rendered == json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+    assert len(rendered) < len(json.dumps(payload, indent=2, ensure_ascii=False))
 
 
 def test_receipt_measures_itself_in_the_exact_executor_serialization() -> None:

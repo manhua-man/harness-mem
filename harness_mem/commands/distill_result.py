@@ -6,7 +6,7 @@ from collections import Counter
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from harness_mem.core.schemas.session_distill import SessionDistillJob
+from harness_mem.core.schemas.session_distill import RetainedStateRef, SessionDistillJob
 
 
 _NO_WRITE_REASONS = {
@@ -19,13 +19,50 @@ _NO_WRITE_REASONS = {
 }
 
 
+def _retained_state_items(job: SessionDistillJob) -> set[str]:
+    """Use explicit semantic bindings only after their point has been saved.
+
+    Finalization owns validation of the state classification and source binding.
+    This projection never infers state/action meaning from the item's wording.
+    """
+    if (getattr(job, "status", None) != "completed"
+            or job.promotion_summary.get("readback", {}).get("verified") is not True):
+        return set()
+    points: dict[str, list[Mapping[str, Any]]] = {}
+    for point in job.promotion_summary.get("points") or []:
+        if isinstance(point, Mapping):
+            points.setdefault(str(point.get("candidate_id") or ""), []).append(point)
+    retained: set[str] = set()
+    for raw in job.semantic_review.get("retained_state_refs") or []:
+        try:
+            ref = RetainedStateRef.model_validate(raw)
+        except (TypeError, ValueError):
+            continue
+        candidate_points = points.get(ref.candidate_id) or []
+        if candidate_points and all(
+            point.get("answer_status") == "ANSWERED"
+            and point.get("disposition") in {"add", "confirm", "refine", "replace"}
+            and isinstance(point.get("canonical_truth_ids"), list)
+            and point["canonical_truth_ids"]
+            and all(isinstance(value, str) and value.strip() for value in point["canonical_truth_ids"])
+            and not point.get("handoff_id")
+            for point in candidate_points
+        ):
+            retained.add(ref.unfinished_work_item)
+    return retained
+
+
 def distill_unfinished_work(job: SessionDistillJob) -> list[str]:
-    """Merge the Agent's work list with the job's persisted handoff projection."""
+    """Keep task work separate from explicitly bound, successfully saved states."""
     promotion = job.promotion_summary or {}
+    retained = _retained_state_items(job)
+    review_work = [
+        item for item in job.semantic_review.get("unfinished_work") or []
+        if str(item).strip() not in retained
+    ]
     items = [
         str(item).strip()
-        for item in [*(job.semantic_review.get("unfinished_work") or []),
-                     *(promotion.get("unfinished_work") or [])]
+        for item in [*review_work, *(promotion.get("unfinished_work") or [])]
         if str(item).strip()
     ]
     if not items and (
@@ -61,7 +98,7 @@ def distill_display_review(job: SessionDistillJob) -> dict[str, Any]:
         review["final_outcome"] = outcome
         review["evidence_status"] = "partial"
         review["last_turn_status"] = "unfinished" if unfinished else "unknown"
-    elif packet.get("answer_status") == "ANSWERED" and not promotion.get("promoted"):
+    elif packet.get("answer_status") in {"ANSWERED", "NOT_APPLICABLE"} and not promotion.get("promoted"):
         review["final_outcome"] = "本次未新增或替换长期记忆。"
     return review
 

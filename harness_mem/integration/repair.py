@@ -206,13 +206,16 @@ def _overall_status(results: list[HookRepairResult]) -> OverallStatus:
 def repair_project_hooks(
     *,
     clients: tuple[CommandHost, ...] = COMMAND_HOSTS,
-    project_root: Path,
+    project_root: Path | None = None,
     force: bool = False,
     hook_runner_provider: Callable[[], Path] | None = None,
+    scope: Literal["project", "user"] = "project",
 ) -> HookRepairReport:
-    """Repair project Hooks without changing user-level command files."""
+    """Repair native lifecycle Hooks at user or explicit project scope."""
 
-    root = project_root.resolve()
+    if scope not in {"project", "user"} or (scope == "project" and project_root is None):
+        raise ValueError("project Hook repair requires a root; scope must be user or project")
+    root = project_root.resolve() if project_root is not None else Path.home()
     results: list[HookRepairResult] = []
     for client in clients:
         try:
@@ -220,7 +223,10 @@ def repair_project_hooks(
             results.append(
                 _hook_result(
                     client,
-                    _install_hooks(
+                    installer.install_user_hook_suite(
+                        client=client, force=force, hook_runner=hook_runner,
+                        project_root=project_root,
+                    ) if scope == "user" else _install_hooks(
                         client,
                         root,
                         force=force,

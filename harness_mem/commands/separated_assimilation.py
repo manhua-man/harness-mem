@@ -12,8 +12,10 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
+import hashlib
+import json
 import re
-from typing import Any, Mapping, Sequence, cast
+from typing import Any, Literal, Mapping, Sequence, cast
 from uuid import NAMESPACE_URL, uuid5
 
 from harness_mem.commands.evidence_admission import (
@@ -37,6 +39,7 @@ from harness_mem.core.schemas import (
     ProjectKnowledgeSourceRef,
 )
 from harness_mem.core.schemas.task_handoff import TaskHandoff
+from harness_mem.core.schemas.source_report import SourceReport
 from harness_mem.knowledge_validation import validate_atomic_knowledge_statement
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
@@ -92,6 +95,8 @@ class _EvidenceAdmissionSubject:
     verification_refs: list[EvidenceRef]
     verification_reason_codes: list[str]
     verified_at: datetime | None = None
+    statement: str = ""
+    source_report: SourceReport | None = None
 
 
 async def admit_separated_candidate(
@@ -141,6 +146,27 @@ async def admit_separated_candidate(
     elif candidate.status != "pending":
         raise ValueError("separated candidate already has a processing result")
 
+    refs = _evidence_refs(verification_refs)
+    if replay:
+        previous_evidence = await store.list_evidence(candidate.id)
+        report_authority = candidate.source_report is not None or any(
+            item.evidence_basis == "source_report" for item in previous_evidence
+        )
+        if report_authority or evidence_basis == "source_report":
+            if (len(previous_evidence) != 1
+                    or previous_evidence[0].evidence_basis != evidence_basis
+                    or previous_evidence[0].distill_job_id != distill_job_id):
+                raise ValueError("source-report replay cannot change its bound authority or source job")
+            if candidate.source_report is not None:
+                def identity(ref: EvidenceRef) -> tuple:
+                    return (ref.kind, ref.role, ref.exchange_index, ref.chunk_index,
+                            str(ref.content_sha256 or "").lower(), ref.locator,
+                            str(ref.locator_sha256 or "").lower())
+                if {identity(ref) for ref in refs} != {
+                    identity(ref) for ref in previous_evidence[0].verification_refs
+                }:
+                    raise ValueError("source-report replay cannot change its speaker or cited scope")
+
     candidate.assimilation_disposition = cast(Any, assimilation_disposition)
     candidate.assimilation_reason = assimilation_reason
     candidate.assimilation_target_ids = [
@@ -151,7 +177,6 @@ async def admit_separated_candidate(
     candidate.topic_path = [str(part).strip() for part in topic_path if str(part).strip()]
     candidate.updated_at = datetime.now(timezone.utc)
 
-    refs = _evidence_refs(verification_refs)
     subject = _EvidenceAdmissionSubject(
         id=candidate.id,
         project_name=project_name,
@@ -160,6 +185,8 @@ async def admit_separated_candidate(
         verification_outcome=verification_outcome,
         verification_refs=refs,
         verification_reason_codes=[str(value) for value in verification_reason_codes],
+        statement=candidate.statement,
+        source_report=candidate.source_report,
     )
     project_root: str | None = None
     if evidence_basis == "repository" and distill_job_id is None:
@@ -171,6 +198,8 @@ async def admit_separated_candidate(
         project_root=project_root,
     )
     apply_validation(subject, validation)
+    if subject.source_report is not None:
+        candidate.source_report = subject.source_report
     await store.save_candidate(candidate)
     await store.save_evidence(
         KnowledgeEvidence(
@@ -276,6 +305,21 @@ async def create_separated_candidates(
     return candidate_ids
 
 
+def _non_promoting_transcript_disposition(
+    candidate: KnowledgeCandidate,
+) -> Literal["no_write", "reject"] | None:
+    """Only a complete explicit discard may waive durable-truth promotion."""
+    disposition = candidate.assimilation_disposition
+    reason = str(candidate.assimilation_reason or "").strip()
+    if (disposition in {"no_write", "reject"}
+            and 8 <= len(reason) <= 1000
+            and not candidate.assimilation_target_ids
+            and not candidate.assimilation_targets
+            and candidate.status != "conflict"):
+        return cast(Literal["no_write", "reject"], disposition)
+    return None
+
+
 async def prepare_separated_assimilation(
     backend: LocalMemoryBackend,
     *,
@@ -303,8 +347,12 @@ async def prepare_separated_assimilation(
             backend,
             subject,
             project_root=project_root,
+            non_promoting_disposition=_non_promoting_transcript_disposition(candidate),
         )
         apply_validation(subject, validation)
+        if subject.source_report is not None:
+            candidate.source_report = subject.source_report
+        await store.save_candidate(candidate)
         evidence.evidence_basis = cast(Any, subject.evidence_basis or "transcript")
         evidence.verification_outcome = cast(
             Any, subject.verification_outcome or "unverified"
@@ -321,7 +369,14 @@ async def prepare_separated_assimilation(
     for candidate in candidates:
         status = answer_statuses[candidate.id]
         evidence = evidence_by_candidate[candidate.id]
-        if _is_non_durable_verified_point(evidence):
+        non_promoting = _non_promoting_transcript_disposition(candidate)
+        if (status == "NOT_APPLICABLE" and evidence.evidence_basis == "transcript"
+                and non_promoting is not None):
+            automatic.append(_automatic_point(
+                candidate.id, answer_status=status, disposition=non_promoting,
+                reason=str(candidate.assimilation_reason).strip(),
+            ))
+        elif status == "ANSWERED" and _is_non_durable_verified_point(evidence):
             automatic.append(
                 _automatic_point(
                     candidate.id,
@@ -371,6 +426,46 @@ async def prepare_separated_assimilation(
     )
 
 
+def _validate_report_authority(
+    prepared: SeparatedPreparedAssimilation, *, candidate_id: str,
+    disposition: str, target_ids: Sequence[str],
+) -> SourceReport | None:
+    """Shared provider/apply preflight; never trust a serialized Answer Gate."""
+    candidate_projection: dict[str, Any] = next((
+        item for item in prepared.manifest.get("verified_candidates", [])
+        if item["candidate_id"] == candidate_id
+    ), {})
+    payload = candidate_projection.get("source_report")
+    report = SourceReport.model_validate({**payload, "text": candidate_projection["statement"]}) if payload else None
+    current_by_id = {
+        prepared.truth_by_handle.get(item["handle"]): item
+        for item in prepared.manifest.get("current_truth", [])
+    }
+    for target_id in target_ids:
+        current = current_by_id.get(target_id, {})
+        target_report = current.get("source_report")
+        if (report is None) != (target_report is None):
+            raise ValueError("source-report and fact authority boundary cannot be crossed")
+        if report is not None:
+            target_account = SourceReport.model_validate({**target_report, "text": current["statement"]})
+            if not report.same_account_source(target_account):
+                raise ValueError("source-report updates cannot cross source, speaker, or period")
+            if disposition == "confirm" and current.get("statement") != report.render_statement():
+                raise ValueError("source-report confirmation requires the identical attributed account")
+    return report
+
+
+def _bind_report_items(
+    report: SourceReport | None, items: list[dict[str, Any]], *, writes: bool,
+) -> None:
+    if report is not None and writes:
+        if len(items) != 1:
+            raise ValueError("source-report writes require exactly one verified account item")
+        items[0].update(title=report.render_title(), statement=report.render_statement(), claim_kind="source_report")
+    elif report is None and any(item["claim_kind"] == "source_report" for item in items):
+        raise ValueError("source-report knowledge requires a verified attribution envelope")
+
+
 def validate_separated_assimilation_decision(
     prepared: SeparatedPreparedAssimilation,
     decision: Any,
@@ -405,6 +500,10 @@ def validate_separated_assimilation_decision(
         if any(handle not in prepared.truth_by_handle for handle in handles):
             raise ValueError("assimilation point references an unavailable truth handle")
         disposition = str(point.disposition)
+        report = _validate_report_authority(
+            prepared, candidate_id=str(point.candidate_id), disposition=disposition,
+            target_ids=[prepared.truth_by_handle[handle] for handle in handles],
+        )
         for handle in handles:
             target_uses.setdefault(handle, []).append(disposition)
         if disposition == "add" and handles:
@@ -444,6 +543,7 @@ def validate_separated_assimilation_decision(
                 raise ValueError(f"{disposition} requires canonical knowledge")
             else:
                 point.topic_path = validate_knowledge_module_path(point.topic_path)
+            _bind_report_items(report, knowledge_items, writes=True)
             candidate_written_statements.setdefault(str(point.candidate_id), []).extend(
                 [str(item["statement"]) for item in knowledge_items]
                 if knowledge_items
@@ -717,6 +817,7 @@ async def apply_separated_assimilation(
     # the session is still reported as a successful complete review.
     candidates_by_id: dict[str, KnowledgeCandidate] = {}
     evidence_by_candidate: dict[str, KnowledgeEvidence] = {}
+    expected_targets_by_candidate: dict[str, list[KnowledgeEntry]] = {}
     point_by_candidate = {point["candidate_id"]: point for point in points}
     for candidate_id in expected:
         candidate = await store.get_candidate(candidate_id)
@@ -725,16 +826,36 @@ async def apply_separated_assimilation(
         if candidate.project_name != project_name:
             raise ValueError("separated assimilation candidate belongs to another project")
         point = point_by_candidate[candidate_id]
-        if (candidate.status == "assimilated"
-                and point["disposition"] in _WRITING_DISPOSITIONS
-                and not await is_committed_knowledge_point(
-                    backend, candidate=candidate, point=point,
-        )):
+        committed_write = (candidate.status == "assimilated"
+                           and point["disposition"] in _WRITING_DISPOSITIONS
+                           and await is_committed_knowledge_point(backend, candidate=candidate, point=point))
+        if (candidate.status == "assimilated" and point["disposition"] in _WRITING_DISPOSITIONS
+                and not committed_write):
             raise ValueError("terminal candidate requires the exact normalized committed plan")
         candidates_by_id[candidate_id] = candidate
         evidence_by_candidate[candidate_id] = _job_bound_evidence(
             await store.list_evidence(candidate.id), candidate_id=candidate.id
         )
+        evidence = evidence_by_candidate[candidate_id]
+        if ("autonomous_final_scope_required" in evidence.verification_reason_codes
+                and point["disposition"] in {"add", "refine", "replace", "confirm"}
+                and not committed_write
+                and final_scope_proof(final_scope_payload(prepared, point))
+                not in evidence.verification_reason_codes):
+            raise ValueError("final knowledge scope proof is missing or the normalized plan/target changed")
+        if ("autonomous_final_scope_required" in evidence.verification_reason_codes
+                and point["disposition"] in {"add", "refine", "replace", "confirm"}
+                and not committed_write):
+            expected_targets: list[KnowledgeEntry] = []
+            for snapshot in final_scope_payload(prepared, point)["targets"]:
+                current = await store.get_entry(snapshot["id"], project_name=project_name)
+                if (current is None or current.statement != snapshot["statement"]
+                        or current.title != snapshot["title"] or current.module_path != snapshot["topic_path"]
+                        or (current.source_report.model_dump(mode="json", exclude={"text"})
+                            if current.source_report is not None else None) != snapshot.get("source_report")):
+                    raise ValueError("final knowledge scope target changed during preparation")
+                expected_targets.append(current)
+            expected_targets_by_candidate[candidate_id] = expected_targets
 
     results: list[dict[str, Any]] = []
     counts = {
@@ -775,6 +896,7 @@ async def apply_separated_assimilation(
             point=record_point,
             project_root=resolved_root,
             source_refs=source_refs,
+            expected_predecessor_entries=expected_targets_by_candidate.get(candidate_id),
         )
         handoff_id: str | None = None
         if disposition in {"handoff", "defer", "conflict"}:
@@ -790,6 +912,13 @@ async def apply_separated_assimilation(
             "handoff_id": handoff_id,
             "replaced_truth_ids": list(point.get("matched_truth_ids") or []) if disposition in {"refine", "replace"} else [],
             "reason": str(point.get("reason") or disposition),
+            # The temporary evidence workspace is cleaned after finalization.
+            # Keep its actual gate result in the existing job receipt so a
+            # generic no-write reason cannot masquerade as purpose validation.
+            "evidence_basis": evidence.evidence_basis,
+            "verification_outcome": evidence.verification_outcome,
+            "verification_reason_codes": list(evidence.verification_reason_codes),
+            "verification_refs": [ref.sanitized().to_dict() for ref in evidence.verification_refs],
         }
         results.append(result)
         if disposition in {"add", "refine", "replace"}:
@@ -873,6 +1002,10 @@ def _validate_apply_points(
             point,
             writes_truth=disposition in _WRITING_DISPOSITIONS,
         )
+        report = _validate_report_authority(
+            prepared, candidate_id=candidate_id, disposition=disposition, target_ids=targets,
+        )
+        _bind_report_items(report, knowledge_items, writes=disposition in _WRITING_DISPOSITIONS)
         normalized.append(
             {
                 "candidate_id": candidate_id,
@@ -901,6 +1034,37 @@ def _reject_reused_mutating_targets(target_uses: Mapping[str, Sequence[str]]) ->
             raise ValueError(
                 "one current truth target is reused across points that mutate it"
             )
+
+
+def final_scope_payload(
+    prepared: SeparatedPreparedAssimilation, point: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Bind a scope verdict to the actual normalized items and target snapshots."""
+    by_id = {
+        prepared.truth_by_handle[item["handle"]]: {
+            key: value for key, value in item.items() if key != "handle"
+        }
+        for item in prepared.manifest.get("current_truth") or []
+    }
+    targets = [str(value) for value in point.get("matched_truth_ids") or []]
+    if any(target not in by_id for target in targets):
+        raise ValueError("final scope target snapshot is unavailable")
+    disposition = str(point["disposition"])
+    items = _validated_apply_knowledge_items(
+        point, writes_truth=disposition in _WRITING_DISPOSITIONS,
+    )
+    return {
+        "candidate_id": str(point["candidate_id"]),
+        "disposition": disposition,
+        "knowledge_items": items,
+        "targets": [{"id": target, **by_id[target]} for target in targets],
+    }
+
+
+def final_scope_proof(payload: Mapping[str, Any]) -> str:
+    encoded = json.dumps(dict(payload), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    # Safe reason codes are at most 64 characters; retain 240 digest bits.
+    return "fsv_" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:60]
 
 
 def _validated_apply_knowledge_items(
@@ -944,43 +1108,18 @@ def _validated_apply_knowledge_items(
 def _normalize_split_knowledge_items(
     items: Sequence[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Drop an enumerative umbrella when atomic successor items are present."""
+    """Collapse identical payloads, never infer subsumption from wording.
 
-    if len(items) < 2:
-        return [dict(item) for item in items]
-    atomic_group_markers = (
-        "同一事务",
-        "原子发布",
-        "原子地",
-        "atomically",
-        "same transaction",
-    )
+    Shared subject, approval qualifiers and punctuation do not prove that one
+    independently verified fact is an umbrella for another. Semantic grouping
+    belongs to the provider; local normalization must not erase distinct data.
+    """
+
     normalized: list[dict[str, Any]] = []
-    for index, item in enumerate(items):
-        statement = str(item.get("statement") or "")
-        separators = (
-            statement.count("、")
-            + statement.count(",")
-            + statement.count("，")
-        )
-        statement_terms = _knowledge_similarity_terms(statement)
-        overlaps_successor = any(
-            len(statement_terms & _knowledge_similarity_terms(str(other.get("statement") or "")))
-            >= 3
-            for other_index, other in enumerate(items)
-            if other_index != index
-        )
-        if (
-            separators >= 2
-            and overlaps_successor
-            and not any(
-                marker in statement.casefold() for marker in atomic_group_markers
-            )
-        ):
-            continue
-        normalized.append(dict(item))
-    if not normalized:
-        raise ValueError("knowledge_items contain only enumerative umbrella statements")
+    for item in items:
+        value = dict(item)
+        if value not in normalized:
+            normalized.append(value)
     return normalized
 
 
@@ -1070,6 +1209,7 @@ def _validate_canonical_knowledge_item(raw: Mapping[str, Any]) -> dict[str, Any]
         "implementation_fact",
         "durable_preference",
         "procedure",
+        "source_report",
     }:
         raise ValueError("canonical knowledge claim_kind is invalid")
     try:
@@ -1194,7 +1334,7 @@ def _evidence_refs(values: Sequence[Any]) -> list[EvidenceRef]:
 
 def _required_evidence_basis(arguments: Mapping[str, Any]) -> str:
     value = str(arguments.get("evidence_basis") or "")
-    if value not in {"repository", "user_statement", "transcript"}:
+    if value not in {"repository", "user_statement", "transcript", "source_report"}:
         raise ValueError("candidate evidence basis is invalid")
     return value
 
@@ -1232,6 +1372,8 @@ def _subject(
         verification_refs=list(evidence.verification_refs),
         verification_reason_codes=list(evidence.verification_reason_codes),
         verified_at=evidence.verified_at,
+        statement=candidate.statement,
+        source_report=candidate.source_report,
     )
 
 
@@ -1264,21 +1406,10 @@ def _automatic_point(
 
 
 def _is_non_durable_verified_point(evidence: KnowledgeEvidence) -> bool:
-    """Keep a one-off review boundary out of the durable knowledge layer.
-
-    The trusted evidence gate distinguishes an explicit clarification of the
-    *current* review's scope from a user-authored project workflow or design
-    requirement.  The former is useful in the session Note, but treating its
-    component list as several future rules creates exactly the retrieval noise
-    the separated assimilation layer exists to prevent.
-    """
-
-    return bool(
-        {
-            "explicit_scope_clarification",
-            "session_only_not_durable",
-        }.intersection(evidence.verification_reason_codes)
-    )
+    """Use the verified future scope, not whether a statement is a correction."""
+    return bool({"session_only_not_durable", "source_use_task_context"}.intersection(
+        evidence.verification_reason_codes
+    ))
 
 
 def _is_session_scope_clarification(evidence: KnowledgeEvidence) -> bool:
@@ -1299,6 +1430,8 @@ def _candidate_projection(
         "evidence_basis": evidence.evidence_basis,
         "verification_reason_codes": list(evidence.verification_reason_codes),
         "answer_status": answer_gate_status(subject),
+        **({"source_report": candidate.source_report.model_dump(mode="json", exclude={"text"})}
+           if candidate.source_report is not None else {}),
     }
 
 
@@ -1410,6 +1543,8 @@ async def _current_truth_handles(
                 "title": entry.title,
                 "statement": entry.statement,
                 "topic_path": list(entry.module_path),
+                **({"source_report": entry.source_report.model_dump(mode="json", exclude={"text"})}
+                   if entry.source_report is not None else {}),
             }
         )
     return handles, projected
@@ -1425,8 +1560,17 @@ async def _materialize_handoff(
     handoff_id = str(uuid5(NAMESPACE_URL, f"harness-mem:knowledge-handoff:{candidate.id}"))
     existing = await backend.structured_store.get_task_handoff(handoff_id)
     if existing is not None:
+        if candidate.source_report is not None and (
+            existing.summary != candidate.source_report.render_statement()
+            or existing.context.get("source_report") != candidate.source_report.model_dump(mode="json")
+        ):
+            raise ValueError("existing source-report handoff lost its attribution boundary")
         return existing.id
-    statement = str(point.get("canonical_statement") or candidate.statement)
+    statement = (
+        candidate.source_report.render_statement()
+        if candidate.source_report is not None
+        else str(point.get("canonical_statement") or candidate.statement)
+    )
     handoff = TaskHandoff(
         id=handoff_id,
         project_name=candidate.project_name,
@@ -1437,6 +1581,8 @@ async def _materialize_handoff(
         context={
             "distill_job_id": evidence.distill_job_id,
             "candidate_id": candidate.id,
+            **({"source_report": candidate.source_report.model_dump(mode="json")}
+               if candidate.source_report is not None else {}),
         },
     )
     return await backend.structured_store.save_task_handoff(handoff)
@@ -1453,6 +1599,8 @@ def _fallback_claim_kind(
     fixtures during the transition.
     """
 
+    if candidate.source_report is not None:
+        return "source_report"
     if candidate.candidate_type == "rule":
         return "procedure"
     if (

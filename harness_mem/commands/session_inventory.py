@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections import Counter, OrderedDict
 from contextlib import closing
 from dataclasses import dataclass, field
@@ -209,6 +210,49 @@ def resolve_session_scope(
     return None
 
 
+def prepare_correction_source(
+    backend: Any, *, project_name: str, client: str, session_id: str,
+    project_root: str | None = None, run_ingest: bool = True,
+) -> SessionDistillJob:
+    """Capture one correction under its target owner, using native source scope."""
+    from harness_mem.adapters.snapshot import persist_inspected_session
+
+    inventory = collect_session_inventory(
+        Path(backend.data_dir), project_name=project_name,
+        project_root=Path(project_root) if project_root else None,
+        clients=None if client in {"auto", "agent"} else [client], session_id=session_id,
+    )
+    rows = inventory.rows
+    if len(rows) > 1 and all(row.get("origin") == "ledger" for row in rows):
+        sources = [backend.transcript_store.get_source(row["source_id"]) for row in rows]
+        identities = {
+            (source.client, source.session_id, source.source_uri, source.raw_sha256, source.normalized_sha256)
+            for source in sources if source is not None
+        }
+        if all(source is not None for source in sources) and len(identities) == 1:
+            rows = [row for row in rows if row.get("project_name") == project_name]
+    if len(rows) != 1:
+        raise ValueError("correction source is unavailable or its native identity is ambiguous")
+    row = rows[0]
+    if row.get("ownership") not in {"project", "source"} or row.get("readability") != "readable":
+        raise ValueError("correction source is unreadable or excluded by capture policy")
+    job = backend.transcript_store.get_distill_job(row["job_id"]) if row.get("job_id") else None
+    if job is not None and job.project_name == project_name:
+        return job
+    native = inventory.native.get(row["reference_id"])
+    if not run_ingest or native is None:
+        raise ValueError("correction source has not been captured under the selected memory owner")
+    captured = asyncio.run(persist_inspected_session(
+        backend, native, project_name=project_name,
+        project_root=project_root or metadata_project_root(native.project_roots or []),
+        capture_config=native.capture_config,
+    ))
+    job = backend.transcript_store.get_distill_job(captured.distill_job_id)
+    if job is None or job.project_name != project_name:
+        raise ValueError("correction source capture did not produce the selected owner")
+    return job
+
+
 def current_entries(data_dir: Path, project_name: str | None) -> dict[str, dict]:
     if not canonical_store_path(data_dir).is_file():
         return {}
@@ -320,6 +364,7 @@ def collect_session_inventory(
     adapter_factory: Callable[..., Any] | None = None,
     lightweight: bool = False,
     selected_sessions: list[dict] | None = None,
+    session_id: str | None = None,
 ) -> SessionInventory:
     if project_root is not None and not project_root.is_absolute():
         raise ValueError("project_root must be absolute")
@@ -335,10 +380,12 @@ def collect_session_inventory(
     if (data_dir / "transcript_ledger.sqlite").is_file():
         with closing(TranscriptStore(data_dir, read_only=True)) as ledger:
             sources = [source for source in ledger.list_sources(project_name=project_name if project_root is not None else None, limit=None)
-                       if (source.client in selected or source.client == "codex-archive" and "codex" in selected)
+                       if (session_id is None or source.session_id == session_id)
+                       and (source.client in selected or source.client == "codex-archive" and "codex" in selected)
                        and (project_root is None or normalized_root(source.project_root) == normalized_root(project_root))]
             jobs = [job for job in ledger.list_distill_jobs(project_name=project_name if project_root is not None else None)
-                    if project_root is None or normalized_root(job.project_root) == normalized_root(project_root)]
+                    if (session_id is None or job.session_id == session_id)
+                    and (project_root is None or normalized_root(job.project_root) == normalized_root(project_root))]
     entries = current_entries(data_dir, project_name if project_root is not None else None)
     proven, _ = completed_job_ids(jobs, entries)
     seen_sources: set[str] = set()
@@ -354,6 +401,8 @@ def collect_session_inventory(
         for issue in issues:
             result.issues.append({"client": client, "reason": issue.get("code", "source_scan_failed")})
         for record in records:
+            if session_id is not None and record.get("session_id") != session_id:
+                continue
             preliminary = _metadata_row(client, record, project_name, project_root)
             record_sources = [source for source in sources if source.client == client
                               and source.session_id == record["session_id"]

@@ -56,6 +56,7 @@ When sources disagree, inspect current code, manifests, tests, and runtime evide
 
 - Treat generated summaries, previous agent statements, and transcript-only claims as provisional until their evidence is checked.
 - Repository claims require current project-relative evidence. User preferences and decisions require an explicit user-authored statement.
+- The operator-authorized `source_report` contract may retain a checked account of what a native source speaker reported, with period and source scope. Verifying that report does not verify its external assertion, current implementation, actual execution or user approval. Keep its typed attribution and readable boundary through assimilation, retrieval, review and Dream; never relabel it as `user_statement` or replace factual knowledge with it.
 - Missing, changed, stale, or contradicted evidence must remain visible; do not upgrade it to truth through confident wording.
 - Do not expose transcript content, private spans, internal IDs, or diagnostic metadata in default user summaries.
 - Keep one verifiable fact per readable memory item and include its verification date or status where the product contract requires it.
@@ -63,8 +64,8 @@ When sources disagree, inspect current code, manifests, tests, and runtime evide
 ## Implementation and Validation
 
 - Choose the smallest verification that covers the actual change and requested user path. Add or update focused tests when behavior or a contract changes; documentation-only work can be checked by rereading the diff and its referenced implementation.
-- Run broader suites when the affected scope or release task warrants them. Ordinary development and manual `hm` use do not require a separate F2 model preflight or a successful Hook run first.
-- Use the current Agent and available tools for manual `hm` work. Verify complete sources, point decisions, persisted results and ordinary-search readback through that path; a separate model CLI or background Hook is needed only when testing that execution path.
+- Run broader suites when the affected scope or release task warrants them. Ordinary development and `hm` inspection/review do not require a separate F2 model preflight or a successful Hook run first.
+- Use the current Agent and available tools for human memory review and correction. Daily recording and organization belong to automatic intake and the background worker; do not replace broken automation with a user-facing manual remembering path. Verify complete sources, point decisions, persisted results and ordinary-search readback for reviews; run a separate model CLI or Hook only when that execution path is authorized.
 - After a failure or timeout, inspect the failed input and output, locate the cause, and recheck the affected path after correction. Continue independent diagnosis and checks; stop dependent writes when source integrity, ownership or transaction safety is uncertain. Existing task authorization covers relevant retries, not blind repetition or unrelated model runs.
 - Old model and Hook reports prove only their recorded code and configuration. Reverify affected claims on current code; an unrelated change does not require repeating every runtime path. Do not assemble separate successes into a claim that an unexecuted complete run passed.
 - Run `python code/scripts/ensure_mcps_canonical.py` when MCP tool specifications or generated descriptors change.

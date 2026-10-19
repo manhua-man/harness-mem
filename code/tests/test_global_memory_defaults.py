@@ -129,6 +129,10 @@ def test_empty_project_filter_guides_recovery_without_searching_outside_it(backe
     assert result["memories"] == []
     assert "scope='all'" in result["message"]
     assert "Unless the user requested project-only memory" in result["message"]
+    assert result["retry_without_project_filter"] == {
+        "only_if": "user_did_not_request_project_only",
+        "tool": "search_memory", "arguments": {"query": "benchmark", "scope": "all"},
+    }
     assert entry.statement not in str(result)
     assert reading_tokens(result) <= 500
 

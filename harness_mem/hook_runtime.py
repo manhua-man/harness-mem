@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from harness_mem.integration.hook_runner import HookRunnerProbe, probe_hook_runner
+from harness_mem.integration.installer import USER_HOOK_HOSTS, user_hook_path
 
 __all__ = [
     "HookFileStatus",
@@ -107,8 +108,10 @@ def _known_hook_statuses(
         ("opencode", "plugin", project_root / ".opencode" / "plugins" / "harness-mem.ts", "project"),
         ("antigravity", "hooks manifest", project_root / ".agents" / "hooks.json", "project"),
     ]
-    home = Path.home() if home_dir is None else home_dir
-    specs.append(("hermes", "config", home / ".hermes" / "config.yaml", "global"))
+    specs.extend(
+        (client, "user lifecycle", user_hook_path(client, home_dir=home_dir), "global")
+        for client in sorted(USER_HOOK_HOSTS)
+    )
     return [
         _hook_file_status(
             client=client,
@@ -146,7 +149,11 @@ def _hook_file_status(
         exists=exists,
         runner_bound=bool(runner_path and runner_path in text),
         legacy_python=_LEGACY_HOST_ENTRY in text,
-        project_root_match=project_root.as_posix() in text,
+        project_root_match=(
+            project_root.as_posix() in text
+            or (scope == "global" and bool(text) and "--project-root" not in text)
+            or (scope == "global" and "configuredProjectRoot: string | null = null" in text)
+        ),
         scope=scope,
         configured="harness-mem-hook" in text or _LEGACY_HOST_ENTRY in text,
     )

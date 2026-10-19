@@ -154,6 +154,22 @@ def run_distill_outcome_probe() -> dict[str, Any]:
             stored_handoff = asyncio.run(
                 backend.structured_store.get_task_handoff(handoff["handoff_id"])
             )
+            stored_job = backend.transcript_store.get_distill_job(job_id)
+            stored_readback = dict(
+                (stored_job.promotion_summary if stored_job is not None else {}).get(
+                    "readback"
+                ) or {}
+            )
+            job_readback_bound = bool(
+                finalized.get("success")
+                and stored_job is not None
+                and stored_job.id == job_id
+                and stored_job.project_name == "outcome-probe"
+                and stored_job.status == "completed"
+                and stored_readback.get("verified") is True
+                and stored_readback.get("mode") == "current_knowledge"
+                and stored_readback.get("source_revision") == stored_job.source_revision
+            )
             note = dict(finalized.get("note") or {})
             note_path = Path(str(note.get("path") or ""))
             latest_path = Path(str(note.get("latest_path") or ""))
@@ -165,8 +181,11 @@ def run_distill_outcome_probe() -> dict[str, Any]:
                 "partial_candidate_promoted": bool(
                     len(current_knowledge) == 1
                     and current_knowledge[0].title == "Isolated durable decision"
-                    and finalized.get("completion", {}).get("disposition")
-                    == "promoted"
+                    and current_knowledge[0].statement == (
+                        "The isolated outcome probe verifies one durable decision "
+                        "while unrelated follow-up work remains."
+                    )
+                    and job_readback_bound
                     and search.get("memories")
                     == [
                         {
@@ -181,9 +200,11 @@ def run_distill_outcome_probe() -> dict[str, Any]:
                 "handoff_persisted": stored_handoff is not None,
                 "handoff_job_bound": bool(
                     stored_handoff is not None
+                    and stored_handoff.project_name == "outcome-probe"
                     and dict(stored_handoff.context or {}).get("distill_job_id")
                     == job_id
-                    and handoff["handoff_id"] in finalized.get("handoff_ids", [])
+                    and job_readback_bound
+                    and handoff["handoff_id"] in stored_readback.get("handoff_ids", [])
                 ),
                 "dream_blocked_for_partial": "dream" not in finalized,
                 "immutable_note_exists": note_path.is_file(),

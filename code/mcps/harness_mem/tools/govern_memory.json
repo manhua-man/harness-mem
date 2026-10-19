@@ -1,6 +1,6 @@
 {
   "name": "govern_memory",
-  "description": "Composite write surface for candidate creation, review decisions, and task handoffs. Use action=suggest with arguments.kind=memory|rule|relation; action=decide with kind=knowledge, decision=confirm|reject, project_name, candidate_id, and an explicit disposition. To delete incorrect current knowledge, use action=decide with kind=knowledge, decision=delete, project_name, and exactly one target_knowledge selection; omit candidate_id and knowledge_items. Use action=handoff. Replacement is a normal knowledge decision that deletes the old current row; it is not a separate history action. Suggestions are stored as temporary knowledge candidates, not legacy MemoryEntry truth. Distill-bound suggestions should include evidence_basis, verification_outcome, and content-free verification_refs so Dream can verify repository or explicit user-statement evidence. The runtime derives the Answer Gate status; only ANSWERED candidates may enter the truth layer. Distill suggestions must include an assimilation_disposition and assimilation_reason; add/refine/replace also require canonical_title and topic_path (a JSON array of whole category names, never a slash-separated string), while confirm/refine/replace require an unambiguous current-memory selection. Use target_knowledge=[{title, statement, module}] copied from ordinary search; title or statement is required, module is optional. The runtime resolves exact project-scoped matches, never fuzzy guesses. Confirm may use its unchanged statement without an explicit selection. Internal IDs remain compatible for existing callers but must not be requested from users. An unresolved selection retains old memory and appears as unfinished work; unrelated verified points can still be saved. For kind=memory, category, content and source are required. EvidenceRef.kind is exactly repository, user_statement or transcript, never session_exchange. A user_statement ref uses exchange_index and the returned exchange content_sha256; do not add a transcript locator. EvidenceRef accepts kind, locator, content_sha256, exchange_index, chunk_index and role, not source/job IDs. Use evidence_basis=repository|user_statement|transcript. Handoff requires project_name, task_id, summary, status and, for distill work, distill_job_id.",
+  "description": "Writes temporary candidates, knowledge decisions or handoffs. suggest: kind=memory|rule|relation; memory requires category/content/source. Distill jobs: suggest, then finalize (do not decide early). Include distill_job_id, evidence_basis, verification_outcome and typed verification_refs; runtime derives Answer Gate, only ANSWERED can write truth. Also require assimilation_disposition and assimilation_reason; add/refine/replace require canonical_title and topic_path as whole-name JSON array, NEVER path string. confirm/refine/replace select exact current target_knowledge=[{title,statement,module}] from normal search (title or statement required; module optional); confirm may reuse its unchanged statement. Unresolved targets retain old memory and unfinished work; independent valid points may save. Internal IDs remain compatible for existing callers but must not be requested from users. decide: kind=knowledge, decision=confirm|reject, project_name, candidate_id, explicit disposition. Delete: decision=delete, project_name and exactly one target_knowledge selection; omit candidate_id/knowledge_items. Replacement deletes old current truth, not history. Candidates are not legacy MemoryEntry truth. Evidence basis/ref kind: repository|user_statement|transcript|source_report, NEVER session_exchange. source_report records only what an authenticated source speaker reported, not external current truth or user approval; use exchange_index, digest and speaker role. User refs need exchange_index + returned content_sha256, no transcript locator. Refs accept kind/locator/content_sha256/exchange_index/chunk_index/role, not source/job IDs. handoff requires project_name/task_id/summary/status and distill_job_id for distill work.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -17,12 +17,43 @@
         "description": "Action-specific arguments; project_name is required for project writes.",
         "additionalProperties": true,
         "properties": {
+          "kind": {
+            "description": "Existing action kind: memory, rule, relation or knowledge."
+          },
+          "project_name": {
+            "description": "Context label returned by the selected job/target."
+          },
+          "category": {
+            "description": "Required for memory suggestions."
+          },
+          "content": {
+            "description": "The narrow candidate statement, required for memory suggestions."
+          },
+          "source": {
+            "description": "Required source explanation for memory suggestions."
+          },
+          "distill_job_id": {
+            "description": "Returned job binding; required for distill suggestions."
+          },
+          "assimilation_disposition": {
+            "description": "add, refine, confirm, replace, no_write, handoff, defer, conflict or reject."
+          },
+          "assimilation_reason": {
+            "description": "Required explanation of the disposition."
+          },
+          "canonical_title": {
+            "description": "Exact field name for the knowledge title; NOT title."
+          },
+          "topic_path": {
+            "description": "JSON array of whole category names; never a path string."
+          },
           "evidence_basis": {
             "type": "string",
             "enum": [
               "repository",
               "user_statement",
-              "transcript"
+              "transcript",
+              "source_report"
             ]
           },
           "verification_outcome": {
@@ -44,7 +75,8 @@
                   "enum": [
                     "repository",
                     "user_statement",
-                    "transcript"
+                    "transcript",
+                    "source_report"
                   ],
                   "title": "Kind",
                   "type": "string"

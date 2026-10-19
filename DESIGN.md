@@ -20,21 +20,29 @@ a reduction in supported-host scope.
 1. **Result before machinery** — lead with what is ready, missing, blocked, or changed.
 2. **Progressive disclosure** — default replies stay short; evidence, receipts, IDs, and raw transcripts appear only when users ask for details.
 3. **Trust is visible** — distinguish current memory, temporary material, and failed verification in language and structure.
-4. **One daily entry** — supported hosts expose one native entry for ordinary recall, remembering, and correction even when their command or hook formats differ.
+4. **Automatic daily memory** — normal conversations feed automatic recording, background organization and task-aware recall. The native `hm` entry is for viewing and reviewing memory; users do not command each session to be remembered.
 5. **Safe by default** — preview destructive maintenance, retain uncertain sources, and make authorization boundaries explicit.
 6. **Repairable, not magical** — errors name the failed boundary, preserved state, and next safe action.
 
 ## Information Architecture
 
-The default path is: install, run `harness-mem quickstart` once for the Agent
-app, then use one global native entry in any project. Codex exposes `$hm`;
-other supported hosts expose `/hm`. Memory recall and manual organization work
-without project setup; only requested automatic recording prepares workspace
-Hooks. The entry accepts ordinary language for three intents:
+The product decision of 2026-10-18 makes daily memory automatic: configure the
+host integration once, then continue ordinary conversations. Session recording,
+background organization and task-aware recall run through that integration.
+Users do not select sessions, request remembering, or approve each extracted
+point. Current unreleased Quickstart installs the native entry and user-level
+lifecycle Hooks; `--confirm` authorizes background model processing once.
+Claude Code, Codex, Cursor, Grok, Hermes, OpenCode and Antigravity derive the
+workspace dynamically from native task context. Explicit project settings
+override user policy, including `distill.autonomous.enabled=false` to opt out.
+Code support and installed files do not establish seven-host live acceptance.
 
-- Remember this session.
-- How did we solve this before?
-- This memory is wrong.
+Codex exposes `$hm`; other supported hosts expose `/hm` for on-demand inspection
+and human review:
+
+- Show what has been remembered.
+- Correct this memory.
+- Delete this memory.
 
 Users describe corrections or deletions by title or content in ordinary language.
 They do not need to understand internal components, or supply, copy, or manage memory
@@ -69,8 +77,25 @@ Current-source isolated checks and live MCP inventory/search/wake passed on
 2026-10-12; global host-entry synchronization remains separate. Earlier dated
 model/Hook results do not validate the new bytes.
 
-Wake happens with session entry and authorized background organization happens
-without becoming a daily checklist. Before each requested action, `hm` performs
+Task-related recall uses native context injection when supported, otherwise
+Agent MCP search. Codex and Claude Code query on UserPromptSubmit; Hermes and
+Antigravity provide pre-call events. Grok keeps SessionStart/Stop because its
+prompt-submit output is discarded; OpenCode's system transform injects memory
+availability. Grok and OpenCode task queries remain Agent MCP work. Do not
+present native task-aware injection as implemented across all seven hosts.
+After each completed reply or
+task, the authorized lifecycle attempts complete-source preparation and
+verification, then an addition, update or explicit no-write result through the
+existing worker. Preserve that source and transaction owner rather than creating
+a second learning pipeline. This flow does not require opening `hm` each time.
+For Codex and Antigravity, wait about 30 seconds after the reply finishes;
+cancel that pending wait on new input and reset it after the next completed
+reply. A round already started can finish. Keep internal stage details out of
+the conversation. Recall gets one short notice: Codex uses a native message,
+while Antigravity asks the current Agent through temporary context, with no
+claim that its UI guarantees display. Preserve global Hook ownership and
+remove equivalent project registrations instead of firing both.
+Before each requested review action, `hm` performs
 only the checks needed for the action. A project/Hook check is not required
 for device session processing or recall. Doctor, raw evidence, candidate detail,
 storage repair, and cleanup are diagnostic or operator drill-downs, not primary
@@ -113,20 +138,15 @@ Hermes entry and Hook preparation use the same active-profile location.
   reads and captures each complete source before semantic work, then binds its
   immutable revision. Resume reuses that selection without a project prerequisite.
   Discovery does not import old sessions or enable background processing.
-- Manual batches freeze the selected sources. Show progress and
-  unresolved failures within that scope, and exclude previously completed work
-  from this run's knowledge changes. Explicit retry applies only to active
-  batches; stopped batches do not silently resume. Completion retains sources.
-  A batch can finish processing its selected sources while organization remains
-  partial because it retains unfinished work. Show verified saved knowledge
-  separately; never translate processing completion into "everything is done."
-- The current Agent owns manual work independently of the background CLI.
-  Keep fixture evidence, the `manual_session_batch` outcome probe and
-  live background acceptance separate; none implies that the others passed.
-- An explicit organization request shows the actual saved knowledge in the
-  completion reply, in the user's language. Include titles and statements,
-  natural module grouping where useful, ordinary no-write reasons and unfinished
-  work; a count, test verdict or report link alone does not satisfy this result.
+- Automatic session jobs keep complete sources and resumable progress. Show
+  verified saved knowledge separately from queued, retryable or failed work.
+  Existing manual batches remain recoverable compatibility data, not a daily
+  user operation or an alternative to repairing automation.
+- Human work is inspection and review of existing memory, candidates or failed
+  jobs. It does not create a parallel manual remembering workflow.
+- Inspection shows the actual saved titles and statements, ordinary no-write
+  reasons and unfinished work; a count, test verdict or report link alone does
+  not satisfy the result.
 - A failed or ambiguous point must not block other independent, verified points
   from being saved through the existing commit and readback checks. Report what
   was actually saved separately from what remains unfinished; partial saving
@@ -149,11 +169,19 @@ Hermes entry and Hook preparation use the same active-profile location.
 - Make the single normal entry discoverable before any individual action name:
   `$hm` for Codex and `/hm` for other supported hosts.
 - Do not make users learn internal MCP server aliases.
-- Quickstart installs only the global native entry for the current Agent app.
-  It is independent of the current project and does not inspect, add, remove,
-  or replace MCP connections.
-- Requested automatic recording resolves that workspace and prepares its
-  Hooks without reinstalling the global entry; ordinary use does not require it.
+- Quickstart installs the global native entry and user-level lifecycle Hooks
+  for the selected Agent app. `--confirm` supplies one-time background model
+  authorization; omitting it preserves authorization. It is independent of the
+  current project and does not inspect, add, remove or replace MCP connections.
+- New workspaces inherit that setup automatically, with explicit project policy
+  taking precedence. Project Hook installation remains compatible. Codex users
+  review and trust the global Hooks once in the native host. Hermes also needs
+  native first-use shell Hook confirmation; Quickstart must not write its
+  allowlist approvals. Complete host-native review or confirmation once, then
+  require no daily remembering command. `hm` is the
+  inspection, review and correction entry, not a daily recording switch.
+  Reading and review remain available while automation is being repaired;
+  users are not asked to remember each session manually.
 - Resolve workspace context internally for Hook setup and source validation;
   do not require a project name or directory lifecycle action for memory recall.
 - Derive the caller workspace from the Agent's native task context, never from

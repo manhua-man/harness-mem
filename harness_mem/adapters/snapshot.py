@@ -11,6 +11,7 @@ from uuid import NAMESPACE_URL, uuid5
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.schemas.transcript import TranscriptSource
+from harness_mem.adapters.protocol import Issue
 from harness_mem.capture_policy import (
     decide_capture,
     redact_private_bytes,
@@ -45,8 +46,9 @@ class TranscriptSyncResult:
         return self.action in {"ingested", "updated"}
 
 
-def _authored_capture_hashes(before: str, after: str, authored: list[str], *, private_tags: bool) -> list[str]:
-    """Bind every visible user marker to its original native message position."""
+def _authored_capture_hashes(before: str, after: str, authored: list[str], *, private_tags: bool,
+                            speaker: str = "user") -> list[str]:
+    """Bind visible role markers to their original native message positions."""
     from harness_mem.capture_policy import PRIVATE_REDACTION, _PRIVATE_TEXT_RE
     from harness_mem.mcp.distill_projection import _ENTRY_RE, _TURN_HEADING_RE, _parse_exchanges
 
@@ -55,7 +57,7 @@ def _authored_capture_hashes(before: str, after: str, authored: list[str], *, pr
     original_users: list[str] = []
     native_markers: list[int] = []
     for index, match in enumerate(original):
-        if match.group(1) == "User":
+        if match.group(1) == speaker.title():
             end = original[index + 1].start() if index + 1 < len(original) else len(before)
             original_users.append(before[match.end():end].strip())
             native_markers.append(match.start(1))
@@ -89,13 +91,157 @@ def _authored_capture_hashes(before: str, after: str, authored: list[str], *, pr
     normalized = _TURN_HEADING_RE.sub("", after)
     visible = list(_ENTRY_RE.finditer(normalized))
     for index, match in enumerate(visible):
-        if match.group(1) != "User":
+        if match.group(1) != speaker.title():
             continue
         end = visible[index + 1].start() if index + 1 < len(visible) else len(normalized)
         if marker_bodies.get(match.start(1)) != normalized[match.end():end].strip():
             return []
-    captured_users = [user for exchange in _parse_exchanges(after)[1] for user in exchange["user"]]
+    captured_users = [user for exchange in _parse_exchanges(after)[1] for user in exchange[speaker]]
     return [sha256_text(user) for user in captured_users]
+
+
+def _native_codex_authored_texts(native: bytes) -> tuple[str, list[str], list[str]] | None:
+    """Prove both role arrays from structured native bytes, never prose labels."""
+    from harness_mem.adapters.parser import parse_codex_archive_jsonl_session, render_codex_conversation
+    from harness_mem.mcp.distill_projection import _ENTRY_RE, _parse_exchanges
+    from harness_mem.rust_core import scan_jsonl
+
+    issues: list[Issue] = []
+    try:
+        text = native.decode("utf-8-sig")
+    except UnicodeError:
+        return None
+    if not text.lstrip().startswith("{"):
+        return None
+    scanned = scan_jsonl(text)
+    if scanned.errors or not scanned.records:
+        return None
+    actor_types = {"user": "user", "assistant": "assistant", "tool": "tool",
+                   "user_message": "user", "agent_message": "assistant",
+                   "function_call_output": "tool"}
+    for record in scanned.records:
+        payload = record.get("payload", record)
+        if not isinstance(payload, dict):
+            return None
+        role_values = [record.get("role"), payload.get("role")]
+        # Both locations count: a permissive parser may ignore the outer
+        # message when payload is present, but conflicting authors are unsafe.
+        for container in (record, payload):
+            message = container.get("message")
+            if isinstance(message, dict):
+                role_values.append(message.get("role"))
+        if any(value is not None and not isinstance(value, str) for value in role_values):
+            return None
+        roles = {value for value in role_values if isinstance(value, str)}
+        for value in (record.get("type"), payload.get("type")):
+            if value is not None and not isinstance(value, str):
+                return None
+            if value in actor_types:
+                roles.add(actor_types[value])
+        if len(roles) > 1:
+            return None
+        # Native role labels embedded in tools/arguments/quoted bodies cannot
+        # manufacture report authorship. Check bytes before projection drops
+        # tools or folds duplicate records, including otherwise ignored fields.
+        pending = [record]
+        while pending:
+            value = pending.pop()
+            if isinstance(value, dict):
+                pending.extend(value.values())
+            elif isinstance(value, list):
+                pending.extend(value)
+            elif isinstance(value, str) and any(
+                match.group(1) in {"User", "Assistant"} for match in _ENTRY_RE.finditer(value)
+            ):
+                return None
+    meta, turns = parse_codex_archive_jsonl_session(Path("frozen.jsonl"), content=text, issues=issues)
+    if meta.get("invalid_json_lines") or any(issue.get("level") == "error" for issue in issues):
+        return None
+    rendering = render_codex_conversation(turns)
+    if not rendering:
+        return None
+    users = [str(turn.get("user") or "").strip() for turn in turns if str(turn.get("user") or "").strip()]
+    assistants = [message for turn in turns if str(turn.get("user") or "").strip()
+                  for message in dict.fromkeys(str(value or "").strip() for value in turn.get("assistant") or [])
+                  if message]
+    exchanges = _parse_exchanges(rendering)[1]
+    for speaker, authored in (("user", users), ("assistant", assistants)):
+        expected = [sha256_text(value) for exchange in exchanges for value in exchange[speaker]]
+        if _authored_capture_hashes(rendering, rendering, authored, private_tags=False, speaker=speaker) != expected:
+            return None
+    return rendering, users, assistants
+
+
+def _native_claude_rendering(native: bytes, session_id: str) -> str | None:
+    """Rebuild Claude prose only from structurally proved native speakers."""
+    from harness_mem.adapters.parser import parse_claude_jsonl_session, render_claude_conversation
+    from harness_mem.mcp.distill_projection import _ENTRY_RE
+    from harness_mem.rust_core import scan_jsonl
+
+    try:
+        text = native.decode("utf-8-sig")
+    except UnicodeError:
+        return None
+    scanned = scan_jsonl(text)
+    if scanned.errors or not scanned.records:
+        return None
+    for record in scanned.records:
+        role = record.get("type")
+        if role not in {"user", "assistant"}:
+            continue
+        message = record.get("message")
+        if (not isinstance(message, dict) or message.get("role") != role
+                or record.get("role", role) != role
+                or record.get("sessionId", session_id) != session_id):
+            return None
+        body = message.get("content", "")
+        if not isinstance(body, (str, list)) or (role == "assistant" and not isinstance(body, list)):
+            return None
+        for item in body if isinstance(body, list) else []:
+            if not isinstance(item, dict):
+                return None
+            if item.get("type") == "text" and not isinstance(item.get("text", ""), str):
+                return None
+            if item.get("type") == "tool_use" and not isinstance(item.get("name", ""), str):
+                return None
+    turns = parse_claude_jsonl_session(Path("frozen.jsonl"), content=text, on_error="raise")
+    if not turns:
+        return None
+    # Quoted prose must not manufacture an extra native role in the renderer.
+    for turn in turns:
+        bodies = [turn.get("user") or "", *(turn.get("assistant") or [])]
+        if any(not isinstance(body, str) or _ENTRY_RE.search(body) for body in bodies):
+            return None
+        if any(_ENTRY_RE.search(tool["name"]) for tool in turn.get("tools") or []):
+            return None
+    return render_claude_conversation(turns, session_id)
+
+
+def _native_source_timestamp(native: bytes, client: str) -> str | None:
+    """Read a native timestamp without substituting observation/capture/mtime."""
+    from harness_mem.rust_core import scan_jsonl
+
+    if client not in {"codex", "codex-archive", "cursor", "claude-code"}:
+        return None
+    try:
+        scanned = scan_jsonl(native.decode("utf-8-sig"))
+    except UnicodeError:
+        return None
+    if scanned.errors:
+        return None
+    for record in scanned.records:
+        payload = record.get("payload")
+        values = ([payload.get("timestamp")] if record.get("type") == "session_meta" and isinstance(payload, dict) else [])
+        values.append(record.get("timestamp"))
+        for value in values:
+            if not isinstance(value, str) or not value.strip():
+                continue
+            try:
+                datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            return value
+    return None
 
 
 async def persist_session_snapshot(
@@ -116,6 +262,7 @@ async def persist_session_snapshot(
     parser_version: str = "transcript-v1",
     reuse_logical_session: bool = False,
     authored_user_texts: list[str] | None = None,
+    authored_assistant_texts: list[str] | None = None,
     capture_config: MergedConfig | None = None,
     source_context_roots: list[str] | None = None,
     native_input_digest: str | None = None,
@@ -257,6 +404,21 @@ async def persist_session_snapshot(
         if existing_source.source_revision == revision
         else "updated"
     )
+    native_authored = _native_codex_authored_texts(native_input) if client in {"codex", "codex-archive"} else None
+    report_authorship = {}
+    if native_authored is not None and native_authored[0] == original_source_text:
+        _, native_users, native_assistants = native_authored
+        if ((authored_user_texts is None or [text.strip() for text in authored_user_texts if text.strip()] == native_users)
+                and (authored_assistant_texts is None or authored_assistant_texts == native_assistants)):
+            report_authorship = {
+                "authored_user_text_sha256": _authored_capture_hashes(
+                    original_source_text, source_text, native_users, private_tags=config.capture_private_tags),
+                "authored_assistant_text_sha256": _authored_capture_hashes(
+                    original_source_text, source_text, native_assistants,
+                    private_tags=config.capture_private_tags, speaker="assistant"),
+                "authored_rendering_sha256": normalized_digest,
+                "authored_source_report_native_sha256": sha256_bytes(native_input),
+            }
     source = TranscriptSource(
         id=source_id,
         project_name=project_name,
@@ -277,9 +439,11 @@ async def persist_session_snapshot(
         sequence_count=sequence_count,
         metadata={
             **(dict(existing_source.metadata) if existing_source is not None else {}),
-            "native_timestamp": observation.timestamp.isoformat()
-            if observation.timestamp
-            else None,
+            "native_timestamp": _native_source_timestamp(native_input, client),
+            # Clear report-only proof on a new revision unless the native bytes
+            # proved it again. Legacy caller-owned role fields are insufficient.
+            "authored_assistant_text_sha256": None,
+            "authored_source_report_native_sha256": None,
             "native_source_uri": requested_source_uri,
             "native_input_sha256": native_input_sha256,
             **(
@@ -307,6 +471,7 @@ async def persist_session_snapshot(
                 ),
                 "authored_rendering_sha256": normalized_digest,
             } if authored_user_texts is not None else {}),
+            **report_authorship,
         },
         created_at=(
             existing_source.created_at
@@ -408,13 +573,22 @@ async def persist_inspected_session(
     )
     if not _unchanged(_dependency_stamps(native)):
         raise ValueError("selected source changed during observation projection")
+    native_input = native.native_input_bytes
+    if native.client == "codex" and native.native_input_digest is not None:
+        # Inspection exposes only permitted dialogue. Reopen its already-read
+        # native file privately at the snapshot boundary to prove speaker roles;
+        # neither this input nor host-private records enter persisted capture.
+        native_input = Path(native.record["path"]).read_bytes()
+        if (sha256_bytes(native_input) != native.native_input_digest
+                or not _unchanged(_dependency_stamps(native))):
+            raise ValueError("selected native source changed before authorship proof")
     observation.metadata["source_context_roots"] = native.project_roots or []
     return await persist_session_snapshot(
         backend, observation, project_name=project_name, project_root=project_root,
         client=native.client, session_id=native.session_id,
         source_kind="native-session-export", source_uri=native.source_uri,
         source_text=native.text, raw_bytes=native.captured_bytes,
-        native_input_bytes=native.native_input_bytes,
+        native_input_bytes=native_input,
         native_input_digest=native.native_input_digest,
         authored_user_texts=native.authored_user_texts, capture_config=capture_config,
         source_context_roots=native.project_roots,

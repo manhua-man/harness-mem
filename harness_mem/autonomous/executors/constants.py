@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-AGENT_HOST_CLIENTS = frozenset({"codex", "claude-code", "hermes", "opencode"})
+AGENT_HOST_CLIENTS = frozenset({"codex", "claude-code", "hermes", "opencode", "antigravity"})
 
 
 def host_cli_provider_name(host_client: str) -> str:

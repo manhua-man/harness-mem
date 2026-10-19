@@ -24,12 +24,14 @@ from uuid import NAMESPACE_URL, uuid5
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from matched_memory_host import validate_external_scope  # noqa: E402
 
 from harness_mem.autonomous.worker import autonomous_runtime_fingerprint  # noqa: E402
 from harness_mem.core.schemas import (  # noqa: E402
     AssimilationDecision, KnowledgeCandidate, KnowledgeEntry, ProjectKnowledgeSourceRef,
 )
-from harness_mem.qualification.quality_baseline import load_baseline  # noqa: E402
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend  # noqa: E402
 
 
@@ -121,17 +123,19 @@ async def seed_isolated_backend(data: Path, project: Path, rows: list[dict]) -> 
         await backend.close()
 
 
-def prepare_experiment(upstream: Path, run: Path) -> dict:
-    run, upstream = run.resolve(), upstream.resolve()
-    temporary = (REPO_ROOT / ".tmp").resolve()
-    if not run.is_relative_to(temporary) or not upstream.is_relative_to(temporary):
-        raise ValueError("experiment and upstream must stay under repository .tmp")
+def prepare_experiment(upstream: Path, run: Path, *, artifact_root: Path | None = None,
+                       baseline: dict | None = None) -> dict:
+    if artifact_root is None:
+        raise ValueError("an explicit external artifact_root is required")
+    validate_external_scope(artifact_root, run, upstream, repo=REPO_ROOT)
+    artifact_root, run, upstream = artifact_root.resolve(), run.resolve(), upstream.resolve()
     if run.exists():
         raise ValueError("refuse to overwrite an existing experiment")
+    if baseline is None:
+        raise ValueError("an explicit frozen corpus is required; no historical sample is selected by default")
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=upstream, text=True).strip()
     if subprocess.check_output(["git", "status", "--porcelain"], cwd=upstream, text=True).strip():
         raise ValueError("upstream checkout must be unchanged")
-    baseline = load_baseline()
     upstream_fingerprint = upstream_source_fingerprint(upstream)
     run.mkdir(parents=True)
     # Evaluator-only directory, outside both execution working roots.
@@ -164,7 +168,8 @@ def prepare_experiment(upstream: Path, run: Path) -> dict:
                                    "text_path": str(raw), "text_sha256": digest(raw),
                                    "messages": len(source_messages(source["text"]))})
         manifest = {
-            "schema_version": 1, "run_root": str(arm), "project_root": str(project),
+            "schema_version": 2, "artifact_root": str(artifact_root),
+            "run_root": str(arm), "project_root": str(project),
             "project_name": project.name, "native_root": str(native), "data_dir": str(arm / "data"),
             "notes_dir": str(arm / "notes"), "audit_path": str(arm / "handler-events.jsonl"),
             "upstream_root": str(upstream), "upstream_distill": str(project / "session-distill"),
@@ -370,8 +375,24 @@ def workflow_prompt(product: str, manifest_path: Path, *, preflight: bool) -> st
         "工具自身会在收尾前保留隔离审查副本，原文不得删除；未完成事项留在 Note Open items。")
 
 
+class UnqualifiedModelDispatch(RuntimeError):
+    """The current native transport cannot meet the controlled-test contract."""
+
+
+def require_qualified_model_dispatch() -> None:
+    # A budget JSON flag, a prompt instruction, or a goal's tokenBudget is not a
+    # per-provider-call output bound. Do not add a flag that bypasses this check.
+    # Replace this refusal only when this executor actually implements verified
+    # input/output reservations and controls every native retry before dispatch.
+    raise UnqualifiedModelDispatch(
+        "Model dispatch disabled: this Codex CLI executor has no qualified full-input "
+        "bound, actual output-token limit, retry control, or shared dispatch ledger."
+    )
+
+
 def run_cli(product: str, manifest_path: Path, config: dict, *, preflight: bool,
             timeout_seconds: int) -> dict:
+    require_qualified_model_dispatch()
     phase = "preflight" if preflight else "workflow"
     arm = manifest_path.parent
     prefix = arm / phase
@@ -674,12 +695,23 @@ def main() -> int:
     parser.add_argument("--upstream", type=Path, required=True)
     parser.add_argument("--run", type=Path, required=True)
     parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument("--artifact-root", type=Path)
+    parser.add_argument("--baseline", type=Path, help="Explicit frozen corpus; no implicit old sample")
     parser.add_argument("--timeout-seconds", type=int, default=900)
     args = parser.parse_args()
-    args.run, args.upstream = args.run.resolve(), args.upstream.resolve()
     if args.timeout_seconds <= 0:
         parser.error("timeout-seconds must be positive")
-    experiment = prepare_experiment(args.upstream, args.run)
+    if not args.prepare_only:
+        try:
+            require_qualified_model_dispatch()
+        except UnqualifiedModelDispatch as exc:
+            print(json.dumps({"status": "blocked", "model_calls": 0, "reason": str(exc)}))
+            return 2
+    if args.artifact_root is None or args.baseline is None:
+        parser.error("--prepare-only requires --artifact-root and --baseline")
+    baseline = json.loads(args.baseline.read_text(encoding="utf-8"))
+    experiment = prepare_experiment(args.upstream, args.run, artifact_root=args.artifact_root,
+                                    baseline=baseline)
     config = safe_configuration()
     experiment["configuration"] = config
     for product, manifest in experiment["arms"].items():

@@ -7,7 +7,542 @@ itself; normal runtime paths do not migrate legacy data.
 
 ## Current iteration plan
 
-Planning update: **2026-10-15**. Source version: `0.9.28`.
+Continuous learning integration, **2026-10-18** (unreleased): Quickstart installs
+user lifecycle Hooks with dynamic workspace attribution and explicit one-time
+background authorization. User policy is inherited across workspaces; explicit
+project values still override it. Different sessions retain separate pending
+requests in the existing queue. Codex/Claude prompt events select memory for the
+task; native injection differs by host, with MCP retaining the common recall
+surface. Local Python runtime and Codex/Hermes setup are synchronized. Codex trust
+and Hermes first-use consent remain native user decisions. No new model test or
+natural-trigger quality/cost acceptance is claimed. The surface-only gap below
+is historical. Receipt: `.tmp/continuous-learning-20261018/setup-receipt.json`.
+
+Automatic daily memory, **2026-10-18** (surface and launch repair, unreleased):
+the operator removes user-facing manual remembering and batch organization.
+Normal conversations are intended to drive recording, background organization
+and task-aware recall; `hm` is inspection and human review/correction/deletion.
+The public preparation handler rejects new manual remembering/batch work while
+keeping exact-memory corrections and existing-job review. Internal Hook/worker
+preparation and old batch data remain. Windows Hermes input moves from argv to
+stdin while entering the same native one-shot CLI with usage-file reporting,
+addressing the actual WinError 206 deferred receipt. The configured provider,
+model, memory data and other workspaces' settings are untouched. Static checks
+and installed-entry synchronization do not establish that every workspace's
+automation is connected or that a new automatic generation succeeded. No new
+model test is dispatched. The Router-managed HM service was reloaded through
+its native UI and new service processes were observed; other server controls
+were not changed.
+
+
+Daily entry flow repair, **2026-10-18** (applied, no model run): installed
+Codex `hm` and project mirrors are synchronized with the canonical guide;
+exact tool lookup, complete-result reuse and literal correction wording are
+used. Native caller metadata moves out of user input into application context.
+Checks are static only; the earlier native quality failures remain recorded.
+
+Actual correction closure, **2026-10-18** (native quality failed; data
+manually repaired): the operator provides the real correction. First native
+correction/recall persists caller constraints; the single recovery broadens
+acceptance-only model/temporary-exit conditions into daily use. Both are
+rejected. Their 22 responses / 253,256 tokens are retained; all four steps
+plus failed recovery total 38 Luna responses / 465,142 reported tokens, no
+unknown model usage. After stopping model tests, normal MCP manual source
+preparation/CAS finalization repairs the one current decision literally;
+fresh MCP/SQLite/Notes agree, 576 rows remain, original 575 payloads unchanged.
+Manual repair does not establish native correction or post-repair native
+confirmation. No third recovery, new scenario, global install or shared
+reload. [Final results and failures](convergence-goal-20261017.md#纠正收尾与停止测试2026-10-18).
+
+Earlier first two daily steps, **2026-10-18** (partial): the real default store gains one
+source-backed operator decision (575 -> 576 rows; all old payloads unchanged).
+Fresh native recall, reopened SQLite, fresh MCP and both Notes agree. The
+operator explicitly defers correction until supplying a real change; no
+correction is invented and no old small scenario reruns. Sixteen Luna responses
+use 211,886 reported tokens with no unknown model usage. Recall requires eight
+searches; daily cost acceptance remains open. The initial shared Router search
+times out at 300 seconds; independent current-source MCP success does not
+verify that shared connection or automatic skill activation. Services close,
+real memory remains, and tuning stays stopped. See
+[actual path, failures and costs](convergence-goal-20261017.md#真实日常使用验收2026-10-18部分完成).
+
+Two-candidate instruction follow-up, **2026-10-18** (closed, unreleased):
+stop after the two authorized candidates. The final shorter canonical guide
+and six mirrors retain all source/quality contracts; 240 runtime files and all
+twenty tools remain unchanged. Actual per-request phase instructions fall
+about 15%, while the native host block remains 2,544 tokens. End-to-end token
+savings are **not accepted**: final original-case HM uses 11 / 71,043 /
+76.344 outer seconds versus previous accepted 10 / 68,828 / 74.141. Final fresh
+Mem0 uses 5 / 11,222 / 34.390. Both pass original 8 criteria and full content.
+The additional repeated short case passes 12 criteria and full content for
+HM 12 / 75,961 / 75.391 and Mem0 6 / 13,062 / 35.547, with Mem0 provenance
+limits. Initial HM omission and Mem0's dropped explicit unknown state remain
+rejected and counted. The two candidates retain 57 unique completed responses /
+280,998 known tokens / zero unknown usage; all actual generations use
+6 Luna/xhigh/default through the same task-only alternate exit. Two necessary
+wake-to-search supplements and one unnecessary repeat search explain extra
+calls; no capability or complete result is removed to lower counts. This is
+not general accuracy, blind validation, same-host algorithm cost or billing
+proof. Stop prompt micro-optimization and move to bounded real-use acceptance;
+installed entry/natural use has not been verified. No global install, shared
+MCP/route change, real-memory operation or release.
+[Two attempts, precision limits and full costs](convergence-goal-20261017.md#两次有界优化与精准性判断2026-10-18).
+
+Full-input tracing and three-system follow-up, **2026-10-18** (closed,
+unreleased): newly captured request bodies show one phase instruction per
+request; old R4's 18,595 inputs remain a reconstruction because its HTTP body
+was not retained. The current fixed host block costs 2,544 input tokens per
+request. A verified cache inside the task guard fixes an offline fallback;
+actual fewer pages also involve merged rows and changed retrieval coverage,
+so no single-factor gain is accepted. Current HM passes the original eight
+criteria and full-content review at 10 responses / 68,828 tokens / 74.141 outer
+seconds, **5.094% more tokens than accepted R4**. Mem0's initial 3 / 9,693
+format failure is retained; a fresh-store protocol repair completes at
+6 / 12,814 / 61.969 and passes content review, with source-metadata limits.
+Native claude-mem 13.12.4 uses 33 / 176,659 / 119.547 including both worker and
+native consumers; Chinese FTS phrase retrieval misses the stored proposal,
+consumer content is 7/8 with additional date/scope problems and is rejected.
+All actual test generations use gpt-6-luna/xhigh/default on the same task-only
+alternate exit. This follow-up, including the rejected 11-response trace
+baseline, retains 63 unique completed responses / 341,746 tokens / zero
+unknown usage; with prior four rounds, 132 / 836,280. No new general quality,
+algorithm or billing savings claim. All 240 runtime files match; only guide
+prose and task harness preparation changed. Owned services are closed; no
+global installation, shared MCP/route change or real-memory maintenance.
+[Direct inputs, quality, costs and closure](convergence-goal-20261017.md#完整输入展开与三方原生复验2026-10-18).
+
+Actual-request token follow-up, **2026-10-18** (closed, unreleased): the
+review-ready prepare result now carries a canonical finalization template;
+daily instructions use exact tool-name dispatch and put correction targets
+inside each memory point. Complete sources, speaker/revision/period bindings,
+twenty tools and all write gates remain. In the same known two-source/four-body
+case and task-only alternate exit, final HM uses 10 responses / 65,492 reported
+tokens / 75.969 outer seconds, versus the preceding accepted 11 / 74,183 /
+85.172: tokens fall 11.716%, outer time 10.805%. Fresh native Mem0 uses
+5 / 11,195 / 42.344 with its retained source/role metadata limitations.
+Whole-content review and fresh storage/source readback are recorded separately
+from eight field checks. All four attempts, including three rejected candidates,
+retain 69 unique completed responses / 494,534 known tokens / zero unknown
+usage. The remaining opaque host block alone contributes 25,440 input tokens;
+another 18,595 inputs have no exposed body and are not falsely attributed.
+74 integrated checks and 20 post-clarification contract checks pass. No global
+install, shared MCP/route change, real-memory maintenance or release occurred.
+This does not establish general quality, a 180-source lifecycle or billing
+savings. [Full result and rejected attempts](convergence-goal-20261017.md#实际请求tokens归因与调用合同复验2026-10-18).
+
+Alternate-exit complete-workflow comparison, **2026-10-18** (closed, unreleased):
+fresh HM and native Mem0 stores run the same complete two-source/four-message
+case, fixed gpt-6-luna/xhigh and unchanged eight quality criteria. Independent
+whole-content review accepts both 8/8. Outer end-to-end timers are 85.172 seconds
+HM versus 54.344 seconds Mem0; reported input-plus-output tokens are 74,183
+versus 20,228 across 11 versus 7 unique completed responses. All 18 responses
+and 94,411 tokens are counted, with no unknown usage or generation retry.
+HM retains exact source/report bindings and MCP/SQLite/Note agreement; Mem0's
+source/attribution limitations remain. Both use the same task-only alternate
+exit sequentially; all 240 runtime files match the previous candidate. The
+health-phase route-monitor TypeError and proxy termination code remain in the
+record. All owned processes close; no shared route, install, real-memory or MCP
+change. This is the known short full workflow, not a 180-source lifecycle or
+single-factor algorithm/billing result.
+[Complete result and evidence](convergence-goal-20261017.md#同一临时出口上的完整流程复验2026-10-18).
+
+Three-block follow-up, **2026-10-17** (closed, unreleased): compact daily
+instructions, complete-source/current-context preparation and reuse of the
+existing Codex process owner retain all eight known-case criteria. Final
+responses fall 12 -> 11 and reported tokens 85,520 -> 77,022; complete wall
+rises 136.484 -> 749.469 seconds, so no overall speed claim. Fresh native Mem0
+uses 6 / 11,892 / 129.122 seconds with its attribution limitations retained.
+Two rejected HM attempts are included in 37 responses / 234,441 known tokens,
+zero new unknown usage. One duplicate correction search remains counted.
+297 scoped checks pass, one POSIX check skips; all 240 runtime files and the
+guide match the final pre-dispatch seal. No global install or shared reload.
+[Full result, failures and timing boundaries](convergence-goal-20261017.md#上下文来源准备与进程复用三项复验).
+
+Daily-flow roundtrip follow-up, **2026-10-17** (closed, unreleased): same full
+known case and gpt-6-luna/xhigh pass eight criteria, typed speaker provenance,
+explicit undecided state and consistent jobs/Notes/MCP/SQLite. Actual responses
+fall 18 to 12, reported tokens 156,994 to 85,520, phase sums 269.733 to 135.577
+seconds; final complete lifecycle is 136.484 seconds. Fresh Mem0 retains
+6 / 11,765 / 124.699 seconds with mixed attribution metadata. All current
+attempts, including rejected sources and recovered format failures, retain
+57 responses / 409,911 known tokens; the two optimization campaigns retain
+114 / 951,148 plus at least one prior unknown-usage dispatch. No general
+reliability, single-factor billing, global install or shared-reload claim.
+[Changes, all failures and direct receipts](convergence-goal-20261017.md#进一步减少原生往返与上下文).
+
+Matched external replay, **2026-10-17** (closed, unreleased): the operator
+authorizes the same complete known-case record/recall/correction/recall flow
+for fresh HM, claude-mem, Mem0 and complete-history/no-memory lanes. All use
+gpt-6-luna/xhigh. Independent answer scores are 7/8, 7/8, 8/8 and 8/8; all
+post-correction answers preserve the new rule and explicit indecision. HM/CM
+miss the earlier assistant-suggestion identity at first recall; Mem0 has mixed
+source/attribution metadata after update. All 59 responses total 393,733
+reported tokens with zero unknown usage, including failures/retries. HM has
+no demonstrated cost advantage in this short case. Exact lifecycle timing,
+installation boundaries and the different native integrations are recorded in
+[the matched result](convergence-goal-20261017.md#固定模型四组同步完整流程比较).
+This known-case replay does not complete the held-out benchmark below.
+
+Historical benchmark proposal, **2026-10-17**: the operator requested a held-out,
+same-condition quality/full-cost protocol and a token hard cap before any new
+model tests. The [pending protocol](benchmark-plan-20261017.md) and
+[budget proposal](benchmark-budget-20261017.json) propose 5,000,000 total tokens,
+including cached input and all engineering/parent-agent usage. They are not
+approved or enforced; its proposed gates are not authority for the separately
+authorized replays above. Dataset/profile freezing,
+offline fail-closed budget qualification and explicit run-manifest approval
+remain prerequisites. Earlier scenario regressions are not this formal benchmark.
+
+Planning update: **2026-10-16**. Source version: `0.9.28`.
+
+Fixed-model replay, **2026-10-17** (unreleased): one known failed bookclub
+workflow now passes recording, two fresh recalls and correction under fixed
+gpt-6-luna/xhigh. A fifth native consumer sees both old source and correction,
+answers with the corrected rule and preserves the explicitly undecided state.
+Independent raw-content/store review agrees. All 29 responses count toward
+327,650 reported tokens and 289.516 seconds cumulative native phase wall time;
+one missing project argument produces a recovered tool error. Repeated source
+preparation/reading remains measurable overhead. This is a bounded repair
+replay, without an installed-host, general reliability or billing-savings claim.
+See [the fixed-model result](convergence-goal-20261017.md#固定模型闭环复验及实际开销).
+
+Daily-correction repair, **2026-10-17** (unreleased): selected current entries
+can resolve correction ownership during source preparation, including a native
+source from another workspace. Explicit raw search supplies related current
+knowledge and its checked sources; existing proved replacement receipts can
+resolve an old-value search without storing knowledge history. Manual guidance
+now preserves supported undecided/unknown/unapproved states separately from
+unfinished actions and retains unchanged conditions during corrections.
+Repository sources retain scope/digest failures. Focused local checks and the
+exact remaining acceptance boundary are recorded in
+[the convergence repair section](convergence-goal-20261017.md#操作员授权修复当前条目更正来源和未定状态).
+No new model experiment or installed-host acceptance is claimed.
+
+Operator update, **2026-10-17**: current testing is stopped at the operator's
+request. The closed C12 13-source / 388-message sample passes independent
+whole-current review of 191 rows and all 55 unchanged criteria. Versus rejected
+C10, its measured wall time falls 12.807% and reported input-plus-output tokens
+42.294%; this is bounded sample evidence, not full-lifecycle or billing savings.
+The new 180-source HM build stops after five complete sources, retaining
+541.583 seconds, 18 requests / 17 completed / one unknown usage and 184,909
+known tokens. Task services are closed, original evidence and partial stores
+retained; 236 runtime files, 239 skill contracts and 575 real-memory rows pass
+final protection checks. New CM comparison, correction, eight consumers and
+full-store acceptance are not completed. No global install, shared MCP reload
+or release. Details: the final operator-stop section of the follow-up below.
+
+### Construction optimization follow-up, 2026-10-16 (ongoing, unreleased)
+
+The [same-condition follow-up](performance-full-lifecycle-20261016.md) completes
+another empty-store 180-source pair, correction and eight consumers. All 140
+answer judgments pass; HM build run-phase sums drop 24.455% and known token
+subtotals 13.834%. These do not include an interphase native five-minute
+retry-after interval, and one request has unknown usage. A paired whole-store
+audit confirms improved SLA-unknown and PII-permission wording but loses one
+useful pilot-channel identity, so the first candidate is explicitly rejected
+for quality non-regression. The loss is in composing a replacement, not source
+reading or extraction. The repaired prompt passes 502 scoped checks and a
+separate two-source native regression: all 60 messages, six accounted model
+requests and fresh MCP/SQLite/Note readback pass; the successor preserves the
+supported pilot/formal relationship without inventing retirement details.
+The same 234-file runtime (`1b303a6a...`) completes a fresh 180-source HM build:
+7,111.923 seconds, 438 completed requests, 2,783,379 reported input-plus-output
+tokens and no unknown usage. CM completes the identical sources in 2,367.456
+seconds, 360 requests and 2,929,415 tokens. Full source coverage, 122 complete
+verification contexts and fresh MCP/SQLite/180-Note readback pass; 47 current
+rows are sealed. Independent blind/paired review rejects the second candidate:
+five useful information-loss groups and a new unsupported nonapproval assertion
+remain; source and persistence checks cannot override those findings. Direct
+replay pinpoints a local comma/overlap normalization error rejecting six correct
+three-item model outputs, followed by a candidate-only repair deleting three
+current facts. New exact-payload normalization and add-only wording recovery
+pass 510 scoped tests, static checks and two isolated outcomes. A separate
+13-complete-source regression is interrupted after seven completed sources;
+22 requests have verified usage and one is unknown, not zero. An unchanged
+13-source / 388-message empty-store repeat closes in 1,192.624 seconds with
+41 completed requests and 307,516 reported tokens, none unknown. Full source
+and fresh MCP/SQLite/13-Note checks pass, but independent quality review rejects
+two lost proposal identities and one permission-to-actual-state strengthening.
+The first second-pair consumer fails
+before inference because native plugin sync upgrades a task cache and removes
+four sealed skills. Its 30.54 seconds and zero provider calls are retained.
+Original assets are restored with the native update moved recoverably aside;
+an offline zero-generation qualification also fails native reconciliation.
+The operator authorizes task-only CLI repair retaining all 239 skill contracts;
+native catalog qualification passes with no generation. A caller-owned Codex
+app-server reuses process startup, not conversation history: every semantic
+call retains its full input, model profile and new ephemeral thread. Native
+zero-generation checks verify the fixed comparison profile, complete model
+directory, MCP isolation and unchanged home instructions. An initial probe
+inherits the wrong profile and bypasses the task collector; it is stopped and
+rejected, retaining one native completion's 11,828 tokens and another unknown
+call rather than counting zero cost. The corrected wrapper is qualified before
+a fresh 13-source / 388-message empty-store run under 235-file `c5e40c03...`.
+That run closes in 1,081.139 seconds with 40 verified requests, 271,885 tokens
+and no unknown usage. Fresh MCP/SQLite/13-Note readback agrees, but independent
+review rejects two lost event/evidence boundaries and a partial change-scope
+relationship loss. The respective stages are extraction, future-scope
+classification and assimilation prose. A new empty-store repeat freezes
+235-file `70e7b9d3...` with all 13 sources / 388 messages and the same 41+14
+precommitted criteria. Its 617 scoped checks and two isolated outcomes pass;
+the native repeat closes in 1,438.511 seconds with 42 verified requests,
+344,756 reported input-plus-output tokens and no unknown usage. All 388 source
+messages and fresh MCP/SQLite/13-Note readback pass. Independent content review
+rejects a missing formal export decision, an added reporting obligation and
+scoped-boundary/proposal-rationale losses. A legacy lexical filter drops the
+correctly extracted export decision before verification. Its removal and the
+obligation/rationale guidance pass 623 scoped checks (one POSIX skip), static
+checks and two isolated outcomes; native quality remains unverified. Actual POSIX cleanup is not run on
+Windows, and the existing Windows pre-assignment atomicity gap remains open.
+Qualified user-choice/proposal wording and exchange integrity repairs do not
+open the transcript-only truth gate. Full quality,
+correction and eight-consumer acceptance remain open; first-candidate results
+cannot verify later bytes. The real-memory logical hash is unchanged. An
+external global Codex config change is observed and preserved, not reverted or
+attributed to these task-only repairs. No shared MCP or global CLI is changed.
+Independent scope tracing identifies 25 supported/durable attributed reports
+blocked by transcript admission, one lost discussion context, and eleven
+unextracted authority-boundary paths. The operator subsequently authorizes
+speaker/period/source-scoped reports, not external current truth or user
+approval. The typed path and cross-authority write guards pass 818 scoped tests
+(one POSIX skip), static checks, two isolated outcomes and independent fixed-byte
+rechecks. A separate one-request native semantic control rejects false user
+attribution and supports proper user/assistant accounts: 4,876 reported tokens,
+no unknown usage. Manual semantic-verifier trust remains explicit, not a claimed
+mechanical entailment oracle. The same thirteen-source / 388-message empty-store
+candidate closes in 1,471.055 seconds with 47 complete requests and 680,888
+reported input-plus-output tokens, none unknown. Fresh MCP/SQLite/13-Note
+readback agrees on 123 rows; native-role/revision binding passes for 96 typed
+reports. Independent review rejects the result after all 123 rows / 424 clauses
+and 55 original criteria: the unsigned/unknown SLA is lost, and three ordinary
+rows strengthen reported requirements or assistant nonapproval into unqualified
+current authority/state. A separate control
+exposes nondurable reports incorrectly becoming pending; its narrow no-write
+repair passes 829 scoped tests (one POSIX skip), static checks and two isolated
+outcomes. A new native control reports the correct NOT_APPLICABLE classification;
+the checker then fails on a wrong field name. Original failure and its 4,909
+tokens remain; independent closed-material adjudication verifies the actual
+isolated no-write application with no knowledge or handoff. This is not the
+new-byte thirteen-source or full-lifecycle acceptance. Only the
+owned private proxy restarts for these tests. All 239 skill contracts and 575 real
+rows match; a new config-only hash difference is separately preserved without
+attribution or restore. Both new 180-source full stores remain absent.
+
+The SLA point mixes user-supported unsigned status with an assistant prescription
+and is correctly marked partial. Stage guidance now separates points by
+speaker/evidence authority, retains independent user clauses, and keeps report
+clauses out of ordinary current truth. Source inputs and all criteria remain
+unchanged. An initial wider gate fails only the Hermes instruction-length
+fixture; repeated prose is tightened without raising its bound, and 58 executor /
+provider checks pass. A new complete byte-bound gate and stage attribution are
+closed. The final 236-file `110acb5f...` passes 830 scoped tests (one POSIX skip),
+static checks and two isolated outcomes. Independent tracing confirms the three
+strengthened assertions already existed in extraction and were judged supported;
+all actual submitted prompts contain the conflicting mixed-authority guidance.
+C8's prepared empty store has no main build; the rejected C7 is intact. A new
+empty-store C9 repeat retains all thirteen sources / 388 messages and the same
+55 precommitted criteria. It closes in 1,740.148 seconds, 53 complete requests
+and 1,049,810 reported input-plus-output tokens with zero unknown usage. Fresh
+MCP/SQLite/13-Note checks agree on 177 current rows; 151 typed reports bind to
+their exact native source/role/period. Independent review rejects C9 after
+checking all 177 rows and 686 content clauses: all 41 concrete fact identities
+remain, but thirteen source/speaker/theme groups are missing and one report
+adds an unsupported observation about separate user approval. Fifty of the
+unchanged 55 criteria pass. Stage tracing is in progress; no old source,
+store or quality criterion is changed. A separate fixed-source native control
+under `cf794464...` rejects the original added approval observation, retains
+a faithful assistant paraphrase and the supported user unknown; all fifteen
+original candidates and complete source context remain input. Its one request,
+38.243 seconds and 11,660 reported tokens are additional control costs, not a
+build saving. The same bytes pass 831 scoped tests (one POSIX skip), static
+checks and two isolated outcomes. This is not a new thirteen-source result.
+Independent tracing binds all thirteen missing source/speaker/theme groups
+to extraction, not input truncation or later no_write: the six complete source
+inputs contain all 178 messages, and the targets never become candidates.
+The internal omission motive remains unknown. New `09f53e5b...` guidance adds
+per-speaker account/premise coverage without relaxing source admission; 832
+scoped tests (one POSIX skip), static checks and two isolated outcomes pass.
+A new full-source extraction replay closes with one request and 9,321 tokens;
+independent review accepts all thirteen candidates / 41 clauses against the
+eleven applicable original conditions; the other 44 are untested. C10 closes
+the unchanged thirteen-source / 388-message empty-store build under those same
+frozen bytes: 1,849.922 seconds, 52 complete requests and 1,036,838 reported
+input-plus-output tokens, unknown usage zero. Fresh MCP, read-only SQLite and
+thirteen Notes agree on 182 current rows, including 159 native-bound typed
+reports. Independent review rejects C10 after checking all 182 rows / 577
+content spans and the same 55 conditions: four complete same-source/speaker/
+period authority accounts are missing, involving eight original occurrences.
+No unsupported existing content is found; retained conditions do not offset
+missing ones. Main-thread fixed-byte reconstruction reproduces this verdict.
+
+The next candidate (`1b8a1cac...`) changes only transient provider representation
+and the existing assimilation batch size (8 to 16). Complete canonical report
+scope/body/authority and every current row remain reconstructable; unsafe or
+non-saving packets retain the original representation. It passes 865 scoped
+tests, one real POSIX skip, static checks and two isolated outcomes. The fresh
+thirteen-source C11 runtime is prepared with its store still absent; no C11
+generation has started. Its first preparation failed before directory/model creation on
+a newly observed global-config-only hash change; the exact task-only context
+receipt preserves it without attribution or global restoration. All 575 real
+rows, 239 skill body/policy contracts and the global CLI remain unchanged.
+The original-source proof freshly reopens and reparses all 26 files / 388
+messages and preserves the exact 55 / 440 source-support checks. A later
+prompt-only repair explains that a source-stated authority imperative can be
+reported without executing it; no evidence status is forced. Its `31c5b1d5...`
+candidate passes 866 scoped tests (one POSIX skip), static checks and two
+isolated outcomes. A three-complete-source extraction replay closes with all
+90 original messages, three requests and 29,030 reported tokens (none unknown).
+Independent review accepts all 51 candidates / 141 spans against all 90 source
+messages, including the four complete accounts. Fourteen conditions are
+satisfied at extraction only; 41 original whole conditions remain NOTTESTED.
+Main-thread fixed-byte reconstruction passes. This is not verification,
+assimilation or current-store acceptance. The new empty-store C12 native run
+closes all thirteen sources / 388 messages using the same frozen `31c5b1d5...`
+bytes: 1,613.002 seconds, 40 completed requests and 598,314 reported
+input-plus-output tokens, none unknown. Fresh MCP / SQLite / thirteen Notes agree
+on 191 current rows, including 163 typed reports with native attribution bindings.
+All fourteen actual assimilation manifests reconstruct exactly; thirteen use the
+shared representation. Independent review accepts all 191 current rows / 899
+clauses and the unchanged 55 criteria / 440 supports; all four earlier omitted
+source/speaker/period accounts remain in their own current reports. Main-thread
+fixed-byte reconstruction of all 42 inputs and complete audit/report passes.
+This is not a new blind review or a full180 quality verdict. The same bytes are
+now frozen for a fresh empty-store 180-source HM construction, followed by CM;
+correction and eight new consumers still remain open.
+Independent stage
+diagnosis binds the four earlier omissions to recorded extraction output:
+all 41 actual C10 candidates were supported/durable and all 42 written identities
+remain current. Its one ungranted protocol-document read is disclosed, not used
+as diagnostic evidence; main-thread fixed-byte reconstruction also passes.
+Current content quality, performance saving and full-lifecycle acceptance
+remain open.
+
+### Full-lifecycle comparison, 2026-10-16 (unreleased, bounded)
+
+[The complete 180-source comparison](performance-full-lifecycle-20261016.md)
+now runs both empty-store native products through construction, the identical
+correction and eight fresh native CLI/MCP consumers. Actual request entities
+cover all 5,064 original messages per arm; reopened stores and source/Note
+bindings pass. All 140 repeated answer-field judgments pass, with independent
+execution and whole-store content audits retained separately.
+
+Measured run-phase sums are 143.54 min HM versus 46.38 min CM; known API
+input-plus-output is 3,922,815 versus 3,908,667, plus two versus one unknown
+attempts. Four HM retrieval tasks use 38.2% less measured time and 55.9% fewer
+reported tokens, but HM construction takes 3.51 times CM's measured time. This
+does not establish an overall token, billing or quality win. HM's 44 current
+rows have nine uncertain entries and state/scope gaps; CM's 210 historical
+records have nine uncertain and one unsupported entry. Their representations
+and row denominators differ. Same-model/source replay is not equal default
+embedding/cache configuration, natural Hook or full coding-environment proof.
+
+Production code and all 239 skill body/policy contracts match the frozen
+hashes, and all 575 real knowledge rows remain unchanged. Owned processes stop;
+the independently observed shared proxy rewrite is preserved. Execution policy
+blocks deletion of ten task credential/config copies, which remain protected
+by current-user/SYSTEM-only file ACLs; cleanup is partial, not silently complete.
+No release, global install, shared MCP reload, account repair or product fix
+was performed. The dated 2026-10-15 follow-ups below describe their own earlier
+partial experiments; their then-unrun statements do not override this result.
+
+### Speed/token iteration, 2026-10-15 (unreleased, partial)
+
+Latest background follow-up: [scoped JSON task execution](memory-worker-profile-20261015.md).
+The existing authorized Codex executor no longer inherits the interactive skill
+catalog or coding-agent prompt. A same-worker empty-store pair reads all 28
+source messages, preserves project scope and independently reopens its current
+knowledge and Notes: 74,011 -> 16,424 reported tokens, 111.201 -> 61.744 seconds.
+Three semantic stages and all 239 installed skill body/policy contracts remain.
+Rejected incomplete-source/scope samples and startup failures are retained;
+171 scoped tests and two isolated outcomes pass. Manual organization is unchanged;
+full construction/correction/retrieval and currency savings remain unverified.
+
+Latest construction follow-up: [known-session and non-promotion repair](memory-construction-repair-20261015.md).
+A fresh empty-store first-source native run and exact replay of the prior
+model's seven `no_write` decisions pass with all 239 skill contracts retained.
+461 scoped regressions and two isolated outcomes pass. The successful native
+run reports 296,051 tokens; two earlier pre-generation failures remain in the
+218.261-second attempt total. Full 180-source construction, correction and
+common Claude-mem retrieval remain unrun; no general speed/billing win or
+global deployment is claimed.
+
+Latest tool ON/OFF control: [full-skill consumer comparison](performance-long-history-20261015.md).
+Four new native sessions use the same repaired isolated CLI and all 239 skill
+body/policy contracts, with only the twenty-tool memory MCP connection toggled.
+All 72 answer fields pass. Mean complete wall time is 55.087 s OFF versus
+39.022 s ON; mean input-plus-output is 225000.5 versus 132109.5 tokens.
+Observed reductions are 29.2% and 41.3%, respectively. Three OFF nested-shell
+quoting failures and their full retry costs are retained. This verifies the
+actual bounded consumer workflow, not pure retrieval latency, controlled-cache
+billing, memory-building cost or a general/full-lifecycle saving.
+
+Isolated CLI follow-up: [startup repair and authorized sandbox result](codex-cli-startup-20261015.md).
+Task-local plugin readiness and bounded model-catalog waiting pass five
+fresh-home checks with the original 212 implicit and 27 explicit-only skills
+retained. Following separate operator authorization, same-release sandbox
+helpers and official elevated setup pass a full-profile zero-real-generation
+shell/write-denial probe. Two fresh native sessions complete the same frozen
+180-session task, 18/18 fields each, with full body/policy checks and complete
+provider/native usage agreement. The original CLI remains blocked before
+inference, so this is a bounded execution repair, not a speed/cost win.
+Shared sandbox account passwords/ACLs changed as authorized; no global CLI
+replacement or real-memory mutation occurred. Two concurrent global config
+edits are recorded separately and preserved. Earlier failed attempts remain.
+
+Host-network follow-up: [bounded repair and unresolved CLI initialization](host-network-stability-20261015.md).
+One backed-up exact-host Clash rule avoids an observed failing remote node;
+the task recorder separately fixes a real HTTP/2 receive-window stall. Three
+zero-generation native probes receive the full real model directory. A generated
+task reports window 475000 and 18/18 fields, but omits 112 original remote
+skills and fails performance acceptance. A same-process native plugin refresh
+restores all 239 enabled skills (212 implicit and 27 explicit-only); original
+YAML policies correct the earlier 237-implicit interpretation. Guarded fresh exec still has
+only 100 and is blocked before generation. App/MCP discovery works (14 apps /
+618 tools), while app-directory HTTP403 remains. Full outcome is partial: no
+speed/cost win, installed-CLI patch, skill reduction or real-memory change.
+Six manual selectors and seven protected file hashes remain unchanged; native
+discovery refreshed its own plugin cache metadata. Receipts:
+`.tmp/host-network-stability-20261015/report.json`.
+
+Actual-request follow-up: [wire capture and feature reuse](performance-request-wire-20261015.md)
+records request entities and provider usage, not debug-export sizes. This CLI
+path loads twelve core tool definitions and selected MCP information on demand;
+the normal 212-entry skill catalog repeats. Call-local feature reuse preserves
+tested results and reduces duplicate scoring. Two ON tasks per version average
+27.06 -> 29.11 seconds: no end-to-end acceleration; reported total tokens fall
+but uncached input+output rises. A 1,500-token catalog candidate omits 146 skill
+names and is rejected without verified discovery. Accepted-runtime tasks plus
+missing-memory/current-source control pass 90/90 fields; 154 scoped regressions
+and the bounded-reading direct outcome pass. Real memory/global configs are
+unchanged. This is controlled CLI HTTP evidence, not the unmodified Desktop/
+WebSocket route or global deployment.
+
+Long-history follow-up: [the 180-session experiment](performance-long-history-20261015.md)
+uses 195,795 source tokens and the same raw history in both arms. Under
+`e5ff5b36...`, two candidate ON tasks average 18.93 seconds / 106,457 reported
+input+output tokens versus 38.76 seconds / 192,851 OFF. This is a bounded
+pre-existing-memory consumer benefit, not measured ingestion/lifecycle savings.
+The new compaction does not beat before-ON end to end. Catalog text drops
+7,414 -> 7,288 tokens and the hm entry 1,257 -> 944; all twenty tools and input
+constraints remain. Nine native tasks pass 162 field checks, including missing
+memory/source-update recovery; 209 scoped regressions and three isolated
+outcomes pass. Real 575-row knowledge and global configs remain unchanged.
+
+[The controlled experiment](performance-20261015.md) separates catalog
+availability, actual memory hits, and native save/correction costs. Its final
+candidate keeps twenty tools and verification while compacting wire JSON,
+clarifying existing parameters and exposing freshly verified completion
+readback. The one matched native correction sample takes 55.746 -> 40.138
+seconds and 274,065 -> 236,987 input+output tokens; uncached input+output rises
+because cache ratios differ, so billed-cost reduction is not established.
+Short-history OFF/ON reads do not show stable savings. Twenty task answers
+pass 120/120 bounded field checks; 711 final regressions and three isolated
+outcomes pass. Native save, correction, independent recall, SQLite, Note and
+fresh stdio agree under package fingerprint `2aaf5e3e...`. A subsequent bounded
+query-only fix has separate fresh recall/direct-probe evidence under `71cabf24...`;
+the natural Agent still made two searches, not one. Real memory and
+global configuration remain unchanged. This is not a universal speed/cost win,
+release, global installation or seven-host runtime verdict.
 
 ### Real native-host exercise, 2026-10-15 (unreleased)
 

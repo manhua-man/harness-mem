@@ -48,9 +48,10 @@ harness-mem quickstart --client codex
 ```
 
 Quickstart reports only that the entry was installed. Start a new Agent task so
-the app discovers it. The same entry then works in every project. Ordinary
-recall and manual organization need no project setup or Hooks; request automatic
-recording when you want that workspace's Hooks prepared.
+the app discovers it. The same review entry then works in every project. Complete workspace Hook
+and background-executor setup once for automatic memory; normal conversations
+then drive recording and organization. Ordinary recall and review remain
+available without Hooks. Users do not request remembering per session.
 
 Refresh the entry explicitly without reinstalling the package:
 

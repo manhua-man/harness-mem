@@ -10,6 +10,7 @@ from uuid import uuid4
 from harness_mem.adapters.parser import (
     list_session_files,
     parse_claude_jsonl_session,
+    render_claude_conversation,
     session_sort_key,
 )
 from harness_mem.adapters.protocol import Issue, SessionRecord
@@ -107,20 +108,7 @@ class ClaudeCodeAdapter:
         """Convert parsed session to a single Observation."""
         turns = self.parse_jsonl_session(session_path)
 
-        # Summarize turns into a readable transcript
-        lines = [f"# Session: {session_id}"]
-        for i, turn in enumerate(turns, 1):
-            lines.append(f"\n## Turn {i}")
-            if turn.get("user"):
-                lines.append(f"\nUser: {turn['user']}")
-            if turn.get("assistant"):
-                for resp in turn["assistant"]:
-                    lines.append(f"\nAssistant: {resp}")
-            if turn.get("tools"):
-                tool_names = [t["name"] for t in turn["tools"]]
-                lines.append(f"\nTools: {', '.join(tool_names)}")
-
-        raw_content = "\n".join(lines)
+        raw_content = render_claude_conversation(turns, session_id)
 
         return Observation(
             id=str(uuid4()),

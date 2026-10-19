@@ -19,15 +19,19 @@ import json
 import os
 import re
 import shlex
+import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from importlib import resources
 from pathlib import Path
 from string import Template
 
+from harness_mem import __version__
 from harness_mem.integration.command_sync import default_hermes_home
 from harness_mem.integration.hook_runner import probe_hook_runner, resolve_hook_runner
+
+USER_HOOK_HOSTS = frozenset({"codex", "claude-code", "cursor", "hermes", "grok", "opencode", "antigravity"})
 
 __all__ = [
     "DEFAULT_DOC_POINTER",
@@ -38,6 +42,10 @@ __all__ = [
     "install_hermes_hook_suite",
     "install_hook",
     "install_hook_suite",
+    "install_user_hook_suite",
+    "reconcile_codex_project_hooks",
+    "user_hook_path",
+    "USER_HOOK_HOSTS",
     "install_shell_host_hook_suite",
 ]
 
@@ -257,8 +265,21 @@ def install_hook_suite(
 
     resolved_runner = Path(hook_runner).resolve() if hook_runner is not None else verified_hook_runner()
     results: list[HookInstallResult] = []
+    global_codex_events = _codex_user_events(resolved_runner) if any(
+        spec.template_name == "codex_hooks.json.template" for spec in specs
+    ) else set()
+    inherited_codex = {
+        spec.target_path for spec in specs
+        if spec.template_name == "codex_hooks.json.template"
+        and spec.target_path.resolve() == (project_root / ".codex" / "hooks.json").resolve()
+        and {"SessionStart", "Stop"} <= global_codex_events
+    }
     # Validate the whole suite before changing any artifact.
     for spec in specs:
+        if spec.target_path in inherited_codex:
+            # The global adapter derives the same workspace from native stdin.
+            # Do not recreate project registrations on a subsequent repair.
+            continue
         expected = _render_hook_body(
             template_name=spec.template_name, project_root=project_root,
             harness_mem_version=harness_mem_version, generated_at=generated_at,
@@ -274,6 +295,12 @@ def install_hook_suite(
                 "differences before explicitly updating with --force."
             )
     for spec in specs:
+        if spec.target_path in inherited_codex:
+            reconciled = reconcile_codex_project_hooks(
+                project_root=project_root, hook_runner=resolved_runner,
+            )
+            results.extend(reconciled or [HookInstallResult(spec.target_path.resolve(), "inherited")])
+            continue
         target_existed = spec.target_path.exists()
         if target_existed and not force:
             expected = _render_hook_body(
@@ -669,3 +696,268 @@ def _hook_command(hook_runner: Path, *args: str) -> str:
     """Quote a Hook console invocation for shell-style host command fields."""
 
     return " ".join(shlex.quote(value) for value in (hook_runner.as_posix(), *args))
+
+
+def user_hook_path(client: str, *, home_dir: Path | None = None) -> Path:
+    """Resolve the host-owned global lifecycle file, independently of a workspace."""
+    home = home_dir or Path.home()
+    if client == "codex":
+        root = Path(os.environ.get("CODEX_HOME") or home / ".codex") if home_dir is None else home / ".codex"
+        return root / "hooks.json"
+    if client == "claude-code":
+        root = Path(os.environ.get("CLAUDE_CONFIG_DIR") or home / ".claude") if home_dir is None else home / ".claude"
+        return root / "settings.json"
+    if client == "cursor":
+        return home / ".cursor" / "hooks.json"
+    if client == "hermes":
+        return (default_hermes_home() if home_dir is None else home / ".hermes") / "config.yaml"
+    if client == "grok":
+        return home / ".grok" / "hooks" / "harness-mem.json"
+    if client == "antigravity":
+        return home / ".gemini" / "config" / "hooks.json"
+    if client == "opencode":
+        root = (Path(os.environ["OPENCODE_CONFIG_DIR"]) if home_dir is None and os.environ.get("OPENCODE_CONFIG_DIR")
+                else Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config") / "opencode"
+                if home_dir is None else home / ".config" / "opencode")
+        return root / "plugins" / "harness-mem.ts"
+    raise ValueError(f"no verified user-level Hook integration for {client}")
+
+
+def install_user_hook_suite(
+    *, client: str, force: bool = False, home_dir: Path | None = None,
+    hook_runner: Path | None = None,
+    project_root: Path | None = None,
+) -> list[HookInstallResult]:
+    """Merge one host's global start/turn-end hooks; never bind an install directory."""
+    if client not in USER_HOOK_HOSTS:
+        raise ValueError(f"no verified user-level Hook integration for {client}")
+    runner = Path(hook_runner).resolve() if hook_runner is not None else verified_hook_runner()
+    if client == "hermes":
+        return install_hermes_hook_suite(
+            project_root=Path.home(), force=force, home_dir=home_dir,
+            harness_mem_version=__version__,
+            generated_at=datetime.now(timezone.utc), hook_runner=runner,
+        )
+    path = user_hook_path(client, home_dir=home_dir)
+    before = path.read_text(encoding="utf-8") if path.exists() else ""
+    if client == "opencode":
+        after = _render_hook_body(
+            template_name="opencode_plugin.ts.template", project_root=Path.home(),
+            harness_mem_version=__version__, generated_at=datetime.now(timezone.utc),
+            doc_pointer=DEFAULT_DOC_POINTER, hook_runner=runner,
+            template_vars={"PROJECT_ROOT_JSON": "null"},
+        )
+        _assert_boundary(after, hook_runner=runner)
+        if before and before != after and not force:
+            raise FileExistsError(f"existing OpenCode global plugin conflicts: {path}; file preserved")
+        if after != before:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(after, encoding="utf-8")
+        return [HookInstallResult(path.resolve(), "unchanged" if after == before else "updated" if before else "installed")]
+    manifest = json.loads(before) if before.strip() else {}
+    native_key = "harness-mem" if client == "antigravity" else "hooks"
+    if not isinstance(manifest, dict) or not isinstance(manifest.setdefault(native_key, {}), dict):
+        raise ValueError(f"invalid {client} global Hook mapping: {path}")
+    cursor = client == "cursor"
+    direct_handlers = cursor or client == "antigravity"
+    if cursor:
+        if manifest.get("version", 1) != 1:
+            raise ValueError(f"unsupported Cursor Hook version: {path}")
+        manifest["version"] = 1
+    events = (("PreInvocation", "pre"), ("Stop", "stop")) if client == "antigravity" else (
+        ("sessionStart" if cursor else "SessionStart", "start"),
+        ("stop" if cursor else "Stop", "stop"),
+    )
+    if client in {"codex", "claude-code"}:
+        events += (("UserPromptSubmit", "start"),)
+    for event, phase in events:
+        adapter = f"{client}-{phase}"
+        command = _hook_command(runner, "--adapter", adapter)
+        handler = {"command": command} if cursor else {"type": "command", "command": command}
+        if client == "codex":
+            handler["commandWindows"] = subprocess.list2cmdline([str(runner), "--adapter", adapter])
+        expected = handler if direct_handlers else {"hooks": [handler]}
+        groups = manifest[native_key].setdefault(event, [])
+        if not isinstance(groups, list):
+            raise ValueError(f"invalid {client} {event} global Hook list: {path}")
+        managed, preserved = [], []
+        for group in groups:
+            children = group.get("hooks", []) if isinstance(group, dict) and not direct_handlers else [group]
+            owned, other = [], []
+            for child in children if isinstance(children, list) else []:
+                raw = child.get("command") if isinstance(child, dict) else None
+                try:
+                    tokens = shlex.split(raw) if isinstance(raw, str) else []
+                except ValueError:
+                    tokens = []
+                if tokens == [runner.as_posix(), "--adapter", adapter]:
+                    owned.append(child)
+                else:
+                    other.append(child)
+            if owned:
+                managed.append(group)
+                if other and isinstance(group, dict) and not direct_handlers:
+                    preserved.append({**group, "hooks": other})
+            else:
+                preserved.append(group)
+        if managed and managed != [expected] and not force:
+            raise FileExistsError(f"existing {client} global {event} Hook conflicts: {path}; file preserved")
+        groups[:] = preserved + [expected]
+    after = json.dumps(manifest, indent=2, ensure_ascii=False) + "\n"
+    if after != before:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(after, encoding="utf-8")
+    results = [HookInstallResult(path.resolve(), "unchanged" if after == before else "updated" if before else "installed")]
+    if client == "codex" and project_root is not None:
+        results.extend(reconcile_codex_project_hooks(
+            project_root=project_root, hook_runner=runner, home_dir=home_dir,
+        ))
+    return results
+
+
+def _codex_command_matches(
+    handler: object, *, runner: Path, adapter: str, project_root: Path | None = None,
+) -> bool:
+    """Recognize only the owned executable and exact adapter/root arguments."""
+    if not isinstance(handler, dict) or handler.get("type", "command") != "command":
+        return False
+    commands = [handler.get("command")]
+    if "commandWindows" in handler:
+        commands.append(handler["commandWindows"])
+    for raw in commands:
+        if not isinstance(raw, str):
+            return False
+        matched = False
+        for posix in (True, False):
+            try:
+                args = shlex.split(raw, posix=posix)
+            except ValueError:
+                continue
+            if not posix:
+                args = [arg[1:-1] if arg.startswith('"') and arg.endswith('"') else arg for arg in args]
+            if len(args) not in (3, 5) or args[1:3] != ["--adapter", adapter]:
+                continue
+            if Path(args[0]).resolve() != runner.resolve():
+                continue
+            if len(args) == 5:
+                if project_root is None or args[3] != "--project-root" or Path(args[4]).resolve() != project_root.resolve():
+                    continue
+            matched = True
+            break
+        if not matched:
+            return False
+    return True
+
+
+def _codex_user_events(runner: Path, *, home_dir: Path | None = None) -> set[str]:
+    path = user_hook_path("codex", home_dir=home_dir)
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    hooks = manifest.get("hooks") if isinstance(manifest, dict) else None
+    if not isinstance(hooks, dict) or manifest.get("enabled") is False:
+        return set()
+    covered: set[str] = set()
+    for event, adapter in (("SessionStart", "codex-start"), ("UserPromptSubmit", "codex-start"), ("Stop", "codex-stop")):
+        groups = hooks.get(event, [])
+        if not isinstance(groups, list):
+            continue
+        for group in groups:
+            if not isinstance(group, dict) or group.get("matcher") not in (None, "", "*") or group.get("enabled") is False:
+                continue
+            children = group.get("hooks", [])
+            if isinstance(children, list) and any(
+                isinstance(child, dict) and child.get("enabled") is not False
+                and _codex_global_handler_matches(child, runner=runner, adapter=adapter)
+                for child in children
+            ):
+                covered.add(event)
+    return covered
+
+
+def _codex_global_handler_matches(handler: dict[str, object], *, runner: Path, adapter: str) -> bool:
+    if _codex_command_matches(handler, runner=runner, adapter=adapter):
+        return True
+    raw = handler.get("command")
+    if not isinstance(raw, str):
+        return False
+    # The explicit user registration may belong to a different Python install.
+    # Require a real standard console entry and exact dynamic adapter argv.
+    for posix in (True, False):
+        try:
+            args = shlex.split(raw, posix=posix)
+        except ValueError:
+            continue
+        if not args:
+            continue
+        executable = args[0].strip('"') if not posix else args[0]
+        candidate = Path(executable)
+        if (
+            candidate.is_absolute() and candidate.is_file()
+            and candidate.name in {"harness-mem-hook", "harness-mem-hook.exe"}
+            and candidate.parent.name.lower() in {"scripts", "bin"}
+            and _codex_command_matches(handler, runner=candidate, adapter=adapter)
+        ):
+            return True
+    return False
+
+
+def reconcile_codex_project_hooks(
+    *, project_root: Path, hook_runner: Path | None = None, home_dir: Path | None = None,
+) -> list[HookInstallResult]:
+    """Remove only this project's registrations already covered by global Hooks."""
+    runner = Path(hook_runner).resolve() if hook_runner is not None else verified_hook_runner()
+    covered = _codex_user_events(runner, home_dir=home_dir)
+    path = project_root.resolve() / ".codex" / "hooks.json"
+    if not covered or not path.exists() or path.resolve() == user_hook_path("codex", home_dir=home_dir).resolve():
+        return []
+    before = path.read_text(encoding="utf-8")
+    manifest = json.loads(before)
+    hooks = manifest.get("hooks") if isinstance(manifest, dict) else None
+    if not isinstance(hooks, dict):
+        raise ValueError(f"invalid Codex project Hook mapping: {path}; file preserved")
+    runners = {runner}
+    # A previous project install can use its editable venv while the global
+    # install uses another Python. Admit only standard executables whose plain
+    # .pth file binds this exact checkout; never guess by executable name alone.
+    venv = project_root.resolve() / ".venv"
+    bindings = [venv / "Lib" / "site-packages" / "harness_mem.pth"]
+    bindings.extend(venv.glob("lib/python*/site-packages/harness_mem.pth"))
+    for binding in bindings:
+        try:
+            bound = [line.strip() for line in binding.read_text(encoding="utf-8").splitlines()
+                     if line.strip() and not line.lstrip().startswith("#")]
+        except OSError:
+            continue
+        if len(bound) != 1 or Path(bound[0]).resolve() != project_root.resolve():
+            continue
+        for candidate in (venv / "Scripts" / "harness-mem-hook.exe", venv / "bin" / "harness-mem-hook"):
+            if candidate.is_file():
+                runners.add(candidate.resolve())
+    changed = False
+    for event in covered:
+        groups = hooks.get(event, [])
+        if not isinstance(groups, list):
+            raise ValueError(f"invalid Codex project {event} Hook list: {path}; file preserved")
+        kept = []
+        for group in groups:
+            children = group.get("hooks") if isinstance(group, dict) else None
+            if not isinstance(children, list):
+                kept.append(group)
+                continue
+            adapter = "codex-stop" if event == "Stop" else "codex-start"
+            remaining = [child for child in children if not any(
+                _codex_command_matches(child, runner=owned_runner, adapter=adapter, project_root=project_root)
+                for owned_runner in runners
+            )]
+            if len(remaining) == len(children):
+                kept.append(group)
+            else:
+                changed = True
+                if remaining:
+                    kept.append({**group, "hooks": remaining})
+        hooks[event] = kept
+    if changed:
+        path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return [HookInstallResult(path.resolve(), "updated" if changed else "unchanged")]

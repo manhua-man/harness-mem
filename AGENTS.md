@@ -32,11 +32,667 @@
 - Rust helper crate：`harness_mem_core_rs`，crate 版本 `4.0.3`；它不是 Python 包版本。
 - Python 要求：`>=3.9`。
 - 分发：GitHub Releases 的原生 wheel 与 sdist，不发布到 PyPI。
-- 日常用户只使用 `hm`；`get_project_status` 只负责首次项目/Hook 准备和简短的可用或失败消息，`wake`、`search`、`search-all`、`distill`、`review`、`dream` 是它按需要调用的内部动作或维护动作。
+- 日常记忆通过宿主自动记录、后台整理与按任务召回；`hm` 人工入口仅用于查阅、审查、纠正和删除，不再要求用户逐场记住或手动批量整理。`get_project_status` 只负责首次项目/Hook 准备和简短的可用或失败消息，`wake`、`search`、`search-all`、`distill`、`review`、`dream` 是它按需要调用的内部动作或维护动作。
 - CLI 是安装、配置、诊断、集成和维护面；MCP 是 Agent 日常记忆面。
-- Quickstart 与项目无关，只为当前宿主安装一次 `$hm` 或 `/hm`；它不查看或修改 Agent、MCP Router、插件或其他工具管理的 MCP 连接。普通检索与人工整理不要求项目或 Hook；用户要求自动记录时才准备当前工作区的 Hook。
+- Quickstart installs the current host's user-level `hm` entry and lifecycle Hooks once. `--confirm` authorizes background processing across workspaces; explicit project policy takes precedence. It does not inspect or modify Agent, Router or plugin MCP connections. `hm` serves inspection, review, correction and deletion. Codex requires native Hook review/trust; Hermes may require first-use shell-Hook confirmation. Installation is not an execution receipt.
 
 ## 当前版本与目标架构边界
+
+Dream continuation and cleanup repair (2026-10-20, unreleased): the existing
+natural worker resumes a finite, source-bound Dream run in slices, with one
+new verification batch of at most four targets per slice and the original
+120-second slice budget. Original comparison groups remain intact. Checkpoints
+retain hashes, offsets and classifications, without copying memory bodies.
+Only complete, source-supported temporary content may be retired; mixed
+ordinary entries and attributed reports retain independently complete claims
+and necessary qualifiers through their existing refinement owner. A failed
+single-operation SQLite write now rolls back under the connection lock.
+Background leases remain alive during source preparation and Dream, and
+maintenance receipts expose continuation, failure and final Dream state.
+Twenty-two local runtime files are synchronized with backups. Static checks
+do not prove a new natural cleanup: post-install completion and current-data
+readback remain pending, including old entries with pruned or missing sources.
+No separate model test, manual Hook or manual Dream is dispatched. See
+`docs/background-memory.md` and `.tmp/dream-closure-20261020/installation-receipt.json`.
+
+Natural validation and durable-scope follow-up (2026-10-20, unreleased): a
+post-install Claude job admitted two reports with independently checked native
+bytes, roles and exchange digests; a later natural job replaced one of them.
+One fresh nonempty Dream completed two targets in 20.069 seconds. Its deletion
+also removed a scoped experiment report whose final evidence-limit clause may
+have lasting value, so execution closure is not a deletion-quality verdict.
+A larger Dream timed out before applying results, and its uncancelled native
+call left usage unknown. Current repair uses bounded source/verification batches,
+native heartbeat cancellation and owned-provider cleanup, with complete target
+and remaining-target receipts. Generic report titles no longer imply competing
+claims. Existing ordinary rows receive a source-backed scope-contract upgrade
+through existing Dream receipts, which control scheduling only. Admission now
+checks complete claim partitions, then rechecks final titles/statements and
+confirmations against original and fully reopened predecessor sources. A final
+scope proof binds the normalized plan and target snapshots before any mutation;
+one failed replacement item defers the whole point. Ordinary mixed rows can
+retain only verifier-approved standalone durable source segments through the
+existing refinement transaction. Report attribution remains immutable. Nineteen
+runtime files were compared and eight replaced locally at 02:11:24 Hong Kong
+time with backups. Static checks passed; this latest scope/execution repair
+subsequently ran in two fresh natural workers. Claude wrote three points;
+Kaiju added one and confirmed three. Seven final scope proofs independently
+match actual payloads, predecessor snapshots, complete source digests and
+current readback. Mixed points and a failed final check were deferred. Detailed
+partition annotations were not retained in those older workers, so this is
+execution and binding evidence, not full independent semantic acceptance.
+The following nonempty Dream failed with a database lock before applying any
+item; the known mixed ordinary row remains. Later local synchronization at
+02:31:54 Hong Kong time adds content-free exception locations and rotates
+uncompleted scope checks using existing attempt receipts. Lock ownership,
+fresh nonempty Dream closure and actual pollution removal remain unproved.
+At 02:35:21, twenty runtime files were synchronized with backups: Dream now
+checks titles plus bodies and uses v2 scope receipts; mixed-row refinement
+requires a fully durable title and independent verbatim body segments.
+Source-staging failures retain the same safe exception locations.
+Later natural Dream processed eight of twenty-six targets before timing out,
+with seven applied and nineteen unresolved/remaining. Its automatic deletions
+included useful compatibility or evidence-boundary prose; equivalent current
+rows retain some but not all of those details. Deletion quality is rejected.
+At 02:43:33, the local runtime blocks deletion of source-supported rows based
+only on session-only labels at plan, validation and apply; those rows remain
+unresolved. Contradictions, exact duplicates and strict mixed-row refinement
+retain their existing source checks. One confirmed compatibility-detail gap
+was later repaired through normal exact-source manual recheck and finalization,
+using a typed assistant report rather than unverified external current truth.
+Ordinary readback, reopened SQLite and Notes agree. This zero-extra-model data
+repair is not natural acceptance. The known mixed ordinary row and complete
+nonempty Dream acceptance remain open.
+No separate model test or manual Hook/Dream was dispatched. See
+`.tmp/natural-followup-20261020/`.
+
+Native source preparation follow-up (2026-10-20, unreleased): Codex Hook
+transcript paths now survive the detached request and reach exact native
+ingest. Session header identity and workspace binding are checked before full
+source synchronization; explicit paths never fall back to another session.
+Native CODEX_HOME is honored. Ingest returns structured diagnostics alongside
+its CLI output, so missing-source preparation retains specific failure reasons.
+Point outcomes retain sanitized source references and verification reason codes
+in the existing job receipt after temporary evidence cleanup. The failing Desktop fork
+has no persisted source in the inspected native index, rollout roots or ledger;
+its original full source has not been recovered. Dream now supplies reopened
+complete source bodies through candidate.sources, which is the shared verifier's
+actual input contract. Earlier top-level excerpts were overwritten by that
+projection: real post-install runs rejected all items for missing input, not
+for demonstrated lack of lasting value. Ten local runtime files are synchronized
+with backups; no separate model test or manual trigger was dispatched. Existing
+natural admission still contains stale task-state carryover, and post-repair
+source recovery, recall and actual Dream application require new evidence. See
+`.tmp/source-preparation-repair-20261020/` and `docs/background-memory.md`.
+
+Natural follow-up: one exact Kaiju source prepared successfully; its frozen
+body and all 48 user / 204 assistant message hashes match the native input.
+Its next Dream actually refreshed 24 entries and deleted two, with canonical
+and source readback, then failed at the existing 120-second budget. The current
+Dream implementation prepares the full unique target set and verifies it once,
+then applies each original signal group with source rechecks and CAS. No targets
+or source text are removed and the timeout is unchanged. This batching revision
+is installed locally; its new natural completion remains pending. Some observed
+new knowledge still mixes lasting constraints with one-task workflow state.
+
+A natural Claude job deferred five reports because report-role proof did not
+support Claude and its immutable JSONL was compared with rendered exchange refs.
+All six cited windows independently match the frozen native assistant source.
+The existing parser now exposes in-memory parsing and a shared Claude renderer;
+report verification reconstructs this view after full ledger integrity checks
+and rejects conflicting native roles, session identity or embedded role markers.
+Fourteen runtime files are synchronized with backups as of 01:35:17 Hong Kong
+time. This latest repair has no post-install natural admission receipt yet.
+
+Admission, recall and Dream follow-up (2026-10-20, unreleased): source
+verification now records whether a point is a standing decision, reusable
+knowledge, task context or unclear. Task context cannot pass durable admission.
+Recall binds attested multiword names and excludes isolated shared-background
+matches when actual topic evidence exists. Automatic Dream derives confirmation,
+retirement and exact-duplicate cleanup from completed source verification,
+without a second model disposition call. Unavailable items no longer abort
+independent qualified items. Deletion checks the verified target and retained
+duplicate in one canonical transaction; confirmation checks its expected target.
+The store permits source-report updates only within the verified same-account
+scope. Local synchronization and static evidence are recorded in
+`.tmp/admission-recall-dream-20261020/installation-receipt.json`; new natural
+admission, recall relevance and actual Dream application remain unaccepted until
+observed. No separate model test or manual Hook/Dream is dispatched. External
+implementation evidence: `docs/reference-projects/write-path-20261020.md`.
+
+Automatic admission and topic consolidation (2026-10-19, unreleased): complete
+source coverage remains, while greetings, progress, interim attempts and run
+measurements stay in review rather than durable points. Continuing decisions
+and corrections remain eligible during unfinished work. Verified later reports
+may refine the same source/session/speaker/period account; source attribution
+and fact authority remain separate. A scope clarification is no longer a
+blanket no-write category. Existing Dream output instructions now match empty
+payload/target and duplicate-survivor contracts. This earlier runtime allowed
+supported session-only rows to retire; the later natural audit above rejects
+that policy and the installed runtime now blocks it.
+The read-only pre-fix audit found 39 failed and 81 empty completed Dream runs,
+with no recorded applied items. No new model test or manual Hook is dispatched;
+post-install natural quality and effective Dream maintenance remain to be
+observed. See `docs/background-memory.md` and
+`.tmp/memory-admission-grain-20261019/`.
+
+Codex natural-trigger repair (2026-10-19, unreleased): an actual Stop started
+the worker after 30.006 seconds, then failed in the npm Windows launcher
+before a model response. No-input diagnosis isolates command resolution in
+that launcher; the same-install native executable starts in the original
+environment. The executor now resolves that verified native package and
+records safe startup failure details. Exact Stop identity is serialized and
+queued results reused across callers, with caller provenance retained.
+Original duplicate callers remain unattributed; cached native handlers are a
+supported explanation, not a proved origin for each delivery. Recall context
+requests one visible Agent notice because native systemMessage display is
+not immediate or guaranteed. Four local runtime files are synchronized with
+backups. No model test or manual Hook is dispatched; post-fix natural Stop
+and visible notice acceptance remain pending. See `docs/background-memory.md`
+and `.tmp/codex-natural-repair-20261019/installation-receipt.json`.
+
+Hook idle cadence and notices (2026-10-19, unreleased): Antigravity App, CLI
+and IDE brain directories share native source discovery and task recall.
+Codex installation reconciles equivalent project registrations when user-level
+Hooks already cover them. Global-only Hooks can record execution; Antigravity
+keeps current recall receipts per conversation to avoid cross-session overlap.
+Codex recall emits a short native message; Antigravity temporary context asks
+the current Agent to show it, without claiming guaranteed native UI display.
+Codex and Antigravity wait 30 seconds after Stop in the existing detached
+worker; new user activity cancels that waiting request, and a later Stop resets
+the window. Already-started work may finish. Local runtime files and current
+project registrations are synchronized with backups; native user Hook trust
+definitions remain unchanged. No model or UI test is claimed. See
+`docs/background-memory.md` and `.tmp/hook-idle-notice-20261019/installation-receipt.json`.
+
+Host Hook recall correction (2026-10-19, unreleased): user-level and current
+project CLI selection is `current`, resolving each supported host to its own
+CLI. The earlier forced Antigravity selection is revoked. Antigravity's native
+PreInvocation Hook obtains the latest user step only from that conversation's
+bound native transcript and uses existing task-aware wake retrieval. Repeated
+invocations within the same user step reuse the Hook receipt; new user steps
+recall again. Unavailable query context retains availability and Agent MCP.
+Only static checks and installed-file equality are claimed; no model test or
+new natural-trigger runtime acceptance is added.
+
+Antigravity CLI integration (2026-10-19, unreleased): the existing semantic
+executor supports native `agy` with complete stdin input, JSON Schema and one
+fresh worker invocation per decision. Temporary worker configuration disables
+tools, MCP servers, skills, plugins and command execution; nonempty tool lists
+or reported tool activity reject the result. Terminal usage is read once.
+Extraction, verification, assimilation and persistence retain their existing
+owners. User-level native Hooks and the command entry are installed locally.
+Syntax/configuration checks are static evidence only; no model test or fresh
+natural-trigger learning acceptance is claimed. See `docs/background-memory.md`.
+
+Continuous learning integration (2026-10-18, unreleased): user-level native
+Hooks resolve each task's workspace and send completed replies into existing
+complete-source preparation, Dream and the autonomous worker. Verification,
+assimilation, current knowledge/Note readback and explicit no-write outcomes
+remain. Global authorization and CLI selection are inherited; explicit project
+values still win. The existing background queue preserves different sessions
+and coalesces only a closed snapshot of the same session. Codex/Claude prompt
+events can query current memory; other hosts retain their native injection and
+MCP boundaries. OpenCode uses its native system transform. Local Python runtime
+and Codex/Hermes user setup are synchronized with backups. Native trust/first-use
+confirmation remains host-owned. Static checks do not prove natural-trigger
+learning; no model test or new quality/cost acceptance is added. See
+`docs/background-memory.md` and `.tmp/continuous-learning-20261018/setup-receipt.json`.
+
+Automatic daily-memory direction (2026-10-18, unreleased): daily remembering
+and session organization move to the existing Hook/worker path. The canonical
+`hm`, its host mirrors and installed Codex entry expose inspection and human
+review/correction/deletion; new public manual remembering batches are removed.
+Public preparation accepts exact current targets or an existing processing job;
+the internal source/assimilation core still serves Hooks and workers. Existing
+batch data and memory remain. The Windows Hermes executor now carries complete
+input through stdin into the same installed one-shot CLI and keeps usage-file
+reporting; this repairs a recorded WinError 206 launch failure without changing
+the configured host/model. Syntax, schema and mirror checks are static only;
+no new model test or all-workspace automatic-runtime acceptance is claimed.
+The existing Router-managed HM service was stopped/started through its native
+UI; new service processes were observed after the reload. This does not prove
+a new background generation or cross-workspace automatic setup.
+
+
+Daily entry flow repair (2026-10-18, unreleased): the installed Codex `hm`
+now matches the canonical guide and project mirrors. Existing exact-name tool
+dispatch and result reuse replace the older installed multi-step guidance;
+explicit corrections prefer the user's wording and retain unchanged scope.
+The native daily caller sends identity through application `additionalContext`,
+not user text. Syntax, mirror/installation equality and protocol-schema checks
+are static evidence only; no model test or new quality/cost verdict is added.
+
+Actual daily correction closure (2026-10-18, native quality failed,
+unreleased): the operator supplies the real correction and authorizes only
+the remaining correction/independent recall. The first native attempt writes
+caller execution constraints into durable knowledge; its one permitted
+recovery instead expands this acceptance's model/temporary-exit conditions
+into daily use. Both are rejected, not counted as successful correction.
+Their 22 Luna responses / 253,256 reported tokens remain; the complete
+workflow totals 38 responses / 465,142 tokens with no unknown model usage.
+No third native recovery or extra scenario is dispatched. A zero-model
+literal repair through normal MCP preparation, source verification, CAS
+finalization and fresh readback leaves the exact user-intended decision in
+the real store; 576 rows remain and the original 575 payloads are unchanged.
+This manual repair is not Luna acceptance; no post-repair Luna confirmation
+runs. Services close and model testing stops. Scope and evidence:
+`F:/AIInfra/harness-mem-convergence-20261017/daily-use-acceptance-20261018/final-result.md`.
+
+Earlier first two daily steps (2026-10-18, partial, unreleased): the operator
+stops instruction tuning and authorizes one real remembering/recall/correction
+path. A real persistent Codex source saves the actual operator decision in
+the normal default store: 575 to 576 current rows, with every preexisting
+payload unchanged. A fresh thread retrieves and answers it correctly; reopened
+SQLite, fresh MCP and revision/latest Notes agree. Correction is not dispatched:
+the operator will provide the actual change. The two closed phases use 16
+verified Luna responses / 211,886 reported tokens / 76.562 phase seconds, with
+zero unknown model usage. Recall needs eight searches and 130,985 tokens;
+correct content does not establish acceptable daily cost. An initial shared
+Router search times out after 300 seconds. Success uses an independent current
+source MCP with the real store and manually loaded installed skill text; it
+does not establish shared Router recovery or automatic skill activation.
+Owned services close; the new real memory remains. No runtime/guide tuning,
+global install, shared reload or release. Direct receipts:
+`F:/AIInfra/harness-mem-convergence-20261017/daily-use-acceptance-20261018/result.md`.
+
+Bounded instruction follow-up (2026-10-18, closed, unreleased): the two
+candidate attempts are complete. Final canonical instructions and six mirrors
+are shorter with all contracts retained; all 240 runtime files and twenty MCP
+tools match. Original/new short cases pass 8/12 fixed criteria plus complete
+content, but no general accuracy or end-to-end savings verdict is accepted.
+Final original HM is 11 responses / 71,043 tokens / 76.344 seconds versus
+Mem0 5 / 11,222 / 34.390; final new HM is 12 / 75,961 / 75.391 versus Mem0
+6 / 13,062 / 35.547, retaining Mem0 source metadata limits. Initial rejected
+omission/consumer results remain in all 57 responses / 280,998 known tokens /
+zero unknown usage. Native host wrappers stay unchanged; script-direct Mem0
+and native-Agent HM are different execution profiles. No third candidate,
+global install, shared MCP/route change, real-memory operation or release.
+Use `docs/convergence-goal-20261017.md` for receipts and accuracy boundaries;
+next useful evidence is bounded real use, not more prompt micro-optimization.
+
+Input tracing / native references (2026-10-18, closed, unreleased): see
+`docs/convergence-goal-20261017.md`. Actual captures contain one complete phase
+instruction per request; old R4 18,595 inputs remain reconstructed, not recovered
+HTTP bytes. Same-source gpt-6-luna/xhigh/default runs use the task-only alternate
+exit: HM 10 responses / 68,828 tokens / 74.141 seconds passes fixed-case content;
+Mem0 initial 3 / 9,693 format failure is retained and fresh-store repair
+6 / 12,814 / 61.969 passes content with source metadata limitations; native
+claude-mem worker plus consumers 33 / 176,659 / 119.547 is rejected at 7/8,
+including Chinese FTS retrieval loss and date/scope errors. This is not an
+accepted further token saving: HM exceeds accepted R4 by 5.094%. The follow-up
+includes its rejected trace baseline for 63 unique completed responses /
+341,746 known tokens / no unknown usage. All 240 runtime files match; cache
+placement is a task harness repair, not a demonstrated single-factor product
+gain. All owned services close. No global install, shared MCP/route change,
+real-memory operation or release; other acceptance gaps remain.
+
+Three-block follow-up (2026-10-17, closed, unreleased): the daily guide is
+10,516 -> 8,280 bytes; opt-in `include_current` combines complete immutable
+source preparation with related current facts without binding write ownership.
+Ordinary ranking and the original truth gates remain. The native runner reuses
+the existing Codex owner across four fresh closed threads (one server start;
+four separate MCP children). Independent full-content review accepts the same
+eight fixed criteria. Final HM uses 11 responses / 77,022 reported tokens,
+versus 12 / 85,520 before, but complete wall rises 136.484 -> 749.469 seconds:
+no overall speed improvement. Fresh Mem0 is 6 / 11,892 / 129.122 seconds with
+mixed provenance metadata. Two rejected HM attempts remain; this campaign is
+37 / 234,441 known tokens with no new unknown usage. All 240 runtime hashes and
+the final guide match the pre-dispatch seal; 297 scoped checks pass, one POSIX
+check skips. No global installation, shared reload, real-memory audit or
+release. See `docs/convergence-goal-20261017.md`, final three-block section,
+and `three-block-optimization/` under the existing external task directory.
+
+Daily-flow roundtrip follow-up (2026-10-17, closed, unreleased): the same complete
+two-source/four-message case and fixed gpt-6-luna/xhigh pass all eight answer
+criteria with typed assistant identity, explicit undecided state and consistent
+ANSWERED jobs/Notes. Actual native calls fall from 18 to 12, reported tokens
+from 156,994 to 85,520, and phase sums from 269.733 to 135.577 seconds; the final
+continuous lifecycle is 136.484 seconds. Exact discovery avoids schema dumps;
+invalid source-ref/target shapes fail before staging and retain the prepared
+job for correction. Source, ownership, CAS and readback gates remain. Fresh
+native Mem0 uses 6 / 11,765 / 124.699 seconds with mixed provenance limitations.
+All current attempts retain 57 completed responses / 409,911 known tokens;
+both optimization campaigns retain 114 / 951,148 plus at least one earlier
+unknown-usage dispatch. This is independent known-case acceptance, not general
+reliability or billing savings. All 240 frozen runtime files match; no global
+install, shared reload or release. See the roundtrip follow-up section in
+`docs/convergence-goal-20261017.md` and direct `daily-optimization-r5/` receipts
+under `F:/AIInfra/harness-mem-convergence-20261017/`.
+
+Matched external replay (2026-10-17, unreleased): fresh HM, claude-mem,
+Mem0 and complete-history/no-memory lanes execute record, recall, correction
+and recall on the same complete known bookclub case under gpt-6-luna/xhigh.
+Independent raw-content review scores their eight fixed answer criteria
+7/8, 7/8, 8/8 and 8/8 respectively; every post-correction answer keeps the
+explicit undecided state. HM omits the earlier assistant-suggestion identity;
+CM stores it but its consumer misses it. HM jobs are committed, although the
+saved undecided state is also mislabeled unfinished work. Mem0 keeps mixed
+source/attribution metadata after updates. All failures and retries count:
+59 completed responses, 393,733 reported input-plus-output tokens, no unknown
+usage. HM/CM/baseline lifecycle walls are 169.953/185.890/78.765 seconds;
+Mem0's observed runtime window is about 85.458 seconds, or 153.975 seconds
+from environment creation including setup/coordination. Timing and integration
+scopes differ; this is not a blind, algorithm-only or billing comparison.
+No runtime change, global installation, shared reload, release or real-memory
+write. See the final section of `docs/convergence-goal-20261017.md` and external
+`matched-comparison/result.md` for the complete receipts and limitations.
+
+Fixed-model replay (2026-10-17, unreleased): the repaired bookclub record,
+fresh-session recall, correction and recall pass under fixed gpt-6-luna/xhigh.
+One additional native consumer actually reopens old source and correction,
+keeps explicit author-name indecision and does not report the old rule as a
+current conflict. All five stages retain the same 240 runtime hashes: 29
+completed responses, 327,650 reported input-plus-output tokens, no unknown
+usage, and 289.516 seconds cumulative native phase wall time. One missing
+project argument causes a counted tool error and successful retry. Independent
+read-only review accepts this known-case replay; general daily acceptance and
+billing savings remain unproved. See the final section of
+`docs/convergence-goal-20261017.md` and the external `fixed-model-replay/` result.
+
+Daily-correction repair (2026-10-17, unreleased): `prepare_session_distill`
+accepts exact readable `target_knowledge` and resolves its owner before native
+source preparation; the source workspace can differ. Explicit raw search
+returns related current entries with checked source evidence and can follow
+existing proved job replacements for an old-value query. Manual guidance keeps
+supported undecided states separately from unfinished actions. All 107 focused
+checks, five-file Mypy, Ruff and canonical mirrors/descriptors pass; no new
+model experiment, installed-host acceptance, global install or release.
+See the repair section of `docs/convergence-goal-20261017.md`.
+
+Product convergence check (2026-10-17, unreleased): see
+`docs/convergence-goal-20261017.md`. Native Codex recording, fresh-session
+recall, correction and six fixed short scenarios have run. The fixed criteria
+retain 29/30, but historical-source precedence and explicit undecided-state
+loss reject daily reliability acceptance. Each HM/baseline pair matches its
+model; scenarios 1–3 use gpt-6-luna and 4–6 inherit gpt-6.1-sol, so single-model
+acceptance is unqualified. All 12 selected sources / 24 message bodies match;
+575 real rows were not independently re-hashed. A global model-field difference
+is recorded without attribution or restore. Known failures and unsettled usage
+remain; owned task processes stop. No global installation, shared MCP reload
+or release. Direct result: external task root
+`F:/AIInfra/harness-mem-convergence-20261017/native-convergence-result.json`.
+
+Operator stop/status update (2026-10-17, unreleased): the operator ends the
+current test. C12's closed 13-source / 388-message sample retains all 55 fixed
+criteria; independent review accepts all 191 current rows in that scope.
+Against rejected C10, measured wall time is 12.807% lower and reported
+input-plus-output tokens 42.294% lower; this is not quality-equivalent baseline,
+full-lifecycle, single-factor or billing evidence. The new 180-source build is
+stopped after five complete sources: 18 requests, 17 completed, one unknown
+usage, 184,909 known tokens and 541.583 seconds retained. Native task services
+are stopped; all sources, partial stores and failures remain. Final checks
+match 236 frozen runtime files, all 239 skill contracts and 575 real-memory
+rows. New full comparison/correction/eight-consumer acceptance remains undone;
+no global installation, shared MCP reload or release. Direct stop receipt:
+`.tmp/memory-build-optimization-20261016-r3/operator-stopped-20261017.json`.
+The following construction progress is historical, not an active test.
+
+Construction optimization follow-up (2026-10-16, ongoing, unreleased): see
+`docs/performance-full-lifecycle-20261016.md`. The first new empty-store pair
+retains all 180 sources / 5,064 messages and passes 140 answer judgments.
+HM build run-phase sums fall 24.455% and reported token subtotals 13.834%,
+but one useful verified pilot-channel identity is lost during replacement.
+The candidate is explicitly rejected under quality non-regression; correct
+answers are not acceptance. Source 009 extracted and saved it; assimilation
+at source 037 supplied the predecessor but omitted its temporal identity
+from successor knowledge. Both second-pair empty-store builds are now closed.
+Its two-source native regression retains all 60 messages and the supported
+pilot/formal relationship in one successor; six requests and fresh MCP,
+SQLite and Note readback pass. The same 234-file runtime (`1b303a6a...`) is
+frozen HM build completes all 180 sources / 5,064 messages in 7,111.923 seconds,
+with 438 completed requests, 2,783,379 reported input-plus-output tokens and no
+unknown usage. CM takes 2,367.456 seconds, 360 requests and 2,929,415 tokens.
+Fresh HM MCP/SQLite/180-Note readback agrees on 47 sealed current rows. Independent
+review rejects this second candidate too: five useful information-loss groups,
+including current retry/SMS/SLA facts, proposal identity and a diagnostic boundary,
+plus a newly unsupported nonapproval assertion. Original source-174 model outputs
+preserve three current facts, but comma/overlap normalization rejects six of them;
+candidate-only runtime repair then deletes those facts. A new unreleased repair
+uses exact-payload-only deduplication and never applies that fallback to mutating
+truth. Its 510 scoped tests, static checks and two isolated outcomes pass;
+The original 13-source regression stops after seven completed sources with no
+closed phase receipt; 22 request entities have verified usage and one remains
+unknown, not zero. The fresh 13-source / 388-message repeat closes with 41
+completed requests, 307,516 reported tokens and matching MCP/SQLite/13-Note
+readback. Independent content review still rejects it: two useful assistant
+proposal identities are missing, and permission is strengthened into actual
+state. A subsequent repair preserves qualified user choices and proposal
+attribution without opening transcript-only truth admission.
+The first second-pair consumer is rejected before
+inference when native plugin sync replaces a sealed template package and removes
+four original skills. Its 30.54 seconds and zero provider calls remain recorded.
+Original task assets are restored recoverably, but a zero-generation offline
+qualification also fails native plugin reconciliation. The operator explicitly
+authorizes task-only CLI repair retaining all 239 skill bodies/policies.
+Its native catalog checks pass without generation. The Codex executor now
+reuses one owned app-server with a fresh ephemeral thread per semantic call;
+other hosts and all complete inputs remain unchanged. Native zero-generation
+qualification verifies the fixed comparison profile, complete model directory,
+MCP isolation and original home instructions. A misconfigured probe is rejected
+and stopped: one native completion reports 11,828 tokens, with another call's
+usage unknown; zero collector requests are not zero cost. The `c5e40c03...`
+13-source repeat closes in 1,081.139 seconds with 40 verified requests and
+271,885 reported tokens, none unknown. All 388 messages and independent
+MCP/SQLite/13-Note checks pass; content review still rejects two useful event
+boundaries and a partial change-scope loss. A fresh empty-store repeat uses
+235-file `70e7b9d3...`, unchanged sources and 41+14 precommitted criteria.
+Its 617 scoped tests and two isolated outcomes pass; actual POSIX cleanup and
+atomic Windows pre-assignment containment remain unverified. The same frozen
+13-source repeat closes in 1,438.511 seconds with 42 verified requests,
+344,756 reported input-plus-output tokens and no unknown usage. All 388 messages
+and fresh MCP/SQLite/13-Note checks pass. Independent content review rejects a
+missing formal export decision, an invented reporting duty, and scoped-boundary
+and proposal-rationale omissions. The formal decision was correctly extracted
+but dropped by a legacy replacement-keyword veto before verification; its
+removal and obligation/rationale guidance pass 623 scoped tests (one POSIX
+skip), static checks and two isolated outcomes, not a new native quality pass.
+One owned server serves 42 fresh threads; all responses report default tier,
+not the requested priority. Full new
+180-source construction, correction and eight-consumer acceptance remain open.
+The scope audit traces 25 supported/durable attributed observations blocked by
+the existing transcript-only truth gate, one lost discussion context and eleven
+unextracted authority-boundary paths. The operator now explicitly authorizes
+bounded source reports with speaker, period and source scope, never as external
+current truth or user approval. Its replay, handoff, retrieval identity and
+source-session time repairs pass 818 scoped checks (one POSIX skip), static
+checks, two isolated outcomes and an independent fixed-byte recheck. Native
+role/paraphrase control rejects a false user attribution and supports the two
+correct accounts; one request reports 4,876 tokens, with no unknown usage.
+This does not defeat a deliberately false manual semantic-verifier assertion.
+The frozen 236-file candidate closes the same thirteen-source / 388-message
+empty-store repeat in 1,471.055 seconds: 47 completed requests, 680,888 reported
+input-plus-output tokens and no unknown usage. Fresh MCP/SQLite/13-Note readback
+agrees on 123 current rows; 96 typed reports bind to their native roles and full
+source revisions. Independent review rejects the result after all 123 rows /
+424 clauses and 55 unchanged criteria: the unsigned/unknown SLA state is lost,
+and three ordinary rows strengthen scoped reports into current authority or
+unqualified assistant-reported nonapproval. A separate native
+control exposes nondurable reports being misclassified as pending; its narrow
+no-write repair passes 829 scoped tests (one POSIX skip), static checks and two
+isolated outcomes. A new one-request native control records NOT_APPLICABLE for
+the session-only report. Its checker uses the wrong field name and fails;
+independent closed-material adjudication retains that failure and verifies the
+actual isolated no-write application with zero current knowledge. The 4,909
+reported tokens are counted, not erased. Independent scoped review passes 110
+tests and finds no newly reachable fail-open/write path. Existing manual discard
+may terminate an unverified candidate without changing current knowledge; that
+is not automatic source admission or source/job completion.
+The SLA loss traces to an extracted user_statement mixing a supported user
+state with an assistant-only prescription, correctly judged partial. New
+stage guidance separates points by speaker/authority and prevents ordinary
+knowledge from importing report clauses; no source or criterion is removed.
+Independent stage tracing now confirms all three strengthened claims originated
+in extraction and were accepted by semantic verification, not added later by
+assimilation. All 47 submitted prompts contain the conflicting mixed-authority
+guidance. The repaired 236-file `110acb5f...` passes 830 scoped tests (one POSIX
+skip), static checks and two isolated outcomes. The new empty-store C9 repeat
+closes all thirteen sources / 388 messages in 1,740.148 seconds: 53 complete
+requests, 1,049,810 reported input-plus-output tokens, zero unknown usage.
+Fresh MCP/SQLite/13-Note readback agrees on 177 current rows; 151 typed reports
+have exact native source/role/period bindings. Independent content review
+rejects this candidate: all 177 rows and 686 clauses retain the 41 concrete
+fact identities, but thirteen source/speaker/theme groups are missing and
+one report adds an unsupported observation about separate user approval.
+Fifty of the unchanged 55 criteria pass; correct facts do not offset loss or
+unsupported wording. New `cf794464...` guidance passes 831 scoped tests (one
+POSIX skip), static checks and two isolated outcomes. A fresh native verifier
+replay retains the complete failed source input and rejects its unsupported
+audit clause while accepting a faithful paraphrase and the user's unknown
+state; one request uses 11,660 reported tokens. Independent missing-report
+tracing now binds all thirteen omissions to extraction: all 178 messages in
+the six affected sources reached its input, but the full attributed claims
+never became candidates. It does not establish why the model omitted them.
+The follow-up `09f53e5b...` guidance passes 832 scoped tests (one POSIX skip),
+static checks and two isolated outcomes. Independent review accepts one full-source
+extraction replay's thirteen candidates / 41 clauses, covering eleven applicable
+criteria, not the other 44. C10 closes the same thirteen sources / 388 messages
+under those frozen bytes: 1,849.922 seconds, 52 completed requests, 1,036,838
+reported input-plus-output tokens and no unknown usage. Fresh MCP, read-only
+SQLite and thirteen Notes agree on 182 current rows; 159 typed reports retain
+their native source/role/period bindings. Independent whole-content review
+rejects C10: four complete same-source/speaker/period authority accounts are
+missing (eight source occurrences), with no unsupported existing clause found.
+Other retained conditions do not offset this loss.
+A next isolated candidate shares only exact canonical report framing and uses
+sixteen-point assimilation batches, without pruning current knowledge. Its
+865 scoped tests (one POSIX skip), static checks and two isolated outcomes pass;
+the next runtime is prepared while its store remains absent; it has not run.
+New extraction guidance distinguishes reporting a source-stated imperative
+from executing it. Its `31c5b1d5...` candidate passes 866 scoped tests (one POSIX
+skip), static checks and two isolated outcomes. A three-complete-source native
+extraction control closes with all 90 messages, three requests and 29,030
+reported tokens (none unknown). Independent review accepts its 51 candidates /
+141 spans and four recovered accounts, only for extraction; 41 original whole
+criteria remain untested there. The new empty-store C12 build closes all thirteen
+sources / 388 messages under the same frozen `31c5b1d5...` bytes: 1,613.002
+seconds, 40 completed requests, 598,314 reported input-plus-output tokens and
+no unknown usage. Fresh MCP, SQLite and thirteen Notes agree on 191 current
+rows; all fourteen actual assimilation manifests reconstruct exactly, including
+thirteen shared-format requests. Independent review accepts all 191 rows / 899
+clauses against the unchanged 55 criteria / 440 supports, including the four
+earlier missing accounts; main-thread fixed-byte reconstruction also passes.
+This is not a new blind review or a general zero-loss guarantee. The same bytes
+are now frozen for a fresh empty-store 180-source HM build. Full quality,
+correction and eight-consumer comparison remain open.
+Neither the closed probe nor its counts prove
+quality or full comparison acceptance. Only the owned
+private proxy is restarted for these task runs. All 239 skill contracts and 575 real-memory
+rows match; another config-only global hash change is recorded without reading
+its contents, attribution or restore.
+No real-memory change,
+global install, shared MCP reload or release. Previous completed experiments
+below remain historical and do not verify the next candidate.
+
+Full-lifecycle comparison (2026-10-16, bounded, unreleased): see
+`docs/performance-full-lifecycle-20261016.md`. Both empty-store native pipelines
+complete the same 180 fictional sources / 5,064 messages, an identical
+correction and eight fresh CLI+MCP consumers; all 140 repeated field judgments
+pass. Measured phase sums are 143.54 min HM versus 46.38 min CM; reported
+input-plus-output subtotals are 3,922,815 versus 3,908,667, with two versus one
+unknown-usage requests. HM's four retrieval tasks are faster and smaller, not a
+full-lifecycle saving. Independent whole-store audits retain uncertainty and
+scope/unknown-state gaps; correct answers are not zero-loss quality. All 239
+skill contracts and 575 real-memory rows retain their hashes. Embeddings/cache
+profiles differ; guides/current files are inlined into memory-only consumers.
+No global installation, shared MCP reload, release or real-memory maintenance.
+Owned services stop, but policy blocks cleanup of ten task credential/config
+copies; ACLs remain current-user/SYSTEM only. The separately observed shared
+proxy rewrite is preserved. Earlier partial follow-ups below remain historical.
+
+Background task profile (2026-10-15, unreleased): see
+`docs/memory-worker-profile-20261015.md`. Authorized Codex JSON calls use local
+task instructions without the interactive skill catalog; manual use and all 239
+installed body/policy contracts remain unchanged. Complete native projection
+and subject/scope preservation repair actual source omissions. The final
+same-worker pair reads 28/28 messages and independently reopens one scoped fact
+and its Notes: 74,011 -> 16,424 tokens across three semantic stages. 171 scoped
+tests and two isolated outcomes pass. Rejected samples and TLS failures remain;
+no general network, full-lifecycle cost or global-deployment claim is made.
+
+Construction repair (2026-10-15, unreleased, bounded): see
+`docs/memory-construction-repair-20261015.md`. Known native identities prepare
+through the existing frozen batch without a whole-device model packet.
+Reasoned transcript-only no_write/reject may close as NOT_APPLICABLE after
+complete-source checks, never as truth. A fresh empty-store native first-source
+run and original seven-decision replay pass; real handoffs remain partial.
+All 239 skill contracts, 461 scoped tests and two isolated outcomes pass.
+Full construction/correction/retrieval comparison and currency savings remain
+unverified. No real-memory mutation, shared MCP reload or global installation.
+
+Full-skill tool ON/OFF follow-up (2026-10-15, bounded consumer pass): see
+`docs/performance-long-history-20261015.md`. Four new sessions use the same
+repaired private CLI, complete 239-skill body/policy contracts and frozen
+180-session task, changing only the memory MCP connection. All 72 fields pass.
+With pre-existing fictional memory, mean complete wall time is 29.2% lower and
+input-plus-output tokens 41.3% lower than OFF in this sample. OFF includes three
+nested-shell quoting failures and all recovery costs; this is actual Agent
+workflow, not flawless source-search or pure lookup latency. Cache conditions,
+memory construction and billed cost are not controlled/measured as savings.
+No global installation or real-memory change.
+
+Isolated Codex CLI follow-up (2026-10-15, partial): see
+`docs/codex-cli-startup-20261015.md`. A task-local 0.162.1 source build waits for
+native plugin readiness and bounds full model-catalog reading at thirty
+seconds. Five fresh homes preserve 212 implicit / 27 explicit-only skills and
+all 239 sealed body/policy contracts with zero model-refresh/Apps errors.
+After separate operator authorization, original same-release sandbox helpers
+and official elevated setup enable a zero-real-generation full-profile shell
+and write-denial probe. Two new native sessions complete the unchanged
+180-session task with 36/36 correct fields, all skill contracts retained and
+seven complete provider responses. The original CLI is blocked before inference
+by incomplete startup; no speed/cost comparison is accepted. Shared sandbox
+account passwords and ACLs were changed as authorized; the existing service
+remains stopped. The global CLI and all 575 knowledge rows match original
+hashes. Two concurrent global config changes are separately recorded, not
+reverted or represented as unchanged. No global installation or release.
+
+Host-network follow-up (2026-10-15, partial): see
+`docs/host-network-stability-20261015.md`. A backed-up exact-host proxy rule and
+task-only recorder flow-control repair yield three full native model-directory
+reads. A generated task reports effective window 475000, but omits 112 original
+remote skills and fails performance acceptance. Native same-process refresh
+restores all 239 enabled skills (212 implicit and 27 explicit-only); the earlier
+237-implicit interpretation is corrected by their original YAML policies.
+Fresh exec still has only 100
+and is blocked before generation. App/MCP discovery (14 apps / 618 tools) is
+separate from the remaining app-directory HTTP403. No installed CLI patch,
+skill reduction, memory quality change or speed/cost benefit is claimed. Real
+memory, protected global configs and manual proxy selectors are unchanged;
+native discovery refreshes its own plugin cache metadata. Receipts remain in
+`.tmp/host-network-stability-20261015/`; the full user outcome is not complete.
+
+Actual-request performance follow-up (2026-10-15, unreleased, partial): see
+`docs/performance-request-wire-20261015.md`. Captured CLI request entities and
+provider usage show twelve core tool definitions, on-demand MCP information and
+repeated skill metadata, not an inline twenty-tool catalog. Call-local feature
+reuse preserves exercised ranking and source-failure boundaries; 154 scoped
+tests and the bounded-reading outcome pass. Native comparisons plus missing-
+memory/source-update control pass 90/90 fields, but do not establish overall
+speed or billing improvement. The reduced skill catalog is rejected without
+complete discovery proof. Real memory/global config hashes are unchanged;
+no global installation or release.
+
+Long-history performance follow-up (2026-10-15, unreleased, partial): see
+`docs/performance-long-history-20261015.md`. Under `e5ff5b36...`, a 180-session
+equal-information task is faster and uses fewer reported tokens with existing
+memory than without it; memory construction is not measured. Catalog annotation
+and entry prose compaction retain twenty tools and all input constraints, but
+do not establish an incremental end-to-end gain over before-ON. Nine native CLI
+tasks pass 162 field checks; 209 scoped regressions and three isolated outcomes
+pass. Missing memory still triggers source reading. Real knowledge/global
+configuration hashes remain unchanged; no global installation or release.
+
+Speed/token follow-up (2026-10-15, unreleased): see
+`docs/performance-20261015.md`. Compact wire JSON and freshly verified completion
+readback retain evidence and failure gates; twenty public tools remain. One
+native correction pair is faster with fewer total tokens, but differing cache
+ratios and short-history read controls do not prove lower overall cost. The
+later bounded two-topic retrieval fallback has package fingerprint `71cabf24...`;
+fresh native recall and direct MCP readback agree with the corrected store.
+Earlier write/correction samples retain their own fingerprint, not this one.
+Real knowledge and global configuration remain unchanged; no Release or global
+installation is claimed.
 
 Remaining-test follow-up (2026-10-15, unreleased): the previously reported
 19 failures are resolved. Compact-output tests now verify normal results plus

@@ -86,7 +86,7 @@ _SESSION_REFERENCE_SCHEMA: dict[str, Any] = {
 
 _SCHEMAS: dict[str, _SchemaOnly] = {
     "inspect_sessions": {
-        "description": "Inspect native sessions on this device, read frozen batch progress, or page a selected complete source. Default inventory includes sessions with missing, absent or multiple workspace directories. A directory is optional context, never a requirement. Discovery references are not immutable revisions; prepare captures and binds one complete selected source at a time. Never imports, creates jobs, writes memory or triggers background work.",
+        "description": "Read-only device-session inventory, source pages, themes or frozen-batch progress. Missing/absent/multiple workspace roots are valid; directories are optional. Discovery refs are not immutable revisions: prepare fully reads and freezes selected sources. No imports, jobs, memory writes or background work.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -115,40 +115,36 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     },
     "search_memory": {
         "description": (
-            "Search all current long-term memory by default, including global user decisions. "
-            "A task about a named project still uses scope=all; do not infer a project filter from the task or workspace. "
-            "Use scope=project only when the user explicitly asks to exclude other projects' memory. "
-            "Reuse a returned fact for every question it already answers; searching its other keywords "
-            "does not independently verify it. Search again for a still-unanswered question or new conflict, "
-            "and check current applicability against the relevant sources. "
-            "Use focused topic keywords rather than a list of every file, tool and task detail. The output contains "
-            "readable titles and whole statements. Large results include a continuation call; "
-            "follow it to read the rest. Empty queries browse current knowledge with natural modules. "
-            "A long entry may first return its title and a detail=full call for its complete text. "
-            "Use search_raw when exact "
-            "conversation evidence is needed."
+            "Default scope=all, including global decisions. NEVER infer scope=project from task/workspace names; "
+            "only an explicit USER request permits project-only filtering. If an inferred filter misses, "
+            "follow retry_without_project_filter before assuming memory is absent. Respect explicit user restrictions. "
+            "Use one focused topic for related missing decisions; reuse every returned fact it answers. "
+            "Repeat only for unanswered questions or new conflicts; keyword variants are not independent verification. "
+            "Check current applicability against sources. Returns titles and whole statements. "
+            "Follow continuation for more results; detail=full opens an indexed long fact. "
+            "Empty query browses natural modules. Exact conversation evidence: search_raw."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "project_name": {
                     "type": "string",
-                    "description": "Optional task context, ignored as a filter with scope=all. Required only for a user-requested project-only filter; relevant decisions may be stored under global or other labels.",
+                    "description": "Optional context, not a filter with all. Required for explicit project-only scope; global decisions may otherwise be missed.",
                 },
                 "query": {"type": "string", "description": "The specific topic or missing decision to recover; avoid concatenating unrelated task keywords."},
                 "budget_tokens": {
                     "type": "integer", "minimum": 1,
-                    "description": "Size of the complete returned page, using cl100k_base when available or conservative UTF-8 byte counting. Omit to use cost_budget.search_tokens.",
+                    "description": "Complete-page size: cl100k_base or conservative UTF-8 bytes. Default: cost_budget.search_tokens.",
                 },
-                "cursor": {"type": "string", "description": "Reading position from the returned continuation call; the Agent follows it automatically."},
+                "cursor": {"type": "string", "description": "Position from the returned continuation call."},
                 "detail": {
                     "type": "string", "enum": ["auto", "full"], "default": "auto",
-                    "description": "auto returns whole facts fitting the page. full explicitly reads one complete entry, even when it exceeds the page size.",
+                    "description": "auto: whole facts fitting the page; full: one complete fact, even beyond the page size.",
                 },
                 "scope": {
                     "type": "string",
                     "enum": ["project", "all"],
-                    "description": "Keep all for ordinary tasks, even tasks about one project. project excludes global and other labels: use only when the user explicitly requests that restriction.",
+                    "description": "all for ordinary tasks; project excludes global/other labels and requires explicit user restriction.",
                     "default": "all",
                 },
             },
@@ -157,13 +153,9 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     },
     "autopilot_search_tick": {
         "description": (
-            "Host-neutral runtime scheduler for automatic task-aware memory "
-            "search. Given an agent event (PI context/tool_result/save_point, "
-            "Claude Code PostToolUse, Cursor after-agent, etc.), it decides "
-            "whether a concrete memory-backed uncertainty exists. When it "
-            "does, it runs bounded search_memory and returns context_injection "
-            "for the next provider request; otherwise it returns the skip "
-            "reason. This is not a session-start wake replacement."
+            "Host-neutral task-aware search scheduler for Agent events. Concrete memory-backed uncertainty "
+            "runs bounded search_memory and returns context_injection; otherwise returns a skip reason. "
+            "Not a session-start wake replacement."
         ),
         "input_schema": {
             "type": "object",
@@ -202,7 +194,6 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 },
                 "is_error": {
                     "type": "boolean",
-                    "description": "Whether the tool result is an error.",
                     "default": False,
                 },
                 "candidate_claims": {
@@ -235,7 +226,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
         "input_schema": {
             "type": "object",
             "properties": {
-                "project_name": {"type": "string", "description": "Project name"},
+                "project_name": {"type": "string"},
                 "limit": {
                     "type": "integer",
                     "description": "Optional observation count; omitted returns all matching observations",
@@ -245,7 +236,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
         },
     },
     "search_raw": {
-        "description": "Regex search raw observation evidence with exact snippets.",
+        "description": "Regex search raw observations with exact snippets and matching current knowledge plus its bound evidence. Historical wording alone does not establish an unresolved current conflict.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -276,7 +267,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
         "input_schema": {
             "type": "object",
             "properties": {
-                "project_name": {"type": "string", "description": "Project name"},
+                "project_name": {"type": "string"},
                 "session_id": {
                     "type": "string",
                     "description": "Session ID to filter by",
@@ -302,7 +293,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
         "input_schema": {
             "type": "object",
             "properties": {
-                "project_name": {"type": "string", "description": "Project name"},
+                "project_name": {"type": "string"},
                 "limit": {
                     "type": "integer",
                     "description": "Optional handoff count; omitted returns all matching handoffs",
@@ -316,18 +307,16 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
         "input_schema": {
             "type": "object",
             "properties": {
-                "project_name": {"type": "string", "description": "Project name"},
+                "project_name": {"type": "string"},
             },
             "required": ["project_name"],
         },
     },
     "file_context": {
         "description": (
-            "Return compact, source-attributed memory already associated with a "
-            "file path before reading the file itself. It also returns current "
-            "file fingerprints, Python code symbols/imports, code evidence source "
-            "ids, and stale checks for memory references to code. Advisory only; "
-            "never blocks file reads."
+            "Read file-associated memory with source attribution, current file fingerprints, "
+            "Python symbols/imports, code-evidence source IDs and stale-reference checks. "
+            "Advisory; never blocks file reads."
         ),
         "input_schema": {
             "type": "object",
@@ -418,15 +407,34 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     },
     "prepare_session_distill": {
         "description": (
-            "Prepare one remember-this-session decision packet. An explicit session_id "
-            "selects that session directly, including parked work. Semantic mode "
-            "checks the complete source so the common path can finalize without "
-            "another prepare call."
+            "Prepare source-verified review of an existing memory or processing job. Requires target_knowledge from search or an existing distill_job_id. "
+            "Daily recording and session processing are automatic; this is not a manual remember or batch entry. "
+            "Default semantic mode checks complete sources; submit reviewed memory_points in finalize without preparing again. "
+            "include_current returns source-derived relevant current facts with the full source, without changing job ownership; mutually exclusive with current_query. "
+            "current_query returns all matching current facts in the same packet and resolves their common owner, avoiding a separate search. "
+            "For a correction, pass target_knowledge from search; its unique current owner is resolved automatically."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "project_name": {"type": "string", "description": "Optional context label for selected-session processing; it is not a globally unique directory identity."},
+                "project_name": {"type": "string", "description": "Optional context label, not a unique directory identity."},
+                "include_current": {"type": "boolean", "default": False,
+                                    "description": "Include related current memories using the complete immutable source text as query. Context only, no exhaustive semantic-match guarantee or automatic owner binding; explicit project scope stays strict."},
+                "current_query": {"type": "string", "minLength": 1,
+                                  "description": "Topic whose complete current memories should accompany this one prepared session/job; their common owner is resolved, no write implied."},
+                "target_knowledge": {
+                    "type": "array", "minItems": 1,
+                    "description": "Exact current memories from search to correct; runtime resolves their common write owner. Reuse title, statement, optional module and project_name.",
+                    "items": {
+                        "type": "object", "additionalProperties": False,
+                        "properties": {
+                            "title": {"type": "string"}, "statement": {"type": "string"},
+                            "module": {"type": "array", "items": {"type": "string"}},
+                            "project_name": {"type": "string"},
+                        },
+                        "anyOf": [{"required": ["title"]}, {"required": ["statement"]}],
+                    },
+                },
                 "client": {
                     "type": "string",
                     "enum": [
@@ -441,7 +449,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                         "opencode",
                         "hermes",
                     ],
-                    "description": "Transcript source to sync before distill (default: auto)",
+                    "description": "Transcript source to sync before distill",
                     "default": "auto",
                 },
                 "limit": {
@@ -456,12 +464,12 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 "scope": {
                     "type": "string",
                     "enum": ["project", "all"],
-                    "description": "Use all for device-wide selected-session processing without directory setup; project preserves explicit legacy source filters.",
+                    "description": "all: selected device sessions without directory setup; project: explicit source filter.",
                     "default": "project",
                 },
                 "project_root": {
                     "type": "string",
-                    "description": "Optional source context for repository evidence; not required for selected device sessions or verified user statements.",
+                    "description": "Optional repository-evidence context; not required for device sessions or verified user statements.",
                 },
                 "observation_limit": {
                     "type": "integer",
@@ -469,25 +477,19 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 },
                 "run_ingest": {
                     "type": "boolean",
-                    "description": "Run low-level transcript sync before building the packet (default: true)",
+                    "description": "Run low-level transcript sync before building the packet",
                     "default": True,
                 },
-                "batch_sessions": {"type": "array", "items": _SESSION_REFERENCE_SCHEMA, "minItems": 1,
-                                   "description": "Freeze selected native references from inspection for continuous manual processing. Device sources are fully read and bound one at a time; no directory setup, background CLI or source deletion."},
-                "batch_id": {"type": "string", "description": "Resume the next unresolved item in an existing manual batch"},
-                "retry_failures": {"type": "boolean", "default": False, "description": "Explicitly retry failed sources in an active batch, or recheck unfinished points in a directly selected completed session; never resets a stopped batch"},
                 "distill_job_id": {
                     "type": "string",
                     "description": (
-                        "Optional active job id to claim exactly. Used by automatic "
-                        "maintenance so the selected job is processed deterministically."
+                        "Review or resume this exact existing processing job; does not start manual session discovery."
                     ),
                 },
                 "session_id": {
                     "type": "string",
                     "description": (
-                        "Optional user-facing session id to select directly. The "
-                        "latest matching project job is activated when parked."
+                        "Native source of an explicit correction; use with exact target_knowledge from search."
                     ),
                 },
                 "defer_job_id": {
@@ -506,9 +508,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "type": "string",
                     "enum": ["raw", "semantic"],
                     "description": (
-                        "Evidence delivery mode. raw preserves the existing per-chunk "
-                        "Agent loop; semantic lets runtime hash-verify/checkpoint every raw "
-                        "chunk and returns the smaller parser-derived session rendering."
+                        "raw: per-chunk Agent loop. semantic: runtime hash-checks/checkpoints EVERY raw chunk and returns complete parsed exchanges."
                     ),
                     "default": "semantic",
                 },
@@ -516,8 +516,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "type": "string",
                     "enum": ["compact", "full"],
                     "description": (
-                        "compact returns complete readable exchanges and necessary "
-                        "references without duplicated diagnostics; full includes diagnostic details."
+                        "compact: complete exchanges/refs, no duplicate diagnostics. full: include diagnostics."
                     ),
                     "default": "compact",
                 },
@@ -525,8 +524,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "type": "integer",
                     "minimum": 256,
                     "description": (
-                        "Advisory diagnostic-response budget, never a source-reading limit. "
-                        "Complete conversation is retained in the normal response."
+                        "Advisory diagnostic budget, NEVER a source-reading limit; complete conversation remains returned."
                     ),
                     "default": 3000,
                 },
@@ -534,24 +532,21 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "type": "array",
                     "items": {"type": "integer", "minimum": 1},
                     "description": (
-                        "Read complete semantic windows for selected one-based exchange "
-                        "indexes before querying candidate-grade raw proof."
+                        "Complete semantic windows at one-based indexes before raw-proof drilldown."
                     ),
                 },
                 "drilldown_chunk_indexes": {
                     "type": "array",
                     "items": {"type": "integer", "minimum": 0},
                     "description": (
-                        "Read-only raw chunk indexes to return after a job reaches reviewing; "
-                        "use for candidate-grade evidence drilldown."
+                        "Read-only raw chunk indexes after reviewing, for candidate-grade evidence."
                     ),
                 },
                 "drilldown_query": {
                     "type": "string",
                     "maxLength": 200,
                     "description": (
-                        "Read-only search over raw chunks after the job reaches reviewing. "
-                        "Returns every matching chunk when semantic evidence needs proof."
+                        "Read-only raw search after reviewing; returns every matching chunk for proof."
                     ),
                 },
             },
@@ -584,17 +579,39 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     },
     "finalize_session_distill": {
         "description": (
-            "Finalize one fully processed session after end-of-session semantic "
-            "review. Auto-review and Dream run only for an internally consistent "
-            "promotion decision, and only over candidates produced by this job."
+            "Finalize a fully read session and consistent semantic review, using only this job's candidates. "
+            "Optionally submit all memory_points here; runtime stages them via the existing candidate owner before the same source/evidence/lease/transaction gates. "
+            "readback_verified=true proves saved changes passed fresh SQLite + ordinary-search checks; "
+            "reuse returned knowledge_changes instead of another readback call. Unfinished work remains partial."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "project_name": {"type": "string", "description": "Project name"},
+                "project_name": {"type": "string"},
                 "job_id": {
                     "type": "string",
                     "description": "Review-ready distill job id",
+                },
+                "memory_points": {
+                    "type": "array",
+                    "description": "All decisions for this prepared job; do not call suggest separately for these points. Runtime derives project, job, category and source explanation.",
+                    "items": {
+                        "type": "object", "additionalProperties": False,
+                        "properties": {
+                            "content": {"type": "string"},
+                            "canonical_title": {"type": "string"},
+                            "topic_path": {"type": "array", "items": {"type": "string"}},
+                            "evidence_basis": {"type": "string", "enum": ["repository", "user_statement", "transcript", "source_report"]},
+                            "verification_outcome": {"type": "string", "enum": ["verified", "unverified", "contradicted", "not_applicable"],
+                                                     "description": "Writing dispositions require verified: the fully read typed source supports this exact point. user_statement verifies what the user stated; source_report verifies that speaker's bounded account, not external truth. not_applicable is for intentional non-writing points."},
+                            "verification_refs": {"type": "array", "items": EvidenceRef.model_json_schema()},
+                            "assimilation_disposition": {"type": "string", "enum": ["add", "confirm", "refine", "replace", "no_write", "handoff", "defer", "conflict", "reject"]},
+                            "assimilation_reason": {"type": "string"},
+                            "target_knowledge": {"type": "array", "items": {"type": "object"}},
+                            "retained_state_item": {"type": "string", "description": "Only if this explicitly classified user current-state point was also mistakenly listed in unfinished_work: must exactly equal both point content and that work item. Excluded only after verified successful promotion; real handoffs stay."},
+                        },
+                        "required": ["content", "canonical_title", "topic_path", "evidence_basis", "verification_outcome", "verification_refs", "assimilation_disposition", "assimilation_reason"],
+                    },
                 },
                 "semantic_review": {
                     "type": "object",
@@ -622,6 +639,13 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                         "unfinished_work": {
                             "type": "array",
                             "items": {"type": "string"},
+                            "description": "Actual unfinished actions only. Supported undecided/unknown states belong in memory_points, not this work list.",
+                        },
+                        "retained_state_refs": {
+                            "type": "array", "description": "Optional compatibility binding for an explicitly classified current state also listed as work; batch memory_points derives these internally.",
+                            "items": {"type": "object", "additionalProperties": False,
+                                      "properties": {"candidate_id": {"type": "string"}, "unfinished_work_item": {"type": "string"}},
+                                      "required": ["candidate_id", "unfinished_work_item"]},
                         },
                         "evidence_status": {
                             "type": "string",
@@ -752,11 +776,10 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
         "input_schema": {
             "type": "object",
             "properties": {
-                "project_name": {"type": "string", "description": "Project name"},
+                "project_name": {"type": "string"},
                 "status": {
                     "type": "string",
                     "enum": list(_CURRENT_CANDIDATE_STATUSES),
-                    "description": "Temporary candidate status.",
                     "default": "pending",
                 },
                 "limit": {
@@ -789,40 +812,25 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     },
     "govern_memory": {
         "description": (
-            "Composite write surface for candidate creation, review decisions, "
-            "and task handoffs. Use action="
-            "suggest with arguments.kind=memory|rule|relation; action=decide "
-            "with kind=knowledge, decision=confirm|reject, project_name, "
-            "candidate_id, and an explicit disposition. To delete incorrect current "
-            "knowledge, use action=decide with kind=knowledge, decision=delete, "
-            "project_name, and exactly one target_knowledge selection; omit candidate_id "
-            "and knowledge_items. Use "
-            "action=handoff. Replacement is a normal knowledge decision that "
-            "deletes the old current row; it is not a separate history action. "
-            "Suggestions are stored as temporary knowledge candidates, not legacy "
-            "MemoryEntry truth. Distill-bound suggestions should include evidence_basis, "
-            "verification_outcome, and content-free verification_refs so Dream "
-            "can verify repository or explicit user-statement evidence. The "
-            "runtime derives the Answer Gate status; only ANSWERED candidates "
-            "may enter the truth layer. Distill suggestions must include an "
-            "assimilation_disposition and assimilation_reason; add/refine/"
-            "replace also require canonical_title and topic_path (a JSON array of "
-            "whole category names, never a slash-separated string), while "
-            "confirm/refine/replace require an unambiguous current-memory selection. "
-            "Use target_knowledge=[{title, statement, module}] copied from ordinary "
-            "search; title or statement is required, module is optional. The runtime "
-            "resolves exact project-scoped matches, never fuzzy guesses. Confirm may "
-            "use its unchanged statement without an explicit selection. Internal IDs "
-            "remain compatible for existing callers but must not be requested from users. "
-            "An unresolved selection retains old memory and appears as unfinished work; "
-            "unrelated verified points can still be saved. For kind=memory, category, "
-            "content and source are required. EvidenceRef.kind is exactly repository, "
-            "user_statement or transcript, never session_exchange. A user_statement "
-            "ref uses exchange_index and the returned exchange content_sha256; "
-            "do not add a transcript locator. EvidenceRef accepts kind, locator, "
-            "content_sha256, exchange_index, chunk_index and role, not source/job IDs. "
-            "Use evidence_basis=repository|user_statement|transcript. Handoff requires "
-            "project_name, task_id, summary, status and, for distill work, distill_job_id."
+            "Writes temporary candidates, knowledge decisions or handoffs. suggest: kind=memory|rule|relation; "
+            "memory requires category/content/source. Distill jobs: suggest, then finalize (do not decide early). "
+            "Include distill_job_id, evidence_basis, verification_outcome and typed verification_refs; "
+            "runtime derives Answer Gate, only ANSWERED can write truth. "
+            "Also require assimilation_disposition and assimilation_reason; add/refine/replace require canonical_title and "
+            "topic_path as whole-name JSON array, NEVER path string. confirm/refine/replace select exact current "
+            "target_knowledge=[{title,statement,module}] from normal search (title or statement required; module optional); "
+            "confirm may reuse its unchanged statement. Unresolved targets retain old memory and unfinished work; "
+            "independent valid points may save. Internal IDs remain compatible for existing callers but "
+            "must not be requested from users. "
+            "decide: kind=knowledge, decision=confirm|reject, project_name, candidate_id, explicit disposition. "
+            "Delete: decision=delete, project_name and exactly one target_knowledge selection; omit candidate_id/knowledge_items. "
+            "Replacement deletes old current truth, not history. Candidates are not legacy MemoryEntry truth. "
+            "Evidence basis/ref kind: repository|user_statement|transcript|source_report, NEVER session_exchange. "
+            "source_report records only what an authenticated source speaker reported, not "
+            "external current truth or user approval; use exchange_index, digest and speaker role. "
+            "User refs need exchange_index + returned content_sha256, no transcript locator. "
+            "Refs accept kind/locator/content_sha256/exchange_index/chunk_index/role, not source/job IDs. "
+            "handoff requires project_name/task_id/summary/status and distill_job_id for distill work."
         ),
         "input_schema": {
             "type": "object",
@@ -840,7 +848,20 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "description": "Action-specific arguments; project_name is required for project writes.",
                     "additionalProperties": True,
                     "properties": {
-                        "evidence_basis": {"type": "string", "enum": ["repository", "user_statement", "transcript"]},
+                        # These are names of existing handler arguments, not new
+                        # validation constraints. additionalProperties remains
+                        # true for the composite surface's other action fields.
+                        "kind": {"description": "Existing action kind: memory, rule, relation or knowledge."},
+                        "project_name": {"description": "Context label returned by the selected job/target."},
+                        "category": {"description": "Required for memory suggestions."},
+                        "content": {"description": "The narrow candidate statement, required for memory suggestions."},
+                        "source": {"description": "Required source explanation for memory suggestions."},
+                        "distill_job_id": {"description": "Returned job binding; required for distill suggestions."},
+                        "assimilation_disposition": {"description": "add, refine, confirm, replace, no_write, handoff, defer, conflict or reject."},
+                        "assimilation_reason": {"description": "Required explanation of the disposition."},
+                        "canonical_title": {"description": "Exact field name for the knowledge title; NOT title."},
+                        "topic_path": {"description": "JSON array of whole category names; never a path string."},
+                        "evidence_basis": {"type": "string", "enum": ["repository", "user_statement", "transcript", "source_report"]},
                         "verification_outcome": {"type": "string", "enum": ["verified", "unverified", "contradicted", "not_applicable"]},
                         "verification_refs": {"type": "array", "items": EvidenceRef.model_json_schema(),
                                               "description": "Exact typed source references; user statements use kind=user_statement, exchange_index and the returned exchange digest."},
@@ -864,16 +885,13 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     },
     "record_context_outcome": {
         "description": (
-            "Record whether returned wake/search context was used, ignored, "
-            "or misleading for the caller's task. This writes only a "
-            "RetrievalSignal(context_outcome) shadow record and never mutates "
-            "confirmed truth. Opt-in ranking may later use the signal as a "
-            "small explainable hint."
+            "Record used/ignored/misleading context as a shadow RetrievalSignal(context_outcome); "
+            "never changes confirmed truth. Opt-in ranking may use the signal as a small explainable hint."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "project_name": {"type": "string", "description": "Project name"},
+                "project_name": {"type": "string"},
                 "surface": {
                     "type": "string",
                     "description": "Surface that returned the context, e.g. wake, search_memory, file_context.",
@@ -889,7 +907,6 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 "outcome": {
                     "type": "string",
                     "enum": ["used", "ignored", "misleading"],
-                    "description": "Whether the surfaced context helped the task.",
                 },
                 "reason": {
                     "type": "string",

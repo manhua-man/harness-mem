@@ -417,7 +417,7 @@ class CanonicalStoreRuntime:
     ) -> dict[str, Any]:
         """Atomically apply canonical payload mutations on the existing DB inode.
 
-        Each mutation has ``operation`` (``upsert`` or ``delete``), ``collection``,
+        Each mutation has ``operation`` (``upsert``, ``delete`` or ``assert``), ``collection``,
         and ``entity_id``. Upserts also require ``payload`` and may provide
         ``source_relpath``. If ``expected_sha256`` is present, its value must
         match current canonical truth; ``None`` explicitly requires absence.
@@ -487,6 +487,10 @@ class CanonicalStoreRuntime:
                 for item in normalized:
                     collection = str(item["collection"])
                     entity_id = str(item["entity_id"])
+                    if item["operation"] == "assert":
+                        # Preconditions above run under the same write lock as
+                        # every deletion; retained knowledge is never rewritten.
+                        continue
                     table_name = canonical_table_for_collection(collection)
                     if item["operation"] == "delete":
                         project_name = str(item["project_name"])
@@ -2140,8 +2144,8 @@ def _normalize_payload_mutation(mutation: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(mutation, dict):
         raise TypeError("each mutation must be a dictionary")
     operation = str(mutation.get("operation") or "").strip().lower()
-    if operation not in {"upsert", "delete"}:
-        raise ValueError("mutation operation must be 'upsert' or 'delete'")
+    if operation not in {"upsert", "delete", "assert"}:
+        raise ValueError("mutation operation must be 'upsert', 'delete' or 'assert'")
     collection = str(mutation.get("collection") or "").strip()
     entity_id = str(mutation.get("entity_id") or "").strip()
     if not collection or not entity_id:
@@ -2164,6 +2168,9 @@ def _normalize_payload_mutation(mutation: dict[str, Any]) -> dict[str, Any]:
             ):
                 raise ValueError("expected_sha256 must be a lowercase SHA-256 or None")
         normalized["expected_sha256"] = expected
+
+    if operation == "assert" and not normalized.get("expected_sha256"):
+        raise ValueError("assert operation requires an existing payload SHA-256")
 
     if operation == "upsert":
         allowed.update({"payload", "source_relpath", "project_name"})

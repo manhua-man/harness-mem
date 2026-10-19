@@ -54,9 +54,10 @@ class MergedConfig:
     distill_auto_enabled: bool = True
     distill_autonomous_enabled: bool = False
     distill_auto_recent_first: bool = True
-    # Background authorization is project-scoped; host CLI credentials stay in the host.
+    # User authorization can cover all projects; project values override it.
+    # Host CLI credentials stay in the host.
     distill_autonomous_cli: Literal[
-        "current", "codex", "claude-code", "hermes", "opencode"
+        "current", "codex", "claude-code", "hermes", "opencode", "antigravity"
     ] = "current"
     archive_distill_enabled: bool = False
     archive_distill_order: Literal["recent_first", "oldest_first"] = "recent_first"
@@ -136,7 +137,7 @@ _DISTILL_KEYS: tuple[tuple[str, str, str, Any], ...] = (
     (
         "distill.autonomous.cli",
         "distill_autonomous_cli",
-        "enum:current,codex,claude-code,hermes,opencode",
+        "enum:current,codex,claude-code,hermes,opencode,antigravity",
         "current",
     ),
     ("distill.auto.recent_first", "distill_auto_recent_first", "bool", True),
@@ -577,9 +578,8 @@ def load_merged_config(project_root: str | os.PathLike[str] | None = None) -> Me
     project_path = Path(project_root) / ".harness-mem.toml" if project_root is not None else user_path
     project_dict = _load_toml_file(project_path) if project_root is not None else {}
 
-    # Background authorization and destructive cleanup are project-scoped.
-    _remove_dotted(user_dict, "distill.autonomous.enabled")
-    _remove_dotted(user_dict, "distill.autonomous.cli")
+    # Autonomous settings inherit user authorization, with project overrides.
+    # Retired semantic execution/provider configuration remains ignored.
     _remove_dotted(user_dict, "semantic.execution.profile")
     _remove_dotted(user_dict, "semantic.execution.restricted")
     _remove_dotted(user_dict, "semantic.providers")

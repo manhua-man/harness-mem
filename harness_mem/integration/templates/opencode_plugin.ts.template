@@ -1,6 +1,6 @@
 import type { Plugin } from "@opencode-ai/plugin"
 
-const projectRoot = ${PROJECT_ROOT_JSON}
+const configuredProjectRoot: string | null = ${PROJECT_ROOT_JSON}
 const hookRunner = ${HOOK_RUNNER_JSON}
 
 async function withHarnessMemClient<T>(clientName: string, fn: () => Promise<T>): Promise<T> {
@@ -17,7 +17,7 @@ async function withHarnessMemClient<T>(clientName: string, fn: () => Promise<T>)
   }
 }
 
-async function runWakeStart($$: any, sessionId: string): Promise<string> {
+async function runWakeStart($$: any, projectRoot: string, sessionId: string): Promise<string> {
   return withHarnessMemClient("opencode", async () => {
     try {
       return await $$`$${hookRunner} --action wake-start --project-root $${projectRoot} --source ide_hook --trigger-id $${sessionId} --client opencode`.text()
@@ -27,7 +27,7 @@ async function runWakeStart($$: any, sessionId: string): Promise<string> {
   })
 }
 
-async function runPostTurnMaintenance($$: any, triggerId: string): Promise<void> {
+async function runPostTurnMaintenance($$: any, projectRoot: string, triggerId: string): Promise<void> {
   await withHarnessMemClient("opencode", async () => {
     try {
       await $$`$${hookRunner} --action post-turn-maintenance --project-root $${projectRoot} --source ide_hook --trigger-id $${triggerId} --client opencode`.quiet()
@@ -37,24 +37,42 @@ async function runPostTurnMaintenance($$: any, triggerId: string): Promise<void>
   })
 }
 
-const plugin: Plugin = async ({ $$, client }) => ({
-  event: async ({ event }) => {
-    const type = event?.type ?? ""
-    if (type === "session.created") {
-      const sessionId = event.properties.info.id
-      if (!sessionId) return
-      const wakeText = (await runWakeStart($$, sessionId)).trim()
-      if (wakeText && client.tui?.appendPrompt) {
-        await client.tui.appendPrompt({ body: { text: `$${wakeText}\n\n` } })
-      }
-      return
+const plugin: Plugin = async ({ $$: $$, directory, worktree }) => {
+  const projectRoot = configuredProjectRoot || directory || worktree
+  const wakeBySession = new Map<string, Promise<string>>()
+  const wakeForSession = (sessionId: string): Promise<string> => {
+    let wake = wakeBySession.get(sessionId)
+    if (!wake) {
+      wake = runWakeStart($$, projectRoot, sessionId)
+      wakeBySession.set(sessionId, wake)
     }
+    return wake
+  }
 
-    if (type === "session.idle") {
-      const sessionId = event.properties.sessionID
-      if (sessionId) await runPostTurnMaintenance($$, sessionId)
-    }
-  },
-})
+  return {
+    event: async ({ event }) => {
+      const type = event?.type ?? ""
+      if (type === "session.created") {
+        const sessionId = event.properties.info.id
+        if (sessionId && projectRoot) await wakeForSession(sessionId)
+        return
+      }
+
+      if (type === "session.idle") {
+        const sessionId = event.properties.sessionID
+        if (sessionId && projectRoot) await runPostTurnMaintenance($$, projectRoot, sessionId)
+      }
+
+      if (type === "session.deleted") {
+        wakeBySession.delete(event.properties.info.id)
+      }
+    },
+    "experimental.chat.system.transform": async ({ sessionID }, output) => {
+      if (!sessionID || !projectRoot) return
+      const wakeText = (await wakeForSession(sessionID)).trim()
+      if (wakeText) output.system.push(wakeText)
+    },
+  }
+}
 
 export default plugin

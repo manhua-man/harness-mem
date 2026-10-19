@@ -17,6 +17,7 @@ from harness_mem.core.schemas import (
 )
 from harness_mem.mcp import read_query_support, server
 from harness_mem.mcp.read_projection import reading_tokens
+from harness_mem.mcp.response_budget import serialize_mcp_result
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
@@ -220,7 +221,7 @@ def test_optional_tokenizer_fallback_uses_utf8_size_not_quarter_characters(backe
     add_memories(backend, [f"中文知识 第 {index} 条。" + "完整来源与准确知识。" * 12 for index in range(10)])
     monkeypatch.setattr(token_estimator, "_get_encoder", lambda: None)
     payload = server.tool_search_memory(query="", budget_tokens=1800)
-    assert len(json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8")) <= 1800
+    assert len(serialize_mcp_result(payload).encode("utf-8")) <= 1800
     assert len(payload["memories"]) < 10
 
 

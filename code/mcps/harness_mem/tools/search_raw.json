@@ -1,6 +1,6 @@
 {
   "name": "search_raw",
-  "description": "Regex search raw observation evidence with exact snippets.",
+  "description": "Regex search raw observations with exact snippets and matching current knowledge plus its bound evidence. Historical wording alone does not establish an unresolved current conflict.",
   "inputSchema": {
     "type": "object",
     "properties": {

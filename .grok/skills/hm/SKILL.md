@@ -1,46 +1,45 @@
 ---
 name: hm
-description: Use harness-mem to remember this session, find prior work, or correct memory.
+description: Inspect automatic memory and review, correct, or delete stored knowledge.
 metadata:
   wireFormatVersion: hm-wire-v3.5
 ---
 
 # hm
 
-这是 harness-mem 唯一的日常入口。用用户当前语言直接完成请求，不让用户学习内部命令、填写目录或管理编号。
+日常记忆由宿主自动记录、后台整理并按任务召回；用户正常聊天，无需逐场要求“记住”。`hm` 用于查看自动记忆和审查、纠正、删除已存内容，不提供手动记住或批量整理入口。首次接入准备自动链路，之后不把内部命令、编号或逐项审批交给用户。
 
-## 找回与查看
+## 调用与读取
 
-用 `search_memory(query=<主题词>)` 查全部当前记忆；“看看记住了什么”用空查询，展示分类、标题和正文。任务所属项目不等于记忆所属项目：即使任务提到某个项目或当前目录，也保持默认跨项目查找，相关用户决定可能保存在 `global`。只有用户明确说“只查这个项目的记忆、不要其他项目”时才使用 `scope="project"`。项目、目录和 Hook 安装都不是检索或人工整理的前提。
+已知工具直调；`functions.exec` 全动作按例精确匹配并 await，禁 description/服务前缀泛查、打印全目录/schema。同名先确认 HM；读取换 `search_memory`/参数。
 
-查询围绕当前缺少的具体决定或主题，不把所有文件名、工具名和任务细节拼成一串。项目筛选没有找到时，若用户没有明确限定范围，先取消误加的项目筛选再判断是否缺少记忆，不在同一错误范围反复换词。
+```javascript
+const n="search_memory",a={query:"<待查阅或审查的主题>",scope:"all"};
+const t=ALL_TOOLS.filter(t=>t.name===n||t.name.endsWith("__"+n));
+if(t.length!==1)text(t.map(t=>t.name));
+else{const r=await tools[t[0].name](a);if(r.isError||!r.content?.length)text(r);else for(const b of r.content)text(b.type==="text"?b.text:b);}
+```
 
-一个结果可以同时回答多个问题，不按其中的关键词逐一重查。同一事实换词重查不算核验：用已找回的知识继续工作，核对现状时看当前文件或真实来源。再次查询前先确定尚未回答的独立问题；新冲突或来源变化可以重新核对，不以固定次数限制必要检索。复用本任务已完整读取且未变化的文件内容，只补缺失部分；输出被截断或文件变化时才重新读取相应内容。
+`search_memory(query=<已知标题或主体+缺主题>)` 默认全部含 `global`，任务项目不筛选；仅依用户限 `scope="project"`，误限取消，明确范围不扩大；空查询浏览。回忆当前知识、现状真源、已核更正优先旧原文。同主题合查，复用未变完整源及 `wake/context_injection/statement` 全文，禁换词/入口重查；仅缺答/冲突/源变/截断补读，不限必要检索次数。
 
-任务切换、规则不确定、报错或冲突时，用 `autopilot_search_tick` 按实际问题查记忆；普通闲聊无需查。
+完整目标已返回就回答；仅缺答才沿 `continuation.arguments` 原样翻页，标题按返回 `detail="full"` 读，查看全部须读完页。`wake` 带 `current_task`，无任务仅提示可用；切换/规则不确定/错误/冲突用 `autopilot_search_tick`，闲聊免查。
 
-短知识直接读取；结果多时由 Agent 按返回的 `continuation` 继续。只有标题的条目按返回的 `detail="full"` 调用读取完整正文。用户要查看全部时读完所有页；日常任务只继续读取需要的内容。`wake` 没有当前任务时只提示记忆可用，知道任务后带入 `current_task` 找相关知识。
+## 审查与更正
 
-## 记住会话
+先搜索已存内容。纠正时用原样返回的 `target_knowledge=[<旧条目>]` 和当前纠正会话调用 `prepare_session_distill`，完整读取固定来源；已有候选或任务可按其返回合同继续审查。`inspect_sessions` 用于检查自动链路的来源覆盖或失败，不让用户选会话来完成日常记忆。自动处理的完整取舍合同在内部 `hm-distill` 指令中。
 
-用户指定的范围已经清楚就直接处理；需要选会话时用 `inspect_sessions()` 发现设备记录。没有目录、旧目录已删除或涉及多个目录，都能整理。
+宿主身份和执行说明不作用户决定。更正保留说话人、来源时期与适用范围；明确未定/未知/未批准保留为状态，缺用户回应不能推断实际未定或拒绝。`verification_refs` 只用准备值及 `kind,exchange_index,content_sha256,role` 四键，index>=1；用户证据为 `user_statement/user`，助手报告为 `source_report/assistant`，不升为外部事实或用户批准。exchange 禁用 locator，文件证据另取仓库路径。
 
-将选定引用交给 `prepare_session_distill(scope="all", batch_sessions=...)`。它会完整读取并固定来源；正常整理不必先用 `action="source"` 把同一原文再读一遍。需要查看原文或补充证据时才按返回位置读取。一次会话可留下多条独立知识。
+依 `finalize_contract.instructions/required_fields/allowed_values`，复用当前事实，以 tool/填好 `finalize_contract.args_template` 换上例 n/a 直调，禁查/打印收尾元数据。模板非事实，点/项目/job/引用实填。旧/原始/未就绪缺合同沿原流程，无新门禁。仅缺字段且合同未说明才查该工具真实 schema。
 
-根据当前来源和已有记忆，逐点决定新增、确认、替换或不写，调用 `govern_memory` 提交，再用 `finalize_session_distill` 保存。提交字段以工具给出的 schema 为准，不为每条知识反复读说明或重复准备同一会话。
+约定/条件保留完整，避免同旧条竞争替换。完整 `semantic_review`：总结具体12–2000字符，矛盾/未完成为字符串数组，后者仅真实动作。`add/confirm/refine/replace` 须 `verified`；`not_applicable` 不可新增/丢弃明确约定。
 
-写入后用普通搜索确认结果。多场只用同一 `batch_id` 继续下一场，直到选定范围处理完；不要自设每日或批次数量上限，也不要反复向用户确认同一范围。
+目标原样取搜索 `title`/完整旧 `statement`/`project_name`，仅有 `module` 才带。确认/替换整旧行数组放各点 `memory_points[i].target_knowledge`，`add` 无目标。运行时派生项目/job/category/source，保留验证/事务/回读；已有 suggest 不重交。无长期价值 `no_write/reject`，不逐句建候选/提升或仅因缺长期证据挂起。
 
-## 纠正与删除
+更正完整准备，搜索整旧行作目标；运行时唯一匹配/CAS旧正文，新文 `content`。准备顶层 `target_knowledge` 仅绑现有 owner/source，不代各点目标，收尾顶层禁放。同归属直收尾；跨项目带 `target_knowledge=[<旧条目>]` 重备同一完整源。事实不选 owner；歧义留旧，免用户管项目/批同项重试；删除先搜。明确新措辞优先原样保存，只改指出内容；其余条件/例外/未定、规则/附加条件守原范围，不为润色重写；旧记忆非新说法证据。
 
-先普通搜索找出用户描述的旧记忆，将返回的旧标题、正文和分类传给 `govern_memory.arguments.target_knowledge`。已有项目信息由 Agent 内部带入，不让用户填写；不要寻找或猜造隐藏编号。目标不明确时只问哪条内容，不把独立的其他工作一起停掉。
+## 自动状态与结果
 
-旧记忆只是修改目标，不是新说法的证据。当前用户纠正尚无可回查的原话引用时，完整读取承载这次纠正的原生会话，沿用准备结果的任务与引用提交并收尾。任务内用 `govern_memory(action="suggest")` 提交，由 `finalize_session_distill` 统一保存，不再用单独的 Review 决定抢先写入同一批候选。`topic_path` 使用完整分类名组成的数组，不传路径字符串。
+`readback_verified=true` 已核 SQLite/普通检索，复用 `knowledge_changes`；缺标记/结果/新冲突再查。展示实存标题/正文、`not_written` 原因、`unfinished_work` 真动作；不写不证明完成。text/错误/异常/非text原样完整转交，禁省失败/重包装。失败保留来源并修复自动链路，不要求用户改为逐场手动记住，也不另建库。清原文/旧记忆须用户明示。
 
-## 结果与失败
-
-直接展示实际保存的标题和正文；没写的内容说明普通原因，未完成事项单独说。以收尾返回的 `knowledge_changes`、`not_written` 和 `unfinished_work` 为准，不用数量、测试通过或报告链接代替成果。
-
-正常调用报错时定位并修复该问题，保留已保存的成果；不要另起模型预检、Hook 验收或整套测试作为继续工作的前提。工具不可用就恢复当前连接，不创建第二份记忆库。
-
-只有用户要开启自动记录时才准备当前工作区的 Hook。清理原文或旧记忆按用户明确要求处理，不把安装、后台开关或目录管理插入日常使用。
+用户问是否自动运行时，区分来源捕获、后台完成和实际召回，只报告已观察的状态。首次启用或接入故障沿现有 `get_project_status` 与宿主设置处理；文件存在、服务存活或任务排队不算自动记忆成功。正常使用不反复要求安装、开关后台或执行检查清单。

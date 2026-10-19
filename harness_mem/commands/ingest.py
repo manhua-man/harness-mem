@@ -46,6 +46,8 @@ async def cmd_ingest(
     scope: str = "project",
     project_root: str | None = None,
     session_id: str | None = None,
+    native_transcript_path: str | None = None,
+    result_sink: dict[str, Any] | None = None,
 ) -> int:
     """Ingest sessions for a supported client."""
     requested_client = client
@@ -110,6 +112,8 @@ async def cmd_ingest(
                 cast(CodexAdapter, adapter),
                 project_name=project_name,
                 session_id=session_id,
+                native_transcript_path=native_transcript_path,
+                result_sink=result_sink,
             )
         if full_rescan:
             source_root = _adapter_source_root(adapter)
@@ -120,6 +124,8 @@ async def cmd_ingest(
                     source_root=normalize_source_root(source_root),
                 )
         result = await adapter.ingest(project_name=project_name, limit=limit, min_size_kb=0)
+        if result_sink is not None:
+            result_sink.update(result)
         return _report_non_claude_ingest_result(
             client=client,
             project_name=project_name,
@@ -135,15 +141,39 @@ async def _ingest_exact_codex_session(
     *,
     project_name: str,
     session_id: str,
+    native_transcript_path: str | None = None,
+    result_sink: dict[str, Any] | None = None,
 ) -> int:
     """Synchronize one native Codex rollout without consulting the scan frontier."""
 
     warnings: list[dict[str, str]] = []
-    sessions = adapter.list_sessions(
-        project_name=project_name,
-        min_size_kb=0,
-        issues=warnings,
-    )
+    source_error: str | None = None
+    if native_transcript_path:
+        # A native Hook can name a source outside the default scan roots. Bind
+        # its real metadata before reading the complete transcript; a path is
+        # never permission to substitute another session or workspace.
+        sessions = []
+        native_path = Path(native_transcript_path).expanduser()
+        if not native_path.is_absolute() or native_path.suffix.lower() != ".jsonl":
+            source_error = "native_source_path_invalid"
+        elif not native_path.is_file():
+            source_error = "native_source_unavailable"
+        elif adapter._read_session_header(native_path, issues=warnings).get("id") != session_id:
+            source_error = "native_source_session_mismatch"
+        else:
+            adapter._append_session_record(
+                sessions, native_path, source_kind="codex-current", min_size_kb=0,
+                effective_scope=adapter.scope, effective_project_root=adapter.project_root,
+                issues=warnings,
+            )
+            if not sessions:
+                source_error = "native_source_workspace_mismatch"
+    else:
+        sessions = adapter.list_sessions(
+            project_name=project_name,
+            min_size_kb=0,
+            issues=warnings,
+        )
     target = next(
         (session for session in sessions if session["session_id"] == session_id),
         None,
@@ -163,7 +193,7 @@ async def _ingest_exact_codex_session(
             "error_details": [
                 {
                     "level": "error",
-                    "code": "session_not_found",
+                    "code": source_error or "session_not_found",
                     "message": (
                         f"Codex session {session_id} was not found in the current "
                         "project scope"
@@ -178,7 +208,10 @@ async def _ingest_exact_codex_session(
             ),
             "target_session_id": session_id,
             "targeted": True,
+            "native_source_bound": bool(native_transcript_path),
         }
+        if result_sink is not None:
+            result_sink.update(result)
         return _report_non_claude_ingest_result(
             client="codex",
             project_name=project_name,
@@ -226,7 +259,10 @@ async def _ingest_exact_codex_session(
         "project_root": str(adapter.project_root) if adapter.project_root else None,
         "target_session_id": session_id,
         "targeted": True,
+        "native_source_bound": bool(native_transcript_path),
     }
+    if result_sink is not None:
+        result_sink.update(result)
     return _report_non_claude_ingest_result(
         client="codex",
         project_name=project_name,

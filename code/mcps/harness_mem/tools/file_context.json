@@ -1,6 +1,6 @@
 {
   "name": "file_context",
-  "description": "Return compact, source-attributed memory already associated with a file path before reading the file itself. It also returns current file fingerprints, Python code symbols/imports, code evidence source ids, and stale checks for memory references to code. Advisory only; never blocks file reads.",
+  "description": "Read file-associated memory with source attribution, current file fingerprints, Python symbols/imports, code-evidence source IDs and stale-reference checks. Advisory; never blocks file reads.",
   "inputSchema": {
     "type": "object",
     "properties": {

@@ -28,6 +28,7 @@ from harness_mem.transcript_chunking import source_uri_from_path
 
 DEFAULT_BRAIN_DIR = Path.home() / ".gemini" / "antigravity" / "brain"
 DEFAULT_CLI_ROOT = Path.home() / ".gemini" / "antigravity-cli"
+DEFAULT_IDE_BRAIN_DIR = Path.home() / ".gemini" / "antigravity-ide" / "brain"
 
 
 class AntigravityAdapter:
@@ -61,8 +62,20 @@ class AntigravityAdapter:
             else None
         )
         self.history_file = self.cli_root / "history.jsonl" if self.cli_root else None
+        self.ide_brain_dir = (
+            (DEFAULT_IDE_BRAIN_DIR if home_dir is None else home / ".gemini" / "antigravity-ide" / "brain")
+            if brain_dir is None else None
+        )
         self.project_root = _normalize_workspace_path(project_root)
         self._discovered_roots: dict[tuple[Path, str], list[str]] = {}
+
+    def _brain_dirs(self) -> tuple[Path, ...]:
+        roots = [self.brain_dir]
+        if self.cli_root is not None:
+            roots.append(self.cli_root / "brain")
+        if self.ide_brain_dir is not None:
+            roots.append(self.ide_brain_dir)
+        return tuple(dict.fromkeys(roots))
 
     def list_session_metadata(
         self,
@@ -85,10 +98,7 @@ class AntigravityAdapter:
                 _metadata_issue(issues, self.history_file, exc)
 
         sessions_by_id: dict[str, SessionRecord] = {}
-        brain_dirs = [self.brain_dir]
-        if self.cli_root is not None:
-            brain_dirs.append(self.cli_root / "brain")
-        for brain in dict.fromkeys(brain_dirs):
+        for brain in self._brain_dirs():
             for path in brain.glob("*/.system_generated/logs/transcript*.jsonl"):
                 try:
                     if path.name not in {"transcript.jsonl", "transcript_full.jsonl"}:
@@ -192,13 +202,10 @@ class AntigravityAdapter:
             )
             exported["source_uri"] = f"{uri}#conversation={quote(session_id, safe='')}"
         else:
-            known = [self.brain_dir]
-            if self.cli_root is not None:
-                known.append(self.cli_root / "brain")
             if not any(
                 session_path.resolve(strict=False)
                 == (brain / session_id / ".system_generated" / "logs" / name).resolve(strict=False)
-                for brain in known
+                for brain in self._brain_dirs()
                 for name in ("transcript_full.jsonl", "transcript.jsonl")
             ) or not _safe_session_id(session_id):
                 raise ValueError("Antigravity source is outside known session locations")
@@ -231,7 +238,11 @@ class AntigravityAdapter:
     ) -> list[SessionRecord]:
         del project_name
         sessions_by_id: dict[str, SessionRecord] = {}
-        for path in self.brain_dir.glob("*/.system_generated/logs/transcript*.jsonl"):
+        paths = (
+            path for brain in self._brain_dirs()
+            for path in brain.glob("*/.system_generated/logs/transcript*.jsonl")
+        )
+        for path in paths:
             if not path.is_file() or path.stat().st_size == 0:
                 continue
             if path.name == "transcript.jsonl" and (
@@ -796,6 +807,52 @@ def _find_cli_transcript(cli_root: Path | None, session_id: str) -> Path | None:
     return None
 
 
+def current_hook_task(payload: dict[str, Any]) -> tuple[str, str] | None:
+    """Read the latest native user step for this exact Hook conversation.
+
+    This is bounded query context only, never a new source or saved knowledge.
+    Ignore assistant, tool and injected messages, and never scan other sessions.
+    """
+    session_id = str(payload.get("conversationId") or "")
+    raw_path = payload.get("transcriptPath")
+    if not _safe_session_id(session_id) or not isinstance(raw_path, str):
+        return None
+    try:
+        path = Path(raw_path).expanduser().resolve()
+        allowed_roots = (DEFAULT_BRAIN_DIR, DEFAULT_CLI_ROOT / "brain", DEFAULT_IDE_BRAIN_DIR)
+        expected = {
+            (root / session_id / ".system_generated" / "logs" / name).resolve()
+            for root in allowed_roots
+            for name in ("transcript.jsonl", "transcript_full.jsonl")
+        }
+    except (OSError, ValueError):
+        return None
+    if path not in expected:
+        return None
+    try:
+        with path.open("rb") as stream:
+            size = stream.seek(0, 2)
+            offset = max(0, size - 262144)
+            stream.seek(offset)
+            if offset:
+                stream.readline()  # Discard the possibly partial first record.
+            records = _records_from_text(stream.read().decode("utf-8-sig", errors="replace"))
+    except OSError:
+        return None
+    limit = payload.get("initialNumSteps")
+    for record in reversed(records):
+        if record.get("type") != "USER_INPUT":
+            continue
+        index = record.get("step_index")
+        if isinstance(limit, int) and isinstance(index, int) and index >= limit:
+            continue
+        text = _record_text(record)
+        if text:
+            return text, str(index) if isinstance(index, int) else str(record.get("created_at") or "user")
+        return None  # Do not reuse an older question when the latest user step is unreadable.
+    return None
+
+
 def _record_text(record: dict[str, Any]) -> str:
     for key in ("content", "text", "message", "display"):
         value = record.get(key)
@@ -850,4 +907,4 @@ def _path_variants(path: str | None) -> set[str]:
     return {value, value.replace("\\", "/")}
 
 
-__all__ = ["DEFAULT_BRAIN_DIR", "DEFAULT_CLI_ROOT", "AntigravityAdapter"]
+__all__ = ["DEFAULT_BRAIN_DIR", "DEFAULT_CLI_ROOT", "DEFAULT_IDE_BRAIN_DIR", "AntigravityAdapter"]

@@ -22,6 +22,7 @@ from harness_mem.commands.evidence_admission import (
     validate_knowledge_sources,
 )
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from harness_mem.storage.canonical_store import CanonicalTransactionPreconditionError
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 
 
@@ -88,6 +89,29 @@ async def resolve_knowledge_targets(
     return resolved
 
 
+async def resolve_knowledge_target_project(
+    store: Any, target_knowledge: Sequence[Mapping[str, Any]],
+) -> str:
+    """Find the unique owner of an exact readable current-memory selection."""
+    references = normalize_knowledge_targets(target_knowledge)
+    if not references:
+        raise KnowledgeTargetError("请说明要更正的旧记忆。")
+    named_projects = {item["project_name"] for item in references if "project_name" in item}
+    if len(named_projects) > 1:
+        raise KnowledgeTargetError("一次更正的旧记忆须属于同一范围，原内容未改动。")
+    projects = sorted(named_projects) if named_projects else await store.known_projects()
+    owners: list[str] = []
+    for name in projects:
+        try:
+            await resolve_knowledge_targets(store, project_name=name, target_knowledge=references)
+        except KnowledgeTargetError:
+            continue
+        owners.append(name)
+    if len(owners) != 1:
+        raise KnowledgeTargetError("旧记忆已变化或描述不唯一，请重新搜索定位；原内容未改动。")
+    return owners[0]
+
+
 async def record_assimilation_result(
     backend: LocalMemoryBackend,
     *,
@@ -95,6 +119,7 @@ async def record_assimilation_result(
     point: Mapping[str, Any],
     project_root: str | Path | None = None,
     source_refs: Sequence[ProjectKnowledgeSourceRef] = (),
+    expected_predecessor_entries: Sequence[KnowledgeEntry] | None = None,
 ) -> list[str]:
     """Write clean current entries for one verified point."""
 
@@ -119,12 +144,30 @@ async def record_assimilation_result(
             point = {**point, "verified_at": resolved_verified_at}
     knowledge_ids: list[str] = []
     matched_truth_ids = [str(item) for item in point.get("matched_truth_ids") or []]
+    expected_by_id = ({entry.id: entry for entry in expected_predecessor_entries}
+                      if expected_predecessor_entries is not None else None)
+    if expected_by_id is not None and (
+        len(expected_by_id) != len(expected_predecessor_entries or ())
+        or set(expected_by_id) != set(matched_truth_ids)
+        or any(entry.project_name != candidate.project_name for entry in expected_by_id.values())
+    ):
+        raise CanonicalTransactionPreconditionError("knowledge predecessor expectation scope changed")
+    for target_id in matched_truth_ids:
+        target = await store.get_entry(target_id, project_name=candidate.project_name)
+        if target is not None and disposition in {"refine", "replace", "confirm"}:
+            if (candidate.source_report is None) != (target.source_report is None):
+                raise ValueError("source-report and fact authority boundary cannot be crossed")
+            if candidate.source_report is not None:
+                if not candidate.source_report.same_account_source(target.source_report):
+                    raise ValueError("source-report updates cannot cross source, speaker, or period")
+                if disposition == "confirm" and target.statement != candidate.source_report.render_statement():
+                    raise ValueError("source-report confirmation requires the identical attributed account")
     predecessor_truth_ids: list[str] = []
     predecessor_entries: list[KnowledgeEntry] = []
     new_entries: list[KnowledgeEntry] = []
     decision_id: str | None = None
     if disposition in {"add", "refine", "replace"}:
-        for _index, item in enumerate(_knowledge_items(point), 1):
+        for _index, item in enumerate(_candidate_knowledge_items(candidate, point), 1):
             if not source_refs:
                 raise ValueError("knowledge write requires a real source reference")
             entry = KnowledgeEntry(
@@ -132,6 +175,7 @@ async def record_assimilation_result(
                 project_name=candidate.project_name,
                 title=item["title"],
                 statement=item["statement"],
+                source_report=candidate.source_report,
                 module_path=item["topic_path"],
                 verified_at=(
                     point.get("verified_at")
@@ -184,10 +228,14 @@ async def record_assimilation_result(
                     project_root=project_root,
                 )
                 if target is None:
+                    if expected_by_id is not None:
+                        raise CanonicalTransactionPreconditionError("knowledge predecessor disappeared after verification")
                     missing_target_ids.append(target_id)
                     continue
+                if expected_by_id is not None and target.to_dict() != expected_by_id[target_id].to_dict():
+                    raise CanonicalTransactionPreconditionError("knowledge predecessor changed after verification")
                 predecessor_truth_ids.append(target.id)
-                predecessor_entries.append(target)
+                predecessor_entries.append(expected_by_id[target_id] if expected_by_id is not None else target)
             if missing_target_ids:
                 raise ValueError(
                     "assimilation replacement target is not current knowledge"
@@ -205,6 +253,11 @@ async def record_assimilation_result(
                     "use confirm"
                 )
     elif disposition == "confirm":
+        if expected_by_id is not None:
+            for target_id, expected in expected_by_id.items():
+                target = await store.get_entry(target_id, project_name=candidate.project_name)
+                if target is None or target.to_dict() != expected.to_dict():
+                    raise CanonicalTransactionPreconditionError("knowledge confirmation target changed after verification")
         knowledge_ids = [
             target_id
             for target_id in matched_truth_ids
@@ -279,7 +332,7 @@ async def is_committed_knowledge_point(
         return False
     decision_id = assimilation_decision_id(
         candidate_id=candidate.id, disposition=disposition,
-        knowledge_ids=[_knowledge_item_id(candidate.project_name, item) for item in _knowledge_items(point)],
+        knowledge_ids=[_knowledge_item_id(candidate.project_name, item) for item in _candidate_knowledge_items(candidate, point)],
         predecessor_ids=[str(value) for value in point.get("matched_truth_ids") or []],
         reason=str(point.get("reason", "")),
     )
@@ -357,6 +410,7 @@ async def _current_entries_match(
             or current.module_path != expected.module_path
             or current.title != expected.title
             or current.statement != expected.statement
+            or current.source_report != expected.source_report
         ):
             return False
     return True
@@ -447,7 +501,7 @@ async def resolve_candidate_source_context(
                 )
             )
             continue
-        if ref.kind == "transcript" and (
+        if ref.kind in {"transcript", "source_report"} and (
             ref.chunk_index is not None or ref.exchange_index is not None
         ):
             if job is None or revision is None:
@@ -466,11 +520,13 @@ async def resolve_candidate_source_context(
                     location_name: location_value,
                 }
             )
+            if ref.kind == "source_report":
+                source_fragment += "&" + urlencode({"role": ref.role})
             source_refs.append(
                 ProjectKnowledgeSourceRef(
                     label=f"原始会话 {location_name.title()} {location_value}",
                     target=f"{source_target}#{source_fragment}",
-                    kind="transcript",
+                    kind=ref.kind,
                     digest=ref.content_sha256,
                 )
             )
@@ -539,6 +595,8 @@ async def resolve_separated_review(
             verification_refs=list(evidence.verification_refs),
             verification_reason_codes=list(evidence.verification_reason_codes),
             verified_at=evidence.verified_at,
+            statement=candidate.statement,
+            source_report=candidate.source_report,
         )
         validation = await validate_candidate_evidence(
             backend,
@@ -621,6 +679,8 @@ async def delete_current_knowledge(
     project_name: str,
     target_knowledge_ids: Sequence[str] = (),
     target_knowledge: Sequence[Mapping[str, Any]] = (),
+    expected_entry: KnowledgeEntry | None = None,
+    retained_entries: Sequence[KnowledgeEntry] = (),
 ) -> dict[str, Any]:
     """Delete exactly one current project-knowledge entry."""
 
@@ -628,10 +688,15 @@ async def delete_current_knowledge(
     if not normalized_project:
         raise ValueError("knowledge delete requires project_name")
     store = backend.structured_store.knowledge_store
-    targets = await resolve_knowledge_targets(
-        store, project_name=normalized_project,
-        target_ids=target_knowledge_ids, target_knowledge=target_knowledge,
-    )
+    try:
+        targets = await resolve_knowledge_targets(
+            store, project_name=normalized_project,
+            target_ids=target_knowledge_ids, target_knowledge=target_knowledge,
+        )
+    except KnowledgeTargetError as exc:
+        if expected_entry is not None:
+            raise CanonicalTransactionPreconditionError("verified delete target is no longer current") from exc
+        raise
     if len(targets) != 1 or not targets[0]:
         raise ValueError("knowledge delete requires exactly one target knowledge id")
 
@@ -641,10 +706,14 @@ async def delete_current_knowledge(
         project_name=normalized_project,
     )
     if current is None:
+        if expected_entry is not None:
+            raise CanonicalTransactionPreconditionError("verified delete target disappeared")
         raise ValueError("knowledge delete target is not current project knowledge")
     await store.delete_current_entry(
         project_name=normalized_project,
         entry_id=entry_id,
+        expected_entry=expected_entry,
+        retained_entries=retained_entries,
     )
     await _verify_normal_search_after_truth_write(
         backend,
@@ -658,6 +727,27 @@ async def delete_current_knowledge(
     return {
         "deleted_knowledge_ids": [entry_id],
     }
+
+
+def _candidate_knowledge_items(
+    candidate: KnowledgeCandidate, point: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Bind a report write to the verified account, not a provider rewrite."""
+    items = _knowledge_items(point)
+    report = candidate.source_report
+    if report is None:
+        if any(item["claim_kind"] == "source_report" for item in items):
+            raise ValueError("source-report knowledge requires verified source attribution")
+        return items
+    if report.text != candidate.statement:
+        raise ValueError("source-report authority does not match its verified candidate")
+    if len(items) != 1:
+        raise ValueError("source-report writes require exactly one verified account item")
+    item = dict(items[0])
+    item["statement"] = report.render_statement()
+    item["title"] = report.render_title()
+    item["claim_kind"] = "source_report"
+    return [item]
 
 
 def _knowledge_items(point: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -678,6 +768,7 @@ def _knowledge_items(point: Mapping[str, Any]) -> list[dict[str, Any]]:
                 "implementation_fact",
                 "durable_preference",
                 "procedure",
+                "source_report",
             }:
                 raise ValueError("review knowledge item has an invalid claim kind")
             normalized.append(

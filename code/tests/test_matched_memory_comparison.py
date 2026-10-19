@@ -9,6 +9,8 @@ import subprocess
 
 import pytest
 
+from harness_mem.qualification.quality_baseline import load_baseline
+
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/run_matched_memory_comparison.py"
 spec = importlib.util.spec_from_file_location("matched_comparison", SCRIPT)
@@ -16,8 +18,44 @@ mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 
 
+def test_unqualified_direct_dispatch_stops_before_any_process_or_file(tmp_path, monkeypatch):
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("unqualified dispatch reached the filesystem/config/process boundary")
+    monkeypatch.setattr(mod.subprocess, "Popen", forbidden)
+    monkeypatch.setattr(mod, "safe_configuration", forbidden)
+    for preflight in (True, False):
+        with pytest.raises(mod.UnqualifiedModelDispatch, match="actual output-token limit"):
+            mod.run_cli("harness-mem", tmp_path / "missing/manifest.json",
+                        {"execution_allowed": True, "budget_enforcement": "passed"},
+                        preflight=preflight, timeout_seconds=1)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_cli_rejects_generation_before_old_corpus_or_global_config(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(mod, "prepare_experiment", lambda *_args, **_kwargs: pytest.fail("created old corpus"))
+    monkeypatch.setattr(mod, "safe_configuration", lambda: pytest.fail("read global config"))
+    monkeypatch.setattr(mod.sys, "argv", ["collector", "--upstream", str(tmp_path),
+                                         "--run", str(tmp_path / "run")])
+    assert mod.main() == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "blocked" and result["model_calls"] == 0
+    assert not (tmp_path / "run").exists()
+
+
+def test_prepare_requires_explicit_corpus_before_git_or_writes(tmp_path, monkeypatch):
+    repo, root = tmp_path / "repo", tmp_path / "artifacts"
+    root.mkdir()
+    upstream = root / "source"
+    upstream.mkdir()
+    monkeypatch.setattr(mod, "REPO_ROOT", repo)
+    monkeypatch.setattr(mod.subprocess, "check_output", lambda *_args, **_kwargs: pytest.fail("called git"))
+    with pytest.raises(ValueError, match="explicit frozen corpus"):
+        mod.prepare_experiment(upstream, root / "run", artifact_root=root)
+    assert not (root / "run").exists()
+
+
 def test_role_conversion_keeps_middle_and_tail_and_original_bytes():
-    baseline = mod.load_baseline()
+    baseline = load_baseline()
     source = next(row for row in baseline["sources"] if row["id"] == "F5")
     messages = mod.source_messages(source["text"])
     combined = "\n".join(body for _, body in messages)
@@ -30,7 +68,7 @@ def test_role_conversion_keeps_middle_and_tail_and_original_bytes():
 
 
 def test_unheaded_project_preamble_is_not_discarded():
-    baseline = mod.load_baseline()
+    baseline = load_baseline()
     source = next(row for row in baseline["sources"] if row["id"] == "F10")
     assert mod.source_messages(source["text"])[0][1].startswith("Fictional project Lantern.")
 
@@ -102,26 +140,30 @@ def test_missing_notes_or_unfinished_jobs_stop_collection_without_semantic_pass(
 
 
 def test_prepare_refuses_outside_scope_or_overwrite(tmp_path, monkeypatch):
-    monkeypatch.setattr(mod, "REPO_ROOT", tmp_path)
-    with pytest.raises(ValueError, match="under repository"):
+    monkeypatch.setattr(mod, "REPO_ROOT", tmp_path / "repo")
+    with pytest.raises(ValueError, match="artifact_root"):
         mod.prepare_experiment(tmp_path / "upstream", tmp_path / "run")
-    upstream = tmp_path / ".tmp/upstream"
+    artifact_root = tmp_path / "artifacts"
+    artifact_root.mkdir()
+    upstream = artifact_root / "upstream"
     upstream.mkdir(parents=True)
-    run = tmp_path / ".tmp/run"
+    run = artifact_root / "run"
     run.mkdir()
     with pytest.raises(ValueError, match="overwrite"):
-        mod.prepare_experiment(upstream, run)
+        mod.prepare_experiment(upstream, run, artifact_root=artifact_root)
 
 
 def test_prepare_same_complete_sources_and_initial_truth_without_oracle(tmp_path, monkeypatch):
-    monkeypatch.setattr(mod, "REPO_ROOT", tmp_path)
-    upstream = tmp_path / ".tmp/upstream"
+    monkeypatch.setattr(mod, "REPO_ROOT", tmp_path / "repo")
+    artifact_root = tmp_path / "artifacts"
+    artifact_root.mkdir()
+    upstream = artifact_root / "upstream"
     upstream.mkdir(parents=True)
     subprocess.run(["git", "init", "--quiet", str(upstream)], check=True)
     subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
                     "commit", "--quiet", "--allow-empty", "-m", "fictional upstream"], cwd=upstream, check=True)
-    run = tmp_path / ".tmp/run"
-    result = mod.prepare_experiment(upstream, run)
+    run = artifact_root / "run"
+    result = mod.prepare_experiment(upstream, run, artifact_root=artifact_root, baseline=load_baseline())
     left, right = result["arms"].values()
     assert left["session_ids"] == right["session_ids"] and len(left["session_ids"]) == 7
     assert [row["text_sha256"] for row in left["sources"]] == [row["text_sha256"] for row in right["sources"]]
@@ -152,9 +194,9 @@ def test_prompts_no_oracle_and_explicit_real_product_work(tmp_path):
         if product == "harness-mem":
             assert "product-instructions" in prompt and "hm.md" in prompt
             assert mod.daily_reply_instructions() in prompt
-            assert "直接展示实际保存的标题和正文" in prompt
-            assert "未完成事项单独说" in prompt
-            assert "保留已保存的成果" in prompt
+            assert "knowledge_changes" in prompt and "展示实际保存的标题和正文" in prompt
+            assert "unfinished_work" in prompt and "单列" in prompt
+            assert "保留已保存成果" in prompt
         if product == "session-distill-skills":
             assert "只是待验证材料" in prompt
             preflight = mod.workflow_prompt(product, path, preflight=True)
@@ -276,6 +318,8 @@ def test_instruction_proof_requires_canonical_entry_references_and_initial_knowl
 
 
 def test_native_terminal_failure_is_not_workflow_success_even_when_cli_exits_zero(tmp_path, monkeypatch):
+    # Exercise the old event parser with an offline peer; production has no bypass.
+    monkeypatch.setattr(mod, "require_qualified_model_dispatch", lambda: None)
     manifest = {"project_root": str(tmp_path)}
     path = tmp_path / "manifest.json"
     path.write_text(json.dumps(manifest), encoding="utf-8")
@@ -301,6 +345,7 @@ def test_native_terminal_failure_is_not_workflow_success_even_when_cli_exits_zer
 
 
 def test_drift_after_workflow_prevents_starting_another_product(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod, "require_qualified_model_dispatch", lambda: None)
     run = tmp_path / "run"
     arms = {}
     for product in ("harness-mem", "session-distill-skills"):
@@ -313,7 +358,7 @@ def test_drift_after_workflow_prevents_starting_another_product(tmp_path, monkey
         (project.parent / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
         arms[product] = manifest
     experiment = {"arms": arms}
-    monkeypatch.setattr(mod, "prepare_experiment", lambda *_: experiment)
+    monkeypatch.setattr(mod, "prepare_experiment", lambda *_args, **_kwargs: experiment)
     monkeypatch.setattr(mod, "safe_configuration", lambda: {"fixture": True})
     monkeypatch.setattr(mod, "install_instructions", lambda product, manifest: (Path(manifest["project_root"]) / "product-instructions").mkdir())
     current = ["before"]
@@ -325,13 +370,17 @@ def test_drift_after_workflow_prevents_starting_another_product(tmp_path, monkey
             current[0] = "after"
         return {"status": "passed"}
     monkeypatch.setattr(mod, "run_cli", fake_call)
-    monkeypatch.setattr(mod.sys, "argv", ["collector", "--upstream", str(tmp_path), "--run", str(run)])
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(mod.sys, "argv", ["collector", "--upstream", str(tmp_path), "--run", str(run),
+                                         "--artifact-root", str(tmp_path), "--baseline", str(baseline)])
     with pytest.raises(ValueError, match="runtime drift"):
         mod.main()
     assert calls == [("harness-mem", True), ("harness-mem", False)]
 
 
 def test_failed_native_preflight_stops_before_workflow_or_upstream(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod, "require_qualified_model_dispatch", lambda: None)
     run = tmp_path / "run"
     arms = {}
     for product in ("harness-mem", "session-distill-skills"):
@@ -342,7 +391,7 @@ def test_failed_native_preflight_stops_before_workflow_or_upstream(tmp_path, mon
         manifest = {"project_root": str(project), "sources": []}
         (project.parent / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
         arms[product] = manifest
-    monkeypatch.setattr(mod, "prepare_experiment", lambda *_: {"arms": arms})
+    monkeypatch.setattr(mod, "prepare_experiment", lambda *_args, **_kwargs: {"arms": arms})
     monkeypatch.setattr(mod, "safe_configuration", lambda: {"fixture": True})
     monkeypatch.setattr(mod, "assert_frozen_experiment", lambda _: None)
     monkeypatch.setattr(mod, "install_instructions", lambda product, manifest: (Path(manifest["project_root"]) / "product-instructions").mkdir())
@@ -351,7 +400,10 @@ def test_failed_native_preflight_stops_before_workflow_or_upstream(tmp_path, mon
         calls.append((product, preflight))
         return {"status": "failed", "return_code": 0, "reason": "tool approval denied"}
     monkeypatch.setattr(mod, "run_cli", failed_preflight)
-    monkeypatch.setattr(mod.sys, "argv", ["collector", "--upstream", str(tmp_path), "--run", str(run)])
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(mod.sys, "argv", ["collector", "--upstream", str(tmp_path), "--run", str(run),
+                                         "--artifact-root", str(tmp_path), "--baseline", str(baseline)])
     assert mod.main() == 2
     assert calls == [("harness-mem", True)]
     result = json.loads((run / "result.json").read_text(encoding="utf-8"))

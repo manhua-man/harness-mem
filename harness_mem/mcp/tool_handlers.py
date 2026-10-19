@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from functools import wraps
 from pathlib import Path
 from typing import Any, Callable
 from uuid import NAMESPACE_URL, uuid5
@@ -127,8 +128,9 @@ def _ingest_sessions(
     scope: str = "project",
     project_root: str | None = None,
     session_id: str | None = None,
+    native_transcript_path: str | None = None,
 ) -> dict:
-    """Low-level transcript sync used by remember requests and diagnostics."""
+    """Low-level transcript sync used by automatic intake, review and diagnostics."""
     normalized_client = normalize_client_name(client)
     if normalized_client not in SUPPORTED_INGEST_CLIENTS:
         return {
@@ -159,6 +161,7 @@ def _ingest_sessions(
         else project_root
     )
 
+    ingest_result: dict[str, Any] = {}
     payload = _run_command_to_payload(
         cmd_ingest(
             normalized_client,
@@ -168,6 +171,8 @@ def _ingest_sessions(
             scope=scope,
             project_root=resolved_project_root,
             session_id=session_id,
+            native_transcript_path=native_transcript_path,
+            result_sink=ingest_result,
         )
     )
     return {
@@ -182,6 +187,7 @@ def _ingest_sessions(
         "scope": scope,
         "limit": limit,
         "target_session_id": session_id,
+        **ingest_result,
         **payload,
     }
 
@@ -363,6 +369,30 @@ from harness_mem.mcp.distill_handlers import (  # noqa: E402
 )
 
 
+@wraps(tool_prepare_session_distill)
+def _prepare_memory_review(**arguments: Any) -> dict[str, Any]:
+    """Keep public preparation for review; automatic intake calls the core directly."""
+    if arguments.get("_distill_source", "agent") != "agent":
+        return tool_prepare_session_distill(**arguments)
+    if arguments.get("batch_sessions") is not None or arguments.get("batch_id") is not None:
+        return {
+            "success": False,
+            "error": "Manual remembering batches have been removed. Check the automatic recording and background-processing setup instead.",
+        }
+    if not arguments.get("target_knowledge"):
+        job_id = arguments.get("distill_job_id")
+        if not job_id:
+            return {
+                "success": False,
+                "error": "Use automatic recording for new sessions. This entry reviews an existing memory or an existing processing job.",
+            }
+        if _get_backend().transcript_store.get_distill_job(job_id) is None:
+            return {"success": False, "error": "The processing job selected for review does not exist."}
+        # A review resumes its known immutable job, never discovers another session.
+        arguments["run_ingest"] = False
+    return tool_prepare_session_distill(**arguments)
+
+
 def build_tool_handlers() -> dict[str, Callable[..., dict[str, Any]]]:
     """Return the MCP tool handler map keyed by public tool name."""
     return {
@@ -377,7 +407,7 @@ def build_tool_handlers() -> dict[str, Callable[..., dict[str, Any]]]:
         "get_project_status": tool_get_project_status,
         "inspect_sessions": tool_inspect_sessions,
         "wake": tool_wake,
-        "prepare_session_distill": tool_prepare_session_distill,
+        "prepare_session_distill": _prepare_memory_review,
         "submit_distill_chunk": tool_submit_distill_chunk,
         "finalize_session_distill": tool_finalize_session_distill,
         "dream_ledger": tool_dream_ledger,

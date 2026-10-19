@@ -13,7 +13,7 @@ Tools:
   get_project_status    — prepare the current project and report readiness
   dream_ledger          — inspect dream maintenance ledger
   dream_run             — explicitly run one audited dream pass
-  prepare_session_distill — remember-request backend: sync + evidence packet
+  prepare_session_distill — source-verified review of existing memory or jobs
   list_candidates       — pending/deferred/rejected governance candidates
   govern_memory         — composite suggestion, decision, handoff, and correction boundary
 

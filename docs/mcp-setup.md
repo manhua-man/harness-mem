@@ -31,7 +31,9 @@ harness-mem status, wake, or search tools are already available through a
 Router or plugin, keep that connection and do not add a direct copy. Two active
 copies can expose duplicate tools and may use different working directories.
 
-## Session inspection and manual batches (unreleased)
+<a id="session-inspection-and-manual-batches-unreleased"></a>
+
+## Session inspection and memory review (unreleased)
 
 These interfaces describe the working tree, not the published 0.9.28 package.
 Completed `finalize_session_distill` responses now include `knowledge_changes`
@@ -57,21 +59,19 @@ results. The Agent renders these fields in the user's language through `hm`.
   locations. Partial coverage remains partial; multiple themes and unclassified
   sessions are valid. Themes do not replace per-point extraction or verification.
 
-For explicit manual processing, call `prepare_session_distill` with
-`project_root` and `batch_sessions` containing the returned source references.
-Resume using `batch_id` without replacing the selection. The manifest freezes
-project/root, source revisions, runtime fingerprint and prior-completed
-references, and retains job bindings and unresolved failures. It is temporary
-processing state under `manual-batches`, not knowledge history.
+Daily session intake and organization belong to the Hook and automatic worker.
+The public `prepare_session_distill` entry accepts exact `target_knowledge`
+from search for a correction, or an existing `distill_job_id` for review.
+It no longer offers ordinary remember requests or new manual batches.
+The same internal preparation/finalization core remains available to the Hook
+and worker; this change does not remove complete-source verification.
 
-The current Agent reads and submits chunks and finalizes each prepared job
-through the existing distill tools, then prepares the next job with the same
-`batch_id`. This does not require background processing or its selected CLI.
-Use `retry_failures=true` with an existing active batch only for an explicit
-retry; it does not resume a stopped batch. Changed runtime or failed completion
-verification must not be treated as successful resume. Reports distinguish
-current-run knowledge changes from previously completed work. Batch processing
-retains sources; it does not authorize automatic deletion.
+Existing manifests under `manual-batches` and their immutable sources remain
+available for internal recovery and inspection. They are temporary processing
+state, not knowledge history or a required user workflow. Recovery does not
+authorize source deletion, change the selected scope, or turn a failed job
+into a completed result. Review reports distinguish persisted changes from
+work that remains unfinished.
 
 Cursor SQLite support is limited to the layouts covered by the isolated native
 store fixtures, not every live Cursor database format. The original 12 outcome

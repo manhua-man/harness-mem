@@ -85,6 +85,7 @@ def test_two_original_short_sessions_through_executor_and_reopened_storage(devic
         "project_name": packet["project_name"], "job_id": packet["distill_job_id"], "semantic_review": _review(first),
     })
     assert final1["organization_status"] == "completed"
+    assert final1["readback_verified"] is True
     old = tool_handlers.tool_search_memory(query="")["memories"][0]
     # Explicit completed-job recovery keeps saved results, without diagnostic packets.
     recovered, _ = _rpc(backend, "prepare_session_distill", {"distill_job_id": packet["distill_job_id"]})
@@ -101,10 +102,12 @@ def test_two_original_short_sessions_through_executor_and_reopened_storage(devic
         "project_name": packet["project_name"], "job_id": packet["distill_job_id"], "semantic_review": _review(second),
     })
     assert {row["change"] for row in final2["knowledge_changes"]} == {"added", "replaced"}
+    assert final2["readback_verified"] is True
     replay, _ = _rpc(backend, "finalize_session_distill", {
         "project_name": packet["project_name"], "job_id": packet["distill_job_id"], "semantic_review": {},
     })
     assert replay["idempotent_replay"] and replay["knowledge_changes"] == final2["knowledge_changes"]
+    assert replay["readback_verified"] is True
     internal = tool_handlers.tool_finalize_session_distill(
         packet["project_name"], packet["distill_job_id"], {}, _review_lease_owner="fixture-worker",
     )
@@ -174,6 +177,7 @@ def test_failure_retains_reason_job_and_batch_resume(device):
         "project_name": packet["project_name"], "job_id": packet["distill_job_id"], "semantic_review": {},
     })
     assert invalid["success"] is False and invalid["reason_codes"] == ["semantic_review_invalid"]
+    assert "readback_verified" not in invalid
     assert invalid["distill_job_id"] == packet["distill_job_id"] and invalid["distill_status"] == "reviewing"
     assert asyncio.run(backend.structured_store.knowledge_store.list_entries("global")) == []
     resumed, _ = _rpc(backend, "prepare_session_distill", {"batch_id": packet["batch_id"], "retry_failures": True})
@@ -210,9 +214,30 @@ def test_explicit_no_write_finishes_without_extra_questionnaire(device):
         "semantic_review": _review(promotion_decision="no_promotion"),
     })
     assert result["success"] and result["knowledge_changes"] == []
+    assert "readback_verified" not in result
     assert result["not_written"] and result["organization_status"] == "completed"
     finished = tool_handlers.tool_prepare_session_distill(batch_id=packet["batch_id"])
     assert finished["status"] == "completed" and finished["progress"]["completed"] == 1, finished
+
+
+def test_completed_readback_is_rechecked_instead_of_trusting_a_saved_receipt(device, monkeypatch):
+    backend, write = device
+    statement = "For future collaboration, retain source evidence for eighteen days."
+    write("readback", statement)
+    rows = tool_inspect_sessions(clients=["codex"])["sessions"]
+    packet, _ = _rpc(backend, "prepare_session_distill", {"scope": "all", "batch_sessions": rows})
+    _suggest(backend, packet, statement, "Source retention")
+    arguments = {"project_name": packet["project_name"], "job_id": packet["distill_job_id"],
+                 "semantic_review": _review(statement)}
+    final, _ = _rpc(backend, "finalize_session_distill", arguments)
+    assert final["readback_verified"] is True
+    # Persisted success cannot conceal a later normal-retrieval failure.
+    import harness_mem.read_knowledge as retrieval
+    monkeypatch.setattr(retrieval, "search_current_knowledge", AsyncMock(return_value=[]))
+    replay, _ = _rpc(backend, "finalize_session_distill", {**arguments, "semantic_review": {}})
+    assert replay["success"] is False
+    assert "readback_verified" not in replay
+    assert replay["reason_codes"] == ["promotion_write_unreadable"]
 
 
 def test_raw_leases_and_drilldown_are_still_usable(device):

@@ -1,12 +1,12 @@
 {
   "name": "search_memory",
-  "description": "Search all current long-term memory by default, including global user decisions. A task about a named project still uses scope=all; do not infer a project filter from the task or workspace. Use scope=project only when the user explicitly asks to exclude other projects' memory. Reuse a returned fact for every question it already answers; searching its other keywords does not independently verify it. Search again for a still-unanswered question or new conflict, and check current applicability against the relevant sources. Use focused topic keywords rather than a list of every file, tool and task detail. The output contains readable titles and whole statements. Large results include a continuation call; follow it to read the rest. Empty queries browse current knowledge with natural modules. A long entry may first return its title and a detail=full call for its complete text. Use search_raw when exact conversation evidence is needed.",
+  "description": "Default scope=all, including global decisions. NEVER infer scope=project from task/workspace names; only an explicit USER request permits project-only filtering. If an inferred filter misses, follow retry_without_project_filter before assuming memory is absent. Respect explicit user restrictions. Use one focused topic for related missing decisions; reuse every returned fact it answers. Repeat only for unanswered questions or new conflicts; keyword variants are not independent verification. Check current applicability against sources. Returns titles and whole statements. Follow continuation for more results; detail=full opens an indexed long fact. Empty query browses natural modules. Exact conversation evidence: search_raw.",
   "inputSchema": {
     "type": "object",
     "properties": {
       "project_name": {
         "type": "string",
-        "description": "Optional task context, ignored as a filter with scope=all. Required only for a user-requested project-only filter; relevant decisions may be stored under global or other labels."
+        "description": "Optional context, not a filter with all. Required for explicit project-only scope; global decisions may otherwise be missed."
       },
       "query": {
         "type": "string",
@@ -15,11 +15,11 @@
       "budget_tokens": {
         "type": "integer",
         "minimum": 1,
-        "description": "Size of the complete returned page, using cl100k_base when available or conservative UTF-8 byte counting. Omit to use cost_budget.search_tokens."
+        "description": "Complete-page size: cl100k_base or conservative UTF-8 bytes. Default: cost_budget.search_tokens."
       },
       "cursor": {
         "type": "string",
-        "description": "Reading position from the returned continuation call; the Agent follows it automatically."
+        "description": "Position from the returned continuation call."
       },
       "detail": {
         "type": "string",
@@ -28,7 +28,7 @@
           "full"
         ],
         "default": "auto",
-        "description": "auto returns whole facts fitting the page. full explicitly reads one complete entry, even when it exceeds the page size."
+        "description": "auto: whole facts fitting the page; full: one complete fact, even beyond the page size."
       },
       "scope": {
         "type": "string",
@@ -36,7 +36,7 @@
           "project",
           "all"
         ],
-        "description": "Keep all for ordinary tasks, even tasks about one project. project excludes global and other labels: use only when the user explicitly requests that restriction.",
+        "description": "all for ordinary tasks; project excludes global/other labels and requires explicit user restriction.",
         "default": "all"
       }
     },

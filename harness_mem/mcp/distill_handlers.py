@@ -7,15 +7,20 @@ finalization, and bounded legacy fallback.
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
+import hashlib
+import json
 from datetime import datetime, timezone
 from functools import wraps
 from inspect import signature
 import os
+import sqlite3
 from pathlib import Path
 from typing import Any, Mapping, cast
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from pydantic import ValidationError
+from harness_mem.core.schemas import EvidenceRef
 
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
@@ -31,6 +36,7 @@ from harness_mem.commands.separated_assimilation import (
     prepare_interactive_assimilation,
     separated_job_candidate_ids,
     is_committed_job_replay,
+    _subject as separated_evidence_subject,
 )
 from harness_mem.commands.evidence_admission import (
     answer_gate_status,
@@ -132,8 +138,12 @@ def _with_complete_response_budget(handler):
     @wraps(handler)
     def wrapped(*args, **kwargs):
         result = handler(*args, **kwargs)
-        if not isinstance(result, dict) or not bool(result.get("success")):
+        if not isinstance(result, dict):
             return result
+        if not bool(result.get("success")):
+            # A nested prepare may have produced a template before optional
+            # context loading failed. Failed results are never call-ready.
+            return {key: value for key, value in result.items() if key != "finalize_contract"}
         bound = handler_signature.bind_partial(*args, **kwargs)
         if (
             bound.arguments.get("detail_level", "compact") == "compact"
@@ -165,6 +175,7 @@ def _compact_finalize_result(result: dict[str, Any]) -> dict[str, Any]:
             "success", "project_name", "distill_job_id", "distill_status",
             "session_id", "idempotent_replay", "organization_status",
             "knowledge_changes", "removed_count", "not_written", "unfinished_work",
+            "readback_verified",
             "batch_id", "batch_progress", "next_after_finalize",
         }
     }
@@ -183,8 +194,94 @@ def _compact_finalize_result(result: dict[str, Any]) -> dict[str, Any]:
     return compact
 
 
+def _finalize_call_contract(project_name: str, job_id: str) -> dict[str, Any]:
+    """Project a source-generic call template, never candidate evidence or a write."""
+    from .tool_specs import _SCHEMAS
+
+    schema = _SCHEMAS["finalize_session_distill"]["input_schema"]
+    properties = schema["properties"]
+    point = properties["memory_points"]["items"]
+    review = properties["semantic_review"]
+    allowed_values = {
+        name: deepcopy(owner["properties"][name]["enum"])
+        for owner, names in (
+            (point, ("evidence_basis", "verification_outcome", "assimilation_disposition")),
+            (review, ("last_turn_status", "evidence_status", "promotion_decision")),
+        )
+        for name in names
+    }
+    points = []
+    for basis, role, content in (
+        ("user_statement", "user", "<Exact durable user statement checked against the fully read source; preserve explicit correction wording and unchanged scope.>"),
+        ("source_report", "assistant", "<Source-checked assistant proposal, attributed to this source speaker and period; not external truth or user approval.>"),
+    ):
+        points.append({
+            "content": content,
+            "canonical_title": "<Title of this independent checked point>",
+            "topic_path": ["<Whole category name>"],
+            "evidence_basis": basis,
+            "verification_outcome": "verified",
+            "verification_refs": [{
+                "kind": basis,
+                "exchange_index": "<Integer exchange_index from the checked source window>",
+                "content_sha256": "<Exact content_sha256 from that source window>",
+                "role": role,
+            }],
+            "assimilation_disposition": "add",
+            "assimilation_reason": "<Why this checked point is durable and this disposition is warranted>",
+        })
+    targets = [{
+        "title": "<Exact full old title from the selected current row>",
+        "statement": "<Entire old statement from that same current row>",
+        "project_name": "<Exact owner project_name from that same current row>",
+    }]
+    return {
+        "tool": "finalize_session_distill",
+        "template_only": True,
+        "instructions": [
+            "This is an instruction template, not verified content or an automatic decision. Replace every placeholder after checking the complete actual source; keep only relevant durable points.",
+            "The two independent points illustrate a user statement and an assistant proposal report. Neither is required to exist. Add/verified are example choices only; assess every point and outcome yourself.",
+            "Source reports retain speaker, period and source scope; they do not establish external current truth, execution or user approval.",
+            "For each confirm/refine/replace point, select exact current targets yourself and put the array at memory_points[i].target_knowledge, never at the top level of finalize_session_distill. Copy full old title, statement and project_name, and module only when present on the selected row; context does not select ownership.",
+            "Merge targeted_point_fragment.memory_points[0] into the complete affected args_template.memory_points[i] and fill the actual checked disposition; do not replace the complete point or put the fragment wrapper inside it. Add points omit target_knowledge. A prepare_session_distill top-level target_knowledge only prepares the existing owner/source binding; it does not supply a finalization point's targets.",
+        ],
+        "required_fields": {
+            "arguments": deepcopy(schema["required"]),
+            "memory_point": deepcopy(point["required"]),
+            "semantic_review": deepcopy(review["required"]),
+        },
+        "allowed_values": allowed_values,
+        "args_template": {
+            "project_name": project_name,
+            "job_id": job_id,
+            "memory_points": points,
+            "semantic_review": {
+                "session_summary": "<Source-grounded session summary independent of memory promotion>",
+                "final_user_request": "<Actual final user request>",
+                "final_outcome": "<Actual supported session outcome>",
+                "last_turn_status": "<Choose from allowed_values.last_turn_status>",
+                "contradictions": [],
+                "unfinished_work": [],
+                "evidence_status": "<Choose from allowed_values.evidence_status>",
+                "promotion_decision": "<Choose from allowed_values.promotion_decision>",
+            },
+        },
+        "target_knowledge_path": "memory_points[i].target_knowledge",
+        "target_knowledge_example": deepcopy(targets),
+        "targeted_point_fragment": {
+            "memory_points": [{
+                "assimilation_disposition": "<Choose the checked confirm/refine/replace disposition>",
+                "target_knowledge": deepcopy(targets),
+            }],
+        },
+        "optional_contracts": "Other optional fields retain the full canonical finalize_session_distill input schema; inspect only that tool when needed.",
+    }
+
+
 def _compact_prepare_result(result: dict[str, Any]) -> dict[str, Any]:
     """Remove protocol duplication, never source text or continuation state."""
+    if not result.get("success"):
+        return {key: value for key, value in result.items() if key != "finalize_contract"}
     continuation = {
         key: value for key, value in result.items()
         if key in {
@@ -219,6 +316,7 @@ def _compact_prepare_result(result: dict[str, Any]) -> dict[str, Any]:
             "zero_candidate_exchange_refs", "zero_candidate_challenge_template",
             "agent_execution", "response_budget", "chunk_count",
             "semantic_drilldown_exchange_count", "raw_drilldown_chunk_count",
+            "finalize_contract",
         }
     }
     evidence = result.get("semantic_evidence")
@@ -278,6 +376,17 @@ def _compact_prepare_result(result: dict[str, Any]) -> dict[str, Any]:
             "submit_distill_chunk" if compact.get("chunks")
             else "finalize_session_distill" if result.get("distill_status") == "reviewing"
             else "prepare_session_distill"
+        )
+    if (
+        compact.get("next_step") == "finalize_session_distill"
+        and result.get("evidence_mode") == "semantic"
+        and isinstance(evidence, dict)
+        and result.get("completed_chunk_count") == result.get("expected_chunk_count")
+        and isinstance(result.get("project_name"), str) and result["project_name"].strip()
+        and isinstance(result.get("distill_job_id"), str) and result["distill_job_id"].strip()
+    ):
+        compact["finalize_contract"] = _finalize_call_contract(
+            result["project_name"], result["distill_job_id"],
         )
     return compact
 
@@ -613,16 +722,102 @@ def tool_prepare_session_distill(
     batch_sessions: list[dict] | None = None,
     batch_id: str | None = None,
     retry_failures: bool = False,
+    target_knowledge: list[dict[str, Any]] | None = None,
+    current_query: str | None = None,
+    include_current: bool = False,
     _distill_source: str = "agent",
     _batch_selected: bool = False,
+    _native_transcript_path: str | None = None,
 ) -> dict:
-    """Prepare a compact evidence packet for an AI-led remember request.
+    """Prepare complete evidence for automatic processing or memory review.
 
     This intentionally stops before synthesis. The model should read the
     returned observations, decide what deserves a pending candidate, then call
     govern_memory(action=suggest). The lower-level sync step may call ingest_sessions, but
-    The single hm entry is the user-facing flow.
+    Public hm preparation is restricted to existing-memory and job review;
+    Hooks and workers call this shared core directly for daily remembering.
     """
+    if include_current:
+        options = dict(locals())
+        if current_query is not None:
+            return {"success": False, "error": "include_current and current_query are mutually exclusive"}
+        options["include_current"] = False
+        result = tool_prepare_session_distill(**options)
+        if not result.get("success") or result.get("distill_status") != "reviewing":
+            return result
+        from harness_mem.commands.evidence_admission import _source_report_context
+        from harness_mem.read_knowledge import search_current_knowledge
+        from harness_mem.mcp.read_projection import project_memory_entries
+
+        try:
+            backend = _get_backend()
+            if backend.runtime_state == "degraded_fallback" or backend.runtime_error:
+                raise ValueError("current memory is unavailable")
+            job = backend.transcript_store.get_distill_job(result["distill_job_id"])
+            if job is None:
+                raise ValueError("prepared source job is unavailable")
+            _, rendering, _ = _source_report_context(
+                backend, project_name=job.project_name,
+                source_id=job.source_id, source_revision=job.source_revision,
+            )
+            _, exchanges, _ = _parse_exchanges(rendering)
+            query = "\n".join(
+                body for exchange in exchanges for role in ("user", "assistant")
+                for body in exchange[role]
+            ) or rendering
+            current = asyncio.run(search_current_knowledge(
+                backend, project_name=result["project_name"] if scope == "project" else None,
+                query=query, source_context=True,
+            ))
+            rows = project_memory_entries(current, include_project=True)
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            return {**result, "success": False, "current_knowledge_status": "unavailable",
+                    "error": str(exc)}
+        # Context does not select ownership or authorize a replacement. Exact
+        # explicit targets and the existing evidence/CAS gates still apply.
+        return {**result, "current_knowledge": rows,
+                "current_knowledge_status": "answered" if rows else "empty",
+                "current_knowledge_query_sha256": hashlib.sha256(query.encode("utf-8")).hexdigest()}
+    if current_query is not None:
+        options = dict(locals())
+        from harness_mem.read_knowledge import search_current_knowledge
+        from harness_mem.mcp.read_projection import project_memory_entries
+
+        if not current_query.strip() or not (session_id or distill_job_id) or batch_id or batch_sessions:
+            return {"success": False, "error": "current_query requires a nonempty topic and one session or job"}
+        backend = _get_backend()
+        if backend.runtime_state == "degraded_fallback" or backend.runtime_error:
+            return {"success": False, "error": "current memory is unavailable"}
+        try:
+            current = asyncio.run(search_current_knowledge(
+                backend, project_name=project_name if scope == "project" else None,
+                query=current_query.strip(),
+            ))
+            rows = project_memory_entries(current, include_project=True, include_modules=True)
+            # Reuse exact current-target ownership and source preparation. This
+            # only selects context; every actual replacement still needs an
+            # explicit point, exact targets and the existing evidence gate.
+            options["current_query"] = None
+            if rows and target_knowledge is None:
+                options["target_knowledge"] = rows
+            result = tool_prepare_session_distill(**options)
+        except (OSError, ValueError) as exc:
+            return {"success": False, "error": str(exc)}
+        return {**result, "current_knowledge": rows, "current_knowledge_query": current_query.strip()}
+    if target_knowledge is not None:
+        from harness_mem.commands.knowledge_assimilation import resolve_knowledge_target_project
+
+        try:
+            owner = asyncio.run(resolve_knowledge_target_project(
+                _get_backend().structured_store.knowledge_store, target_knowledge,
+            ))
+            if project_name and project_name != owner:
+                raise ValueError("selected correction target does not match the supplied project")
+        except ValueError as exc:
+            return {"success": False, "error": str(exc)}
+        if batch_id or batch_sessions or not (session_id or distill_job_id):
+            return {"success": False, "error": "target_knowledge requires one correction session or job"}
+        project_name, scope = owner, "project"
     if batch_id is not None or batch_sessions is not None or (retry_failures and not session_id and not distill_job_id):
         from harness_mem.commands.manual_distill import prepare_manual_batch
         from harness_mem.commands.session_inventory import resolve_session_scope
@@ -692,6 +887,43 @@ def tool_prepare_session_distill(
     host_source = resolve_host_source(normalized_client)
     from harness_mem.commands.session_inventory import discover_session_projects, resolve_session_scope
     backend = _get_backend()
+    if target_knowledge is not None and requested_session_id and not requested_job_id:
+        from harness_mem.commands.session_inventory import prepare_correction_source
+
+        try:
+            assert project_name is not None
+            correction_job = prepare_correction_source(
+                backend, project_name=project_name, client=normalized_client,
+                session_id=requested_session_id, project_root=project_root, run_ingest=run_ingest,
+            )
+        except (OSError, ValueError, KeyError) as exc:
+            return {"success": False, "error": str(exc)}
+        requested_job_id = correction_job.id
+    if (requested_session_id and scope == "all" and not project_root and not project_name
+            and not requested_job_id and run_ingest and not retry_failures and _distill_source == "agent"):
+        # A known device session needs the same frozen-source checks as a
+        # selected inventory reference, not a whole-device packet in the model.
+        from harness_mem.commands.session_inventory import collect_session_inventory
+
+        inventory = collect_session_inventory(
+            Path(backend.data_dir), lightweight=True, session_id=requested_session_id,
+            clients=None if normalized_client in {"auto", "agent"} else [normalized_client],
+        )
+        if len(inventory.rows) != 1:
+            return {
+                "success": False,
+                "error": "selected session is unavailable" if not inventory.rows else
+                         "session identity is ambiguous; select a host or an inspected source reference",
+                "session_id": requested_session_id,
+            }
+        return tool_prepare_session_distill(
+            client=normalized_client, scope="all", batch_sessions=inventory.rows,
+            chunk_limit=chunk_limit, evidence_mode=evidence_mode, detail_level=detail_level,
+            budget_tokens=resolved_budget_tokens,
+            drilldown_exchange_indexes=requested_exchange_indexes,
+            drilldown_chunk_indexes=requested_drilldown_indexes,
+            drilldown_query=requested_drilldown_query,
+        )
     project_scope: tuple[str, Path | None] | None
     try:
         selected_source_job = backend.transcript_store.get_distill_job(requested_job_id) if requested_job_id else None
@@ -760,6 +992,7 @@ def tool_prepare_session_distill(
             scope=scope,
             project_root=resolved_project_root,
             session_id=requested_session_id,
+            native_transcript_path=_native_transcript_path,
         )
 
     if requested_job_id:
@@ -827,6 +1060,11 @@ def tool_prepare_session_distill(
                 "success": False,
                 "error": "session_id is not available for this project",
                 "session_id": requested_session_id,
+                "ingest": ingest_payload,
+                "reason_codes": [
+                    str(item.get("code")) for item in ingest_payload.get("error_details", [])
+                    if isinstance(item, dict) and item.get("code")
+                ] or ["session_source_unavailable"],
             }
         session_job = max(
             [job for job in matching_jobs if job.id == requested_job_id]
@@ -1689,6 +1927,10 @@ async def _separated_answer_packet_state(
                 ),
                 verification_refs=(list(evidence.verification_refs) if evidence else []),
                 verified_at=evidence.verified_at if evidence else None,
+                # Preserve the same verified attribution descriptor used by
+                # the evidence summary. Losing it here falsely downgrades a
+                # committed report to UNANSWERED in the packet and Note.
+                source_report=candidate.source_report,
             )
         )
         if point_result.get("disposition") not in {"add", "refine", "replace"}:
@@ -1745,8 +1987,11 @@ async def _separated_evidence_summary(
             gate["UNANSWERED"] += 1
             continue
         evidence = evidence_rows[0]
-        admission[evidence_summary_key(evidence)] += 1
-        gate[answer_gate_status(evidence)] += 1
+        key = evidence_summary_key(evidence)
+        admission[key] = admission.get(key, 0) + 1
+        candidate = await store.get_candidate(candidate_id)
+        subject = separated_evidence_subject(candidate, evidence) if candidate is not None else evidence
+        gate[answer_gate_status(subject)] += 1
     return admission, gate
 
 
@@ -1936,11 +2181,150 @@ def _trusted_assimilation_preflight(
     return []
 
 
+def _submit_memory_points(
+    backend: Any, *, project_name: str, job_id: str,
+    points: list[dict[str, Any]], semantic_review: dict,
+) -> dict:
+    """Stage a complete decision batch through the existing candidate owner.
+
+    This is no new truth writer: finalization still owns evidence admission,
+    review leases, current-target CAS, source revalidation and readback.
+    """
+    from harness_mem.mcp.governance_handlers import tool_suggest_memory_entry, _distill_candidate_id
+    from harness_mem.commands.knowledge_assimilation import normalize_knowledge_targets
+
+    job = backend.transcript_store.get_distill_job(job_id)
+    digest = hashlib.sha256(json.dumps(points, ensure_ascii=False, sort_keys=True,
+                                       separators=(",", ":")).encode("utf-8")).hexdigest()
+    if job is not None and job.project_name == project_name and job.status == "completed":
+        if job.semantic_review.get("_submitted_memory_points_sha256") != digest:
+            raise ValueError("completed memory_points replay differs from the submitted batch")
+        # The original core still reopens current truth, retired targets and
+        # sources. A lost response must not require staging new candidates.
+        return dict(job.semantic_review)
+    if job is None or job.project_name != project_name or job.status != "reviewing":
+        raise ValueError("memory_points requires this project's prepared reviewing job")
+    if job.review_lease_owner:
+        raise ValueError("distill review is already owned")
+    if not isinstance(points, list) or any(not isinstance(point, dict) for point in points):
+        raise ValueError("memory_points must be an array of point objects")
+    SessionSemanticReview.model_validate(semantic_review)
+    prepared = []
+    candidate_ids: set[str] = set()
+    for point in points:
+        args = dict(point)
+        if (args.get("assimilation_disposition") in {"add", "confirm", "refine", "replace"}
+                and args.get("verification_outcome") != "verified"):
+            raise ValueError(
+                "writing memory_points require verification_outcome='verified' after checking their typed source refs; "
+                "not_applicable/unverified/contradicted cannot request add/confirm/refine/replace. "
+                "Use an explicit non-writing disposition only when that is your source-supported decision. "
+                "No candidates were staged; the prepared job remains open."
+            )
+        state_item = args.pop("retained_state_item", None)
+        if state_item is not None and (
+            not isinstance(state_item, str) or not state_item.strip()
+            or state_item not in semantic_review.get("unfinished_work", [])
+            or state_item != args.get("content")
+            or args.get("evidence_basis") != "user_statement"
+            or args.get("assimilation_disposition") not in {"add", "confirm", "refine", "replace"}
+        ):
+            raise ValueError("retained_state_item must exactly match both the verified state content and unfinished_work item")
+        if "project_name" in args or "distill_job_id" in args:
+            raise ValueError("point ownership comes from the prepared job")
+        args.setdefault("source", f"prepared native session {job.session_id}")
+        args.setdefault("category", " / ".join(args.get("topic_path") or ["Memory"]))
+        args.update(project_name=project_name, distill_job_id=job_id)
+        signature(tool_suggest_memory_entry).bind(**args)
+        # Parse the whole batch before staging its first candidate. Invalid
+        # later points cannot cause any earlier point to be written as truth.
+        refs = [EvidenceRef.from_dict(ref) for ref in args.get("verification_refs") or []]
+        if not refs or not isinstance(args.get("topic_path"), list):
+            raise ValueError("each memory point requires typed evidence refs and a topic_path array")
+        if any(ref.kind == "source_report" and (
+            ref.locator is not None or ref.locator_sha256 is not None or ref.chunk_index is not None
+        ) for ref in refs):
+            raise ValueError(
+                "source_report refs use kind, exchange_index, content_sha256 and role from the prepared source; "
+                "locator/locator_sha256/chunk_index are not valid for these exchange refs. "
+                "Do not put a quoted source passage in locator. "
+                "No candidates were staged; correct the refs and retry this prepared job."
+            )
+        if args.get("target_knowledge") is not None:
+            try:
+                if not isinstance(args["target_knowledge"], list):
+                    raise ValueError("target_knowledge is not an array")
+                normalize_knowledge_targets(args["target_knowledge"])
+            except (ValueError, TypeError) as exc:
+                raise ValueError(
+                    "target_knowledge must be an array of old search-result objects, "
+                    "e.g. [{title: old_title, statement: old_statement, project_name: owner}]. "
+                    "Use statement for the old body, not content; include module only if returned. "
+                    "No candidates were staged; correct the target shape and retry this prepared job."
+                ) from exc
+        candidate_id = _distill_candidate_id(
+            backend, project_name=project_name, distill_job_id=job_id,
+            candidate_kind="memory", payload={"category": args["category"], "content": args["content"],
+                                              "source": args["source"], "tags": args.get("tags") or []},
+        )
+        if candidate_id in candidate_ids:
+            raise ValueError("memory_points contains duplicate candidate identities")
+        candidate_ids.add(candidate_id)
+        prepared.append((args, state_item))
+    review = dict(semantic_review)
+    review["_submitted_memory_points_sha256"] = digest
+    state_refs = list(review.get("retained_state_refs") or [])
+    for args, state_item in prepared:
+        result = tool_suggest_memory_entry(**args)
+        if not result.get("success"):
+            raise ValueError(str(result.get("error") or "candidate staging failed"))
+        if state_item is not None:
+            state_refs.append({"candidate_id": result["entry_id"], "unfinished_work_item": state_item})
+    if state_refs:
+        review["retained_state_refs"] = state_refs
+    return review
+
+
+def _validate_retained_state_refs(
+    backend: Any, *, project_name: str, job_id: str, review: dict,
+) -> None:
+    """A state label cannot suppress an unrelated or unverified work item."""
+    if not review.get("retained_state_refs"):
+        # Legacy validation and completed-job replay remain owned by the core;
+        # a replay intentionally accepts an empty semantic_review.
+        return
+    parsed = SessionSemanticReview.model_validate(review)
+    refs = parsed.model_dump().get("retained_state_refs") or []
+    if not refs:
+        return
+    job = backend.transcript_store.get_distill_job(job_id)
+    if job is None or job.project_name != project_name:
+        raise ValueError("retained state job is missing or belongs to another project")
+    if job.status == "completed":
+        if refs != job.semantic_review.get("retained_state_refs"):
+            raise ValueError("completed retained-state bindings cannot change")
+        return
+    store = backend.structured_store.knowledge_store
+    for ref in refs:
+        if ref["unfinished_work_item"] not in parsed.unfinished_work:
+            raise ValueError("retained state must name an existing unfinished_work item")
+        candidate = asyncio.run(store.get_candidate(ref["candidate_id"]))
+        if (candidate is None or candidate.project_name != project_name
+                or candidate.statement != ref["unfinished_work_item"]
+                or candidate.assimilation_disposition not in {"add", "confirm", "refine", "replace"}):
+            raise ValueError("retained state requires this job's writing or confirmed candidate")
+        evidence = asyncio.run(store.list_evidence(candidate.id))
+        if not any(item.distill_job_id == job_id and item.evidence_basis == "user_statement"
+                   and item.verification_outcome == "verified" for item in evidence):
+            raise ValueError("retained state requires a verified user-statement binding to this job")
+
+
 def tool_finalize_session_distill(
     project_name: str,
     job_id: str,
     semantic_review: dict,
     _review_lease_owner: str | None = None,
+    memory_points: list[dict[str, Any]] | None = None,
 ) -> dict:
     """Finalize one job while recording a content-free diagnostic lifecycle."""
 
@@ -1967,15 +2351,35 @@ def tool_finalize_session_distill(
     )
     diagnostic.emit("accepted", "running")
     diagnostic.emit("started", "running")
+    result: dict[str, Any]
     try:
         with diagnostic.activate_children():
-            result = _tool_finalize_session_distill_core(
-                project_name=project_name,
-                job_id=job_id,
-                semantic_review=semantic_review,
-                _review_lease_owner=_review_lease_owner,
-                _backend=backend,
-            )
+            try:
+                if memory_points is not None:
+                    semantic_review = _submit_memory_points(
+                        backend or _get_backend(), project_name=project_name, job_id=job_id,
+                        points=memory_points, semantic_review=semantic_review,
+                    )
+                else:
+                    # Reserve the exact-batch receipt to the actual staging
+                    # path; an ordinary caller cannot manufacture its proof.
+                    semantic_review = {key: value for key, value in semantic_review.items()
+                                       if key != "_submitted_memory_points_sha256"}
+                _validate_retained_state_refs(
+                    backend or _get_backend(), project_name=project_name, job_id=job_id,
+                    review=semantic_review,
+                )
+            except (ValueError, TypeError, ValidationError) as exc:
+                result = {"success": False, "distill_job_id": job_id, "error": str(exc),
+                          "reason_codes": ["memory_point_or_state_binding_invalid"]}
+            else:
+                result = _tool_finalize_session_distill_core(
+                    project_name=project_name,
+                    job_id=job_id,
+                    semantic_review=semantic_review,
+                    _review_lease_owner=_review_lease_owner,
+                    _backend=backend,
+                )
     except Exception as exc:  # pragma: no cover - defensive wrapper boundary.
         diagnostic.emit(
             "failed",
@@ -1996,6 +2400,15 @@ def tool_finalize_session_distill(
             if completed_job is None:
                 raise ValueError("completed job is missing")
             result.update(asyncio.run(current_distill_result(backend, completed_job)))
+            if result.get("knowledge_changes") and int(completed_job.promotion_summary.get("promoted") or 0) > 0:
+                # A fresh SQLite + ordinary-search check replaces a redundant
+                # Agent round trip, never the existing verification itself.
+                readback_error = asyncio.run(_completed_promotion_result_error(
+                    backend, job=completed_job,
+                ))
+                if readback_error is not None:
+                    raise ValueError(readback_error)
+                result["readback_verified"] = True
         except ValueError:
             result = {"success": False, "project_name": project_name,
                       "distill_job_id": job_id, "distill_status": "completed",

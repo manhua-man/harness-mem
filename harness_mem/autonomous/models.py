@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from harness_mem.core.schemas.knowledge import ClaimKind
+from harness_mem.core.schemas.evidence import EvidenceBasis, EvidenceRefKind
 from harness_mem.knowledge_validation import validate_atomic_knowledge_statement
 
 
@@ -28,7 +29,7 @@ class _StrictModel(BaseModel):
 
 
 class VerificationRef(_StrictModel):
-    kind: Literal["user_statement", "transcript", "repository"]
+    kind: EvidenceRefKind
     content_sha256: str = Field(min_length=64, max_length=64)
     exchange_index: int | None = Field(default=None, ge=1)
     role: Literal["user", "assistant"] | None = None
@@ -37,7 +38,7 @@ class VerificationRef(_StrictModel):
 
 
 class _CandidateBase(_StrictModel):
-    evidence_basis: Literal["user_statement", "transcript", "repository"]
+    evidence_basis: EvidenceBasis
     # Extraction proposes a claim; the trusted second pass decides whether it
     # is verified. Keep the field only as an input-compatibility default.
     verification_outcome: Literal["verified", "unverified", "contradicted"] = (
@@ -150,19 +151,67 @@ class AssimilationDecision(_StrictModel):
     points: list[AssimilationPoint] = Field(default_factory=list)
 
 
+class CandidateScopeSegment(_StrictModel):
+    """One verbatim claim segment and its independently judged future use."""
+
+    text: str = Field(min_length=1)
+    source_use: Literal["standing_decision", "reusable_knowledge", "task_context", "unclear"]
+    future_scope: Literal["durable", "session_only", "unclear"]
+    standalone: bool = False
+    content_role: Literal["claim", "qualifier", "temporary_context", "unclear"] = "unclear"
+
+
 class CandidateVerificationPoint(_StrictModel):
     """Semantic source-support and future-scope result for one extracted point."""
 
     candidate_index: int = Field(ge=0)
     semantic_support: Literal["supported", "partial", "contradicted"]
     future_scope: Literal["durable", "session_only", "unclear"]
+    source_use: Literal[
+        "standing_decision", "reusable_knowledge", "task_context", "unclear"
+    ] = "unclear"
     reason: str = Field(min_length=8, max_length=1000)
+    scope_segments: list[CandidateScopeSegment] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def bind_future_scope_to_source_use(self) -> "CandidateVerificationPoint":
+        """A supported execution request cannot acquire standing authority."""
+        if self.source_use == "task_context":
+            self.future_scope = "session_only"
+        elif self.source_use == "unclear":
+            self.future_scope = "unclear"
+        return self
 
 
 class CandidateVerificationDecision(_StrictModel):
     """Complete per-point verification over bounded, content-addressed sources."""
 
     points: list[CandidateVerificationPoint] = Field(default_factory=list)
+
+
+def verification_scope_status(point: CandidateVerificationPoint, statement: str) -> str:
+    """Require every character and every classified claim to share durable use."""
+    parts = point.scope_segments
+    if not parts:
+        return "source_scope_partition_missing"
+    if "".join(part.text for part in parts) != statement:
+        return "source_scope_partition_mismatch"
+    scopes: set[str] = set()
+    for part in parts:
+        if part.content_role == "unclear":
+            scopes.add("unclear")
+        elif (part.content_role == "temporary_context"
+              or part.source_use == "task_context" or part.future_scope == "session_only"):
+            scopes.add("session_only")
+        elif part.source_use == "unclear" or part.future_scope == "unclear":
+            scopes.add("unclear")
+        else:
+            scopes.add("durable")
+    if "unclear" in scopes:
+        return "source_scope_unclear"
+    if len(scopes) != 1:
+        return "source_scope_mixed"
+    return "source_scope_" + next(iter(scopes))
 
 
 ChallengeChecks = Literal["absent", "not_durable", "candidate_required"]
@@ -273,13 +322,19 @@ class AgentExtractionPoint(_StrictModel):
     source_entity: str | None = Field(default=None, max_length=200)
     target_entity: str | None = Field(default=None, max_length=200)
     relation_type: str | None = Field(default=None, max_length=100)
-    evidence_basis: Literal["user_statement", "transcript", "repository"]
+    evidence_basis: EvidenceBasis
+    report_role: Literal["user", "assistant"] | None = None
     exchange_indexes: list[int] = Field(default_factory=list)
     repository_locator: str | None = Field(default=None, max_length=4096)
     repository_sha256: str | None = Field(default=None, min_length=64, max_length=64)
 
     @model_validator(mode="after")
     def require_kind_and_source_fields(self) -> "AgentExtractionPoint":
+        if self.evidence_basis == "source_report":
+            if self.report_role is None or self.kind != "memory":
+                raise ValueError("source_report requires a speaker role and kind=memory")
+        elif self.report_role is not None:
+            raise ValueError("report_role belongs only to a source_report")
         if self.kind == "rule" and not str(self.condition or "").strip():
             raise ValueError("rule point requires condition")
         if self.kind == "relation" and not all(
@@ -289,7 +344,7 @@ class AgentExtractionPoint(_StrictModel):
             raise ValueError(
                 "relation point requires source_entity, target_entity, and relation_type"
             )
-        if self.evidence_basis in {"user_statement", "transcript"}:
+        if self.evidence_basis in {"user_statement", "transcript", "source_report"}:
             if not self.exchange_indexes or any(index < 1 for index in self.exchange_indexes):
                 raise ValueError("session evidence requires one-based exchange_indexes")
         elif not self.repository_locator or not self.repository_sha256:

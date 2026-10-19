@@ -53,9 +53,10 @@ class CodexAdapter:
         scope: str = "project",
     ):
         self.backend = backend
-        self.sessions_dir = sessions_dir or DEFAULT_SESSIONS_DIR
+        native_home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex").expanduser()
+        self.sessions_dir = sessions_dir or native_home / "sessions"
         self.archive_dir = archive_dir or (
-            DEFAULT_ARCHIVE_DIR
+            native_home / "archived_sessions"
             if sessions_dir is None
             else self.sessions_dir.parent / "archived_sessions"
         )
@@ -339,6 +340,11 @@ class CodexAdapter:
             sequence_count=len(turns),
             parser_version="codex-conversation-v3",
             authored_user_texts=[str(turn["user"]) for turn in turns if turn["user"]],
+            authored_assistant_texts=[
+                message for turn in turns if str(turn.get("user") or "").strip()
+                for message in dict.fromkeys(str(value or "").strip() for value in turn.get("assistant") or [])
+                if message
+            ],
         )
 
     async def ingest(

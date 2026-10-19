@@ -1,16 +1,197 @@
 {
   "name": "finalize_session_distill",
-  "description": "Finalize one fully processed session after end-of-session semantic review. Auto-review and Dream run only for an internally consistent promotion decision, and only over candidates produced by this job.",
+  "description": "Finalize a fully read session and consistent semantic review, using only this job's candidates. Optionally submit all memory_points here; runtime stages them via the existing candidate owner before the same source/evidence/lease/transaction gates. readback_verified=true proves saved changes passed fresh SQLite + ordinary-search checks; reuse returned knowledge_changes instead of another readback call. Unfinished work remains partial.",
   "inputSchema": {
     "type": "object",
     "properties": {
       "project_name": {
-        "type": "string",
-        "description": "Project name"
+        "type": "string"
       },
       "job_id": {
         "type": "string",
         "description": "Review-ready distill job id"
+      },
+      "memory_points": {
+        "type": "array",
+        "description": "All decisions for this prepared job; do not call suggest separately for these points. Runtime derives project, job, category and source explanation.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "content": {
+              "type": "string"
+            },
+            "canonical_title": {
+              "type": "string"
+            },
+            "topic_path": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "evidence_basis": {
+              "type": "string",
+              "enum": [
+                "repository",
+                "user_statement",
+                "transcript",
+                "source_report"
+              ]
+            },
+            "verification_outcome": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "unverified",
+                "contradicted",
+                "not_applicable"
+              ],
+              "description": "Writing dispositions require verified: the fully read typed source supports this exact point. user_statement verifies what the user stated; source_report verifies that speaker's bounded account, not external truth. not_applicable is for intentional non-writing points."
+            },
+            "verification_refs": {
+              "type": "array",
+              "items": {
+                "additionalProperties": false,
+                "description": "Integrity reference used by Dream admission, never evidence content.",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "repository",
+                      "user_statement",
+                      "transcript",
+                      "source_report"
+                    ],
+                    "title": "Kind",
+                    "type": "string"
+                  },
+                  "locator": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Transient project-relative repository path. Source/session refs use the owning distill job instead of storing a raw locator.",
+                    "title": "Locator"
+                  },
+                  "locator_sha256": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Locator Sha256"
+                  },
+                  "content_sha256": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Content Sha256"
+                  },
+                  "exchange_index": {
+                    "anyOf": [
+                      {
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Exchange Index"
+                  },
+                  "chunk_index": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Chunk Index"
+                  },
+                  "role": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "user",
+                          "assistant",
+                          "tool"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Role"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "title": "EvidenceRef",
+                "type": "object"
+              }
+            },
+            "assimilation_disposition": {
+              "type": "string",
+              "enum": [
+                "add",
+                "confirm",
+                "refine",
+                "replace",
+                "no_write",
+                "handoff",
+                "defer",
+                "conflict",
+                "reject"
+              ]
+            },
+            "assimilation_reason": {
+              "type": "string"
+            },
+            "target_knowledge": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "retained_state_item": {
+              "type": "string",
+              "description": "Only if this explicitly classified user current-state point was also mistakenly listed in unfinished_work: must exactly equal both point content and that work item. Excluded only after verified successful promotion; real handoffs stay."
+            }
+          },
+          "required": [
+            "content",
+            "canonical_title",
+            "topic_path",
+            "evidence_basis",
+            "verification_outcome",
+            "verification_refs",
+            "assimilation_disposition",
+            "assimilation_reason"
+          ]
+        }
       },
       "semantic_review": {
         "type": "object",
@@ -46,6 +227,27 @@
             "type": "array",
             "items": {
               "type": "string"
+            },
+            "description": "Actual unfinished actions only. Supported undecided/unknown states belong in memory_points, not this work list."
+          },
+          "retained_state_refs": {
+            "type": "array",
+            "description": "Optional compatibility binding for an explicitly classified current state also listed as work; batch memory_points derives these internally.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "candidate_id": {
+                  "type": "string"
+                },
+                "unfinished_work_item": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "candidate_id",
+                "unfinished_work_item"
+              ]
             }
           },
           "evidence_status": {

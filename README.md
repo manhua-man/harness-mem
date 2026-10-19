@@ -61,22 +61,28 @@ Run this once for each Agent app you actually use. You do not rerun it for every
 project:
 
 ```bash
-harness-mem quickstart
+harness-mem quickstart --confirm
 ```
 
 Quickstart detects the current app. It can identify Codex and Claude Code directly.
 If it cannot identify the current app, it stops and asks you to run it once with `--client`, for example
-`harness-mem quickstart --client cursor`; it never installs another app's files
-by guessing. It installs one global `$hm` or `/hm` entry for that app. It does
-not inspect a project, write project Hooks, or scan or import old sessions. It
-does not inspect or change MCP settings.
-After Quickstart confirms the entry is installed, start a new Agent task. If
-harness-mem tools are already available, use `hm`. Otherwise, ask the Agent,
+`harness-mem quickstart --client cursor --confirm`; it never installs another app's files
+by guessing. In the unreleased development tree, it installs the global `$hm`
+or `/hm` entry and user-level lifecycle Hooks, then `--confirm` authorizes
+background model processing once. Hooks derive the workspace from each native
+task, so new projects do not need another setup. Explicit project settings take
+precedence; `distill.autonomous.enabled=false` opts a project out. Without
+`--confirm`, Quickstart leaves background authorization unchanged. It does not
+import historical sessions or inspect or change MCP settings.
+Codex users must review and trust the user Hooks in **Settings > Hooks** once,
+then start a new task. Hermes also requires native confirmation of its shell
+Hooks on first use; Quickstart does not write the Hermes allowlist. Complete
+the selected host's native review or confirmation before daily use. If
+harness-mem tools are unavailable, ask the Agent,
 MCP Router, plugin, or existing setup tool that manages your MCP connection to
 connect harness-mem using [MCP setup](docs/mcp-setup.md). Do not add a second
-connection when a Router or plugin already provides it. Search and manual
-session processing need no project setup or Hooks. Request automatic recording
-when you want that workspace's Hooks prepared.
+connection when a Router or plugin already provides it. Installation and
+authorization do not by themselves prove that native Hooks have executed.
 
 All seven supported hosts remain product targets, not just Codex. Unreleased
 Hook repairs register Claude Code/Cursor events and pass native session IDs
@@ -89,25 +95,30 @@ For optional local vector or hybrid search, install `"harness-mem[hybrid]==0.9.2
 from the same release index. For the complete setup and host-specific exception,
 see [Quickstart](docs/quickstart.md).
 
-## Use it every day
+## Automatic memory and human review
 
-Use one entry in your Agent:
+After automatic integration is enabled, keep using your Agent normally. New
+conversations are captured and useful knowledge is organized in the background;
+relevant current memory is recalled as tasks need it. You do not ask to remember
+each session or manage processing batches.
+
+Use the native entry when you want to inspect or review memory:
 
 | Host | Entry |
 |---|---|
 | Codex | `$hm` |
 | Claude Code, Cursor, Grok, Hermes, OpenCode, Antigravity | `/hm` |
 
-Then say what you mean:
+For example:
 
 ```text
-Remember this session.
-How did we solve this before?
-This memory is wrong.
+Show what has been remembered.
+Correct this memory: ...
+Delete the memory about ...
 ```
 
-The unified entry replies in your language with what it remembered, what it
-found, or what needs correction. You do not have to choose a storage system,
+The unified entry replies in your language with the stored content or the
+result of your review. You do not have to choose a storage system,
 model connection, or internal workflow.
 
 Use ordinary language: you do not need to understand internal components or
@@ -128,10 +139,35 @@ harness-mem keeps only current memory. A correction replaces the old item, and
 an item that is no longer valid is deleted. It does not keep old knowledge
 versions, archived knowledge copies, change history, or undo.
 
-At a new session, relevant context is loaded automatically. If you separately
-turn on automatic organization, completed sessions are processed in the
-background through the command-line Agent you selected. If it is unavailable,
-harness-mem reports that instead of silently using a different one.
+Relevant memory reaches tasks through native context injection where the host
+supports it, or through the Agent's MCP search. Codex and Claude Code can query
+on prompt submission; Hermes has a pre-call event. Antigravity's pre-call Hook
+reads the latest user step from that conversation's native transcript and
+recalls relevant memory once per user turn; unreadable context retains the
+availability/MCP path. Grok retains
+SessionStart/Stop and requires Agent MCP search for task-specific recall;
+OpenCode's system transform supplies availability, with task queries through
+Agent MCP. Native task-aware injection is not implemented across every host.
+At each completed reply or task,
+the authorized lifecycle Hook attempts complete-source preparation,
+verification and an addition, update or explicit no-write decision through the
+existing worker. It uses the selected command-line Agent; an unavailable
+executor is reported instead of silently using a different one. `hm` is for
+inspection, review and correction, not the switch that starts daily learning.
+
+Codex and Antigravity wait about 30 seconds after a completed reply before
+starting a background memory round. A new user turn cancels that pending wait;
+the next completed reply starts a new window. A round already started may
+finish. This uses the existing worker and the current host's CLI.
+Recall shows a short notice: Codex uses a native conversation message;
+Antigravity asks the current Agent to include it in its first reply through
+temporary context, so display there depends on the Agent following that request.
+Antigravity App, CLI and IDE transcript directories are supported. Equivalent
+Codex project registrations are removed when user-level Hooks cover them.
+
+Antigravity can also run background decisions through its native `agy` CLI:
+set `distill.autonomous.cli` to `antigravity`. It uses complete stdin input and
+structured output within the existing verification and persistence flow.
 
 ## What stays out of the way
 
@@ -150,27 +186,35 @@ frozen batches remain separate for file and source validation. Users do not
 manage directory moves, retirement or name reservations. Discovery neither
 imports old sessions nor enables background processing.
 
-Explicit manual organization freezes the selected session scope and source
-revisions in a resumable batch after independently revalidating the selected
-full sources.
-Resume derives scope from the frozen batch, without asking users to re-enter
-directories or IDs or including newly discovered sessions. The current Agent
-performs the work independently of the background CLI; batch completion does
-not automatically delete sources.
+The automatic worker retains complete sources and resumable jobs. Existing
+manual batches remain readable for recovery and review; creating a manual
+remembering batch is no longer a user-facing path. Source retention and
+verification are shared by automatic processing and review corrections.
+
+When the native session is already known, the Agent prepares it directly without
+printing a whole-device inventory. Explicit non-writing decisions can close
+after complete source/reference checks without declaring their prose verified;
+knowledge writes still require the normal evidence gate.
+
+Authorized background Codex decisions use a call-local JSON task profile without
+interactive skill catalogs or project instructions. Installed skills and the
+human review surface remain available; complete source reading and verification still
+precede current-memory writes. See [background execution](docs/background-memory.md).
 
 The automatic-project probe exercises the actual MCP dispatcher, native formats,
 SQLite, Notes and ordinary search with deterministic Agent decisions. The
-current revision passed 772 focused tests and five isolated outcome checks;
+earlier recorded revision passed 772 focused tests and five isolated outcome checks;
 live MCP inventory, ordinary search and wake were checked separately. Fixture
-results do not prove seven live apps, models or Hooks. The global host entry
-was not synchronized in this run because user directories were out of scope.
+results do not prove seven live apps, models or Hooks, or validate the new
+user-level lifecycle changes. The global host entry was not synchronized in
+that earlier run because user directories were out of scope.
 See [MCP setup](docs/mcp-setup.md#session-inspection-and-manual-batches-unreleased)
 for the inspection, preparation and retry contract. These additions are not
 included in the published `0.9.28` artifacts.
 
 The terminal CLI is for setup, diagnosis, integration repair, and explicit
-maintenance—not everyday recall. `hm` performs only a short project and Hook
-check before the requested action. When something is wrong or an operator needs
+maintenance. `hm` is the inspection and review entry; ordinary conversations
+feed the configured automatic path. When something is wrong or an operator needs
 the full diagnosis, use `harness-mem doctor`; detailed statistics, versions,
 queues, and repair evidence do not belong in the daily reply. The underlying
 MCP tools, session hooks, background organization, SQLite store, source checks,

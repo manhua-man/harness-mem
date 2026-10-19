@@ -17,7 +17,7 @@ DreamProposedAction = Literal[
     "reject_uncertain",
 ]
 DreamRisk = Literal["low", "medium", "high"]
-DreamStatus = Literal["processing", "completed", "failed"]
+DreamStatus = Literal["processing", "continuing", "completed", "failed"]
 
 
 class DreamItem(BaseModel):
@@ -108,6 +108,8 @@ class DreamRun(BaseModel):
     )
     duration_ms: int = 0
     notes: list[str] | None = None
+    # Scheduling checkpoint only: no knowledge/source bodies or admission authority.
+    continuation: dict[str, Any] = Field(default_factory=dict)
 
     model_config = {"extra": "allow"}
 
@@ -128,6 +130,7 @@ class DreamRun(BaseModel):
             "handling_summary": dict(self.handling_summary),
             "duration_ms": self.duration_ms,
             "notes": self.notes,
+            "continuation": dict(self.continuation),
         }
 
     @classmethod

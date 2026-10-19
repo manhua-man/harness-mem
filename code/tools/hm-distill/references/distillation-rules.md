@@ -2,8 +2,8 @@
 
 > Stages 1--4 below landed in `0.9.20` and remain the current `0.9.28` source
 > knowledge-adoption contract.
-> They run after Stage 0 (session intake and lifecycle). Extraction remains
-> lossless; assimilation dispositions are runtime claims verified by their
+> They run after Stage 0 (session intake and lifecycle). Source coverage remains
+> lossless; durable candidates are selected by topic. Assimilation dispositions are runtime claims verified by their
 > owning tests and outcome probes.
 
 ## Stage 0--4 Boundary
@@ -19,8 +19,9 @@ Treat the full product lifecycle as five responsibilities:
 - Stage 0 owns supported-host intake, project authorization, immutable source
   revisions, job/receipt lifecycle, and safe source retention/cleanup. It does
   not decide memory content.
-- Keep the existing lossless extraction path. One session may yield zero to
-  every independently addressable promotion point found in the session.
+- Keep complete source coverage. A completed reply or idle Stop is an intake
+  boundary, not proof that an iteration is finished or useful knowledge exists.
+  Select independently useful conclusions by topic, not a point per reply or attempt.
 - Verify every point independently. `ANSWERED` means the evidence question is
   answered; it does not by itself authorize durable memory.
 - Assimilate every verified point as one of `add`, `refine`, `confirm`,
@@ -47,6 +48,9 @@ Do not ask whether text should be promoted until its destination is clear.
 - `govern_memory(action="suggest", arguments.kind="memory")`
   - durable architecture facts, decisions, file maps, workflows, and reusable
     debugging lessons
+  - explicitly undecided, unknown, or unapproved status supported by the source,
+    still applicable and relevant to future choices; keep the named subject and
+    applicable scope as current knowledge, not only `unfinished_work` or a handoff
 - `govern_memory(action="suggest", arguments.kind="rule")`
   - cross-cutting guidance that should change future Agent behavior in the repo
 - `govern_memory(action="suggest", arguments.kind="relation")`
@@ -54,8 +58,15 @@ Do not ask whether text should be promoted until its destination is clear.
 - repo docs, comments, or tests
   - system behavior and business constraints that belong with the implementation
 - no durable write
-  - one-off narration, transient output, unsupported guesses, and duplicated
-    instructions
+  - greetings, one-off narration, temporary progress, unfinished attempts,
+    single-run measurements, unsupported guesses, and duplicated instructions
+
+An unfinished task may already establish an explicit continuing decision or
+correction; retain it promptly with its actual scope. Temporary progress stays
+in the review/Note or concrete handoff. Later results qualify earlier attempts;
+do not make each intermediate report a permanent row. Attribution and a disclaimer
+alone do not make a report durable. Select only mechanisms, choices or evidence
+limits that affect a later task.
 
 The hm-distill skill does not maintain a parallel knowledge base, promotion
 workspace, or draft-file truth store. A session note is a readability artifact,
@@ -70,7 +81,10 @@ never a truth store.
 - Suggest anti-patterns only when the failure mode is reusable and actionable.
 - Suggest product decisions, requirements, and roadmap constraints when they
   are supported by the complete source revision.
-- Use a handoff rather than durable memory for unfinished or short-lived work.
+- Use a handoff for unfinished actions or short-lived work. An explicit durable
+  known-unknown state is independently eligible for memory. Missing information,
+  model guesses, or assistant recommendations do not establish user indecision
+  or nonapproval.
 
 ## Reject As Noise
 
@@ -130,8 +144,20 @@ Before any insert, compare the normalized point with current knowledge relevant 
 The absence of an exact text match is not sufficient proof that the knowledge
 is new.
 
+A verified source report may confirm unchanged content, or refine/replace an
+earlier account on the same topic from the same source, session, speaker and
+period. Its replacement must already be fully supported by the newly verified
+candidate and preserve still-useful conditions. A new revision alone does not
+make the report new knowledge. Keep different speakers and source authorities
+separate; a report must never replace factual knowledge. An explicit correction
+of a continuing decision is not automatically session-only.
+
 For correction, refinement, replacement, or deletion, resolve the user's
 ordinary-language title or content through ordinary current-memory search.
+For a correction source, pass the returned old entry as `target_knowledge` to
+`prepare_session_distill`; the runtime resolves its ownership. Do not infer a
+write project from the search scope. Reuse the prepared complete source and
+references unless missing content, changed sources, or new conflicts require more.
 In `govern_memory`, pass `arguments.target_knowledge=[{title, statement, module}]`
 using the old title, old statement, and module from that search result. At least
 title or statement is required; module is an optional array of strings. The
@@ -139,6 +165,12 @@ runtime resolves an exact unique match within the project. Supply the new
 statement separately; never use it to infer the old target. IDs remain compatible
 but are not needed by default: do not search for hidden IDs, guess or invent IDs,
 or ask users to supply, copy, or manage them.
+
+An explicit correction changes only the identified content. Preserve all other
+still-applicable conditions, exceptions, and known-unknown states in the successor
+knowledge. A verified correction and its superseded source have temporal order;
+the continued presence of the old wording alone is not an unresolved conflict.
+Check genuinely new conflicting evidence before deciding the current state.
 
 For `confirm`, the candidate may use the unchanged statement copied from ordinary
 search; the runtime can match it automatically without explicit `target_knowledge`

@@ -105,6 +105,7 @@ def run_manual_session_outcome_probe() -> dict:
 
             class NoCalls:
                 name = "fixture_cli"
+                _native_results = None  # Optional diagnostics are not a provider call.
 
                 def __getattr__(self, name):
                     raise AssertionError(f"manual job reached background provider: {name}")

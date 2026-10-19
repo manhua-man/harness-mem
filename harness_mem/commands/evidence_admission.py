@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal, Sequence
+from typing import Any, Literal, Sequence, cast
 from urllib.parse import parse_qs, unquote, urlparse
 from uuid import NAMESPACE_URL, uuid5
 
@@ -21,6 +21,7 @@ from harness_mem.adapters.parser import (
 )
 from harness_mem.adapters.projection_repair import repair_source_observation_projection
 from harness_mem.core.schemas import EvidenceRef, KnowledgeSource
+from harness_mem.core.schemas.source_report import SourceReport
 from harness_mem.mcp.distill_projection import (
     _parse_exchanges,
     render_distill_exchange_windows,
@@ -57,6 +58,7 @@ class EvidenceValidation:
     verification_outcome: str | None
     reason_codes: tuple[str, ...]
     verified_at: datetime | None
+    source_report: SourceReport | None = None
 
 
 @dataclass(frozen=True)
@@ -91,8 +93,18 @@ async def validate_candidate_evidence(
     candidate: Any,
     *,
     project_root: str | Path | None = None,
+    non_promoting_disposition: Literal["no_write", "reject"] | None = None,
 ) -> EvidenceValidation:
-    """Validate current project/source integrity without judging prose semantics."""
+    """Validate sources; a non-promotion may close without asserting truth.
+
+    Only the assimilation owner supplies ``non_promoting_disposition`` after
+    checking an explicit, reasoned no_write/reject with no truth targets.
+    Transcript integrity can then establish NOT_APPLICABLE, never ANSWERED.
+    Ordinary admission and every knowledge-writing path keep the default gate.
+    """
+
+    if non_promoting_disposition not in {None, "no_write", "reject"}:
+        raise ValueError("non-promoting evidence validation requires no_write or reject")
 
     basis = getattr(candidate, "evidence_basis", None)
     requested = getattr(candidate, "verification_outcome", None)
@@ -118,7 +130,24 @@ async def validate_candidate_evidence(
             None,
         )
 
-    if basis == "repository":
+    source_report: SourceReport | None = None
+    if "source_use_task_context" in existing_reasons and requested == "verified":
+        # Reopening authentic source bytes cannot upgrade a task's lifetime.
+        requested = "not_applicable"
+    if basis == "source_report":
+        outcome, reasons, source_report = _validate_source_report_refs(backend, candidate, matching)
+        if outcome == "verified" and requested == "not_applicable":
+            # Complete native role/source proof permits a deliberate no-write;
+            # it must not turn session-only material into pending durable work.
+            # No report descriptor or truth-writing authority is granted.
+            outcome = "not_applicable"
+            reasons.append("source_report_non_promoting")
+            source_report = None
+        elif outcome == "verified" and requested != "verified":
+            outcome = "contradicted" if requested == "contradicted" else "unverified"
+            reasons.append("source_report_not_requested_verified")
+            source_report = None
+    elif basis == "repository":
         outcome, reasons = _validate_repository_refs(
             backend,
             candidate,
@@ -132,16 +161,25 @@ async def validate_candidate_evidence(
             matching,
         )
     else:
-        outcome, reasons = _validate_transcript_refs(backend, candidate, matching)
+        outcome, reasons = _validate_transcript_refs(
+            backend, candidate, matching,
+            require_complete_source=non_promoting_disposition is not None,
+        )
 
     if outcome == "verified":
-        if requested == "unverified":
+        if "source_use_task_context" in existing_reasons and requested == "not_applicable":
+            outcome = "not_applicable"
+            reasons.append("session_only_not_durable")
+        elif requested == "contradicted":
+            outcome = "contradicted"
+        elif basis == "transcript" and non_promoting_disposition is not None:
+            outcome = "not_applicable"
+            reasons.append("transcript_non_promoting_decision")
+        elif requested == "unverified":
             # Reference integrity cannot upgrade a semantic claim.  A caller
             # that has already found incomplete support must remain blocked
             # even when the cited bytes and hashes are authentic.
             outcome = "unverified"
-        elif requested == "contradicted":
-            outcome = "contradicted"
         elif basis == "user_statement" and requested == "not_applicable":
             outcome = "not_applicable"
         elif basis == "transcript":
@@ -162,6 +200,7 @@ async def validate_candidate_evidence(
         outcome,
         tuple(dict.fromkeys([*existing_reasons, *reasons])),
         verified_timestamp,
+        source_report if outcome == "verified" else None,
     )
 
 
@@ -197,8 +236,8 @@ async def reopen_knowledge_sources(
 ) -> tuple[EvidenceValidation, tuple[KnowledgeSourceReopen, ...]]:
     """Validate and boundedly reopen current sources without persisting text.
 
-    This is the only bridge by which Dream may send source text to the
-    host CLI semantic provider. Unsupported network/API locators remain
+    Dream and explicit raw-evidence reading reuse this source validation.
+    Unsupported network/API locators remain
     fail-closed and return no content until their dedicated revalidator exists.
     """
 
@@ -281,7 +320,7 @@ async def reopen_dream_knowledge_sources(
     A digest mismatch normally means a previously verified claim is stale and
     therefore must fail closed.  Dream is the one maintenance path whose job
     is to compare that claim with today's local repository bytes.  It may pass
-    those bounded bytes to the host CLI provider, but only after validating
+    the complete bytes to the host CLI provider, but only after validating
     the path remains within the same project.  The returned effective sources
     carry today's digests and must be used for the subsequent truth
     transaction; the historical source rows remain untouched until that
@@ -313,32 +352,22 @@ async def reopen_dream_knowledge_sources(
                 tuple(reopened),
                 tuple(effective_sources),
             )
-        outcome, reason, content, truncated = await _reopen_knowledge_source(
-            backend,
-            source,
-            project_root=root,
-        )
+        current_digest: str | None = None
+        if source.source_kind == "repository":
+            outcome, reason, content, truncated, current_digest = _reopen_repository_source(
+                source, project_root=root, complete=True,
+            )
+        else:
+            outcome, reason, content, truncated = await _reopen_knowledge_source(
+                backend, source, project_root=root,
+            )
         if (
             outcome == "contradicted"
             and reason == "knowledge_source_digest_changed"
             and source.source_kind == "repository"
             and content is not None
+            and current_digest is not None
         ):
-            parsed = urlparse(source.locator)
-            path = _file_uri_path(parsed)
-            try:
-                current_digest = _sha256_file(path)
-            except OSError:
-                return (
-                    EvidenceValidation(
-                        source.source_kind,
-                        "unverified",
-                        ("knowledge_source_unreadable",),
-                        None,
-                    ),
-                    tuple(reopened),
-                    tuple(effective_sources),
-                )
             reopened.append(
                 KnowledgeSourceReopen(
                     source_kind=source.source_kind,
@@ -390,6 +419,8 @@ def apply_validation(candidate: Any, validation: EvidenceValidation) -> None:
     candidate.verification_outcome = validation.verification_outcome
     candidate.verification_reason_codes = list(validation.reason_codes)
     candidate.verified_at = validation.verified_at
+    if hasattr(candidate, "source_report"):
+        candidate.source_report = validation.source_report
 
 
 def sanitize_evidence_refs(candidate: Any) -> None:
@@ -416,6 +447,8 @@ def evidence_summary_key(candidate: Any) -> str:
         return "user_stated"
     if basis == "repository" and outcome == "verified":
         return "repository_verified"
+    if basis == "source_report" and outcome in {"verified", "not_applicable"}:
+        return "source_report"
     return "legacy_or_unknown"
 
 
@@ -446,6 +479,9 @@ def answer_gate_status(candidate: Any) -> AnswerGateStatus:
     if basis == "repository" and outcome == "verified":
         return "ANSWERED"
     if basis == "user_statement" and outcome == "verified":
+        return "ANSWERED"
+    if (basis == "source_report" and outcome == "verified"
+            and isinstance(getattr(candidate, "source_report", None), SourceReport)):
         return "ANSWERED"
     if outcome == "not_applicable":
         return "NOT_APPLICABLE"
@@ -498,6 +534,11 @@ async def _reopen_knowledge_source(
     *,
     project_root: Path | None,
 ) -> tuple[str, str, str | None, bool]:
+    if source.source_kind == "repository":
+        outcome, reason, content, truncated, _digest = _reopen_repository_source(
+            source, project_root=project_root, complete=False,
+        )
+        return outcome, reason, content, truncated
     parsed = urlparse(source.locator)
     digest = str(source.content_sha256 or "").lower()
     if not _SHA256.fullmatch(digest):
@@ -507,26 +548,6 @@ async def _reopen_knowledge_source(
         # Until that exists, Review/Dream must fail closed.
         return "unverified", "knowledge_source_scheme_unsupported", None, False
     path = _file_uri_path(parsed)
-    if source.source_kind == "repository":
-        if project_root is None or not project_root.is_dir():
-            return "unverified", "repository_project_root_unavailable", None, False
-        if not _is_relative_to(path, project_root) or path == project_root:
-            return "unverified", "knowledge_source_outside_project", None, False
-        if not path.is_file():
-            return "unverified", "knowledge_source_missing", None, False
-        try:
-            actual = _sha256_file(path)
-            content, truncated = _read_bounded_source_content(path)
-        except (OSError, UnicodeDecodeError):
-            return "unverified", "knowledge_source_unreadable", None, False
-        if actual != digest:
-            # The generic evidence gate remains contradicted and does not use
-            # this body.  Dream's explicit local-source reopener may consume
-            # the bounded current bytes to decide whether to refresh, replace,
-            # or retire the stale knowledge row.
-            return "contradicted", "knowledge_source_digest_changed", content, truncated
-        return "verified", "knowledge_source_current", content, truncated
-
     transcript_db = Path(backend.transcript_store.db_path).resolve(strict=False)
     if path != transcript_db:
         return "unverified", "knowledge_source_transcript_store_mismatch", None, False
@@ -540,6 +561,8 @@ async def _reopen_knowledge_source(
         return "unverified", "knowledge_source_revision_missing", None, False
     if revision.project_name != source.project_name:
         return "unverified", "knowledge_source_project_mismatch", None, False
+    if source.source_kind == "source_report":
+        return _reopen_source_report(backend, source, query, digest)
     if source.source_kind == "user_statement":
         exchange = _query_int(query, "exchange")
         if exchange is None:
@@ -608,6 +631,45 @@ async def _reopen_knowledge_source(
             truncated,
         )
     return "unverified", "knowledge_source_kind_unsupported", None, False
+
+
+def _reopen_repository_source(
+    source: KnowledgeSource, *, project_root: Path | None, complete: bool,
+) -> tuple[str, str, str | None, bool, str | None]:
+    """Bind Dream's complete UTF-8 body and effective digest to one byte snapshot.
+
+    Other callers keep the existing bounded excerpt contract. Only Dream can
+    use changed local bytes, after the same locator and project checks.
+    """
+    digest = str(source.content_sha256 or "").lower()
+    if not _SHA256.fullmatch(digest):
+        return "unverified", "knowledge_source_digest_missing", None, False, None
+    parsed = urlparse(source.locator)
+    if parsed.scheme != "file":
+        return "unverified", "knowledge_source_scheme_unsupported", None, False, None
+    path = _file_uri_path(parsed)
+    if project_root is None or not project_root.is_dir():
+        return "unverified", "repository_project_root_unavailable", None, False, None
+    if not _is_relative_to(path, project_root) or path == project_root:
+        return "unverified", "knowledge_source_outside_project", None, False, None
+    if not path.is_file():
+        return "unverified", "knowledge_source_missing", None, False, None
+    try:
+        if complete:
+            raw = path.read_bytes()
+            content = raw.decode("utf-8")
+            if "\x00" in content:
+                return "unverified", "knowledge_source_unreadable", None, False, None
+            actual = hashlib.sha256(raw).hexdigest()
+            truncated = False
+        else:
+            actual = _sha256_file(path)
+            content, truncated = _read_bounded_source_content(path)
+    except (OSError, UnicodeDecodeError):
+        return "unverified", "knowledge_source_unreadable", None, False, None
+    if actual != digest:
+        return "contradicted", "knowledge_source_digest_changed", content, truncated, actual
+    return "verified", "knowledge_source_current", content, truncated, actual
 
 
 async def _validate_knowledge_source(
@@ -861,6 +923,277 @@ def _frozen_user_exchange_indexes(
     return rendered_user_indexes
 
 
+def _source_report_context(backend: LocalMemoryBackend, *, project_name: str,
+                           source_id: str, source_revision: str) -> tuple[Any, str, bytes]:
+    """Reconstruct all immutable bytes and chunks before using any report ref."""
+    ledger = backend.transcript_store
+    source = ledger.get_source(source_id)
+    revision = ledger.get_revision(source_id, source_revision)
+    if source is None or revision is None:
+        raise ValueError("source_report_source_missing")
+    if (source.id != source_id or revision.source_id != source_id
+            or revision.source_revision != source_revision
+            or source.project_name != project_name or revision.project_name != project_name
+            or source.session_id != revision.session_id or source.client != revision.client
+            or source.project_root != revision.project_root
+            or revision.coverage != "complete"):
+        raise ValueError("source_report_source_scope_mismatch")
+    # A bounded historical report belongs to its retained immutable revision.
+    # Appending to the same session changes today's pointer/digests, not what
+    # its earlier speaker said. Only the current revision shares those fields.
+    if source.source_revision == source_revision and (
+            source.raw_sha256 != revision.raw_sha256
+            or source.normalized_sha256 != revision.normalized_sha256
+            or source.chunk_count != revision.chunk_count
+            or source.coverage != "complete" or source.status != "synced"):
+        raise ValueError("source_report_source_scope_mismatch")
+    raw = ledger.reconstruct_raw(source_id, source_revision=source_revision)
+    rendering = ledger.reconstruct(source_id, source_revision=source_revision)
+    if (hashlib.sha256(raw).hexdigest() != revision.raw_sha256
+            or len(raw) != revision.raw_size_bytes
+            or not source_revision.startswith(f"sha256:{revision.raw_sha256}")
+            or hashlib.sha256(rendering.encode("utf-8")).hexdigest() != revision.normalized_sha256
+            or len(rendering.encode("utf-8")) != revision.normalized_size_bytes):
+        raise ValueError("source_report_source_digest_changed")
+    chunks = ledger.list_chunks(source_id, source_revision=source_revision)
+    if len(chunks) != revision.chunk_count or any(
+        chunk.source_id != source_id or chunk.source_revision != source_revision
+        or chunk.project_name != project_name or chunk.client != revision.client
+        or chunk.session_id != revision.session_id
+        for chunk in chunks
+    ):
+        raise ValueError("source_report_source_incomplete")
+    if revision.client == "claude-code":
+        from harness_mem.adapters.snapshot import _native_claude_rendering
+
+        # The immutable Claude ledger holds JSONL; refs cite its canonical
+        # conversation rendering. Derive that view only after full byte checks.
+        if revision.parser_version != "claude-code-jsonl-v1":
+            raise ValueError("source_report_speaker_unproved")
+        native_rendering = _native_claude_rendering(raw, revision.session_id)
+        if native_rendering is None:
+            raise ValueError("source_report_speaker_unproved")
+        rendering = native_rendering
+    return revision, rendering, raw
+
+
+def _source_report_author_indexes(revision: Any, rendering: str, raw: bytes,
+                                  speaker: str) -> set[int] | None:
+    """Prove the cited role, with no legacy text/explicit-role escape hatch."""
+    from harness_mem.adapters.snapshot import _native_claude_rendering, _native_codex_authored_texts
+    from harness_mem.mcp.distill_projection import _ENTRY_RE
+
+    if revision.client not in {"codex", "codex-archive", "cursor", "claude-code"}:
+        return None
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeError:
+        return None
+    exchanges = _parse_exchanges(rendering)[1]
+    if revision.client == "claude-code":
+        if revision.parser_version != "claude-code-jsonl-v1":
+            return None
+        native_rendering = _native_claude_rendering(raw, revision.session_id)
+        if native_rendering is None:
+            return None
+    elif revision.client in {"codex", "codex-archive"}:
+        native = _native_codex_authored_texts(raw)
+        if native is not None:
+            native_rendering = native[0]
+        elif text.lstrip().startswith(("{", "[")):
+            return None
+        else:
+            # New capture proof is emitted only after snapshot independently
+            # parses native input. Old caller-owned authored-user flags alone
+            # cannot certify either report speaker from a plain-text source.
+            metadata = revision.metadata
+            receipt = metadata.get("authored_source_report_native_sha256")
+            if (revision.parser_version not in {
+                    "codex-conversation-v2", "codex-conversation-v3", "codex-archive-conversation-v2"}
+                    or not isinstance(receipt, str) or not _SHA256.fullmatch(receipt)
+                    or receipt != metadata.get("native_input_sha256")
+                    or metadata.get("authored_rendering_sha256")
+                    != hashlib.sha256(rendering.encode("utf-8")).hexdigest()
+                    or text != rendering):
+                return None
+            for role in ("user", "assistant"):
+                captured = metadata.get(f"authored_{role}_text_sha256")
+                expected = [hashlib.sha256(value.encode("utf-8")).hexdigest()
+                            for exchange in exchanges for value in exchange[role]]
+                if not isinstance(captured, list) or captured != expected:
+                    return None
+            return {index for index, exchange in enumerate(exchanges, 1) if exchange[speaker]}
+    else:
+        import json
+        try:
+            document = json.loads(text)
+        except ValueError:
+            document = None
+        if isinstance(document, dict) and document.get("format") == "cursorDiskKV-v1":
+            from harness_mem.adapters.cursor.sqlite_history import cursor_export_messages
+            try:
+                messages = cursor_export_messages(raw, revision.session_id)
+            except (ValueError, TypeError, UnicodeError):
+                return None
+            rows = [(message["role"], message["content"]) for message in messages]
+        else:
+            scanned = scan_jsonl(text)
+            if scanned.errors or not scanned.records:
+                return None
+            rows = []
+            for record in scanned.records:
+                if record.get("type") == "session_meta":
+                    continue
+                cursor_role = record.get("role")
+                message = record.get("message", record)
+                if cursor_role not in {"user", "assistant", "tool"} or not isinstance(message, dict):
+                    return None
+                if message.get("role", cursor_role) != cursor_role:
+                    return None
+                rows.append((cursor_role, _render_cursor_content_items(message.get("content"))))
+        blocks = []
+        for role, body in rows:
+            if not isinstance(body, str):
+                return None
+            block = f"{role.title()}: {body}"
+            if len(list(_ENTRY_RE.finditer(block))) != 1:
+                return None
+            if role in {"user", "assistant"} and body.strip():
+                blocks.append(block)
+        native_rendering = "\n\n".join(blocks)
+    native_exchanges = _parse_exchanges(native_rendering)[1]
+    if [(exchange["user"], exchange["assistant"]) for exchange in native_exchanges] != [
+            (exchange["user"], exchange["assistant"]) for exchange in exchanges]:
+        return None
+    return {index for index, exchange in enumerate(exchanges, 1) if exchange[speaker]}
+
+
+def _source_report_period(revision: Any, raw: bytes) -> str:
+    from harness_mem.adapters.snapshot import _native_source_timestamp
+
+    value = revision.metadata.get("native_timestamp")
+    if isinstance(value, str) and value.strip():
+        try:
+            datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            pass
+        else:
+            # Historical captures may have stored Observation.timestamp (often
+            # mtime/now) here. Structured sources must independently agree.
+            if raw.lstrip().startswith(b"{"):
+                return value if _native_source_timestamp(raw, revision.client) == value else "that session (date unknown)"
+            if revision.metadata.get("authored_source_report_native_sha256"):
+                return value
+    return "that session (date unknown)"
+
+
+def _validate_source_report_refs(backend: LocalMemoryBackend, candidate: Any,
+                                 refs: list[EvidenceRef]) -> tuple[str, list[str], SourceReport | None]:
+    job = _candidate_job(backend, candidate)
+    if job is None:
+        return "unverified", ["source_report_job_missing"], None
+    try:
+        revision, rendering, raw = _source_report_context(
+            backend, project_name=candidate.project_name, source_id=job.source_id,
+            source_revision=job.source_revision)
+        if (job.session_id != revision.session_id or job.client != revision.client
+                or job.project_root != revision.project_root):
+            raise ValueError("source_report_job_scope_mismatch")
+        roles = {ref.role for ref in refs}
+        if len(roles) != 1 or not roles.issubset({"user", "assistant"}):
+            raise ValueError("source_report_speaker_unproved")
+        speaker = cast(Literal["user", "assistant"], next(iter(roles)))
+        indexes = [ref.exchange_index for ref in refs if ref.exchange_index is not None]
+        if (len(indexes) != len(refs) or len(indexes) != len(set(indexes))
+                or any(ref.chunk_index is not None or ref.locator is not None
+                       or ref.locator_sha256 is not None for ref in refs)):
+            raise ValueError("source_report_ref_incomplete")
+        proved = _source_report_author_indexes(revision, rendering, raw, str(speaker))
+        if proved is None or any(index not in proved for index in indexes):
+            raise ValueError("source_report_speaker_unproved")
+        for ref in refs:
+            assert ref.exchange_index is not None
+            windows = render_distill_exchange_windows(rendering, [ref.exchange_index])
+            if not windows or str(ref.content_sha256 or "").lower() != windows[0]["content_sha256"]:
+                raise ValueError("source_report_exchange_digest_changed")
+        statement = getattr(candidate, "statement", None)
+        if not isinstance(statement, str) or not statement.strip():
+            raise ValueError("source_report_statement_missing")
+        report = SourceReport(speaker=speaker, period=_source_report_period(revision, raw),
+            session_id=job.session_id, source_id=job.source_id, source_revision=job.source_revision,
+            exchange_indexes=indexes, text=statement)
+        previous = getattr(candidate, "source_report", None)
+        if previous is not None and SourceReport.model_validate(previous) != report:
+            raise ValueError("source_report_descriptor_mismatch")
+    except (KeyError, ValueError, OSError) as exc:
+        reason = str(exc)
+        if not _SAFE_REASON.fullmatch(reason):
+            reason = "source_report_source_incomplete"
+        return "unverified", [reason], None
+    return "verified", ["source_report_native_refs_current"], report
+
+
+def source_report_speaker_excerpt(
+    backend: LocalMemoryBackend, *, project_name: str, job_id: str, ref: Any,
+) -> str | None:
+    """Reopen the actual speaker's prose for semantic support, not whole-turn assent.
+
+    This only proves whose source text is supplied. The existing semantic
+    verification owner must still judge whether it entails the paraphrase.
+    """
+    job = backend.transcript_store.get_distill_job(job_id)
+    if (job is None or job.project_name != project_name or ref.kind != "source_report"
+            or ref.role not in {"user", "assistant"} or ref.exchange_index is None):
+        return None
+    try:
+        revision, rendering, raw = _source_report_context(
+            backend, project_name=project_name, source_id=job.source_id,
+            source_revision=job.source_revision,
+        )
+        if (job.session_id != revision.session_id or job.client != revision.client
+                or job.project_root != revision.project_root):
+            return None
+        proved = _source_report_author_indexes(revision, rendering, raw, ref.role)
+        if proved is None or ref.exchange_index not in proved:
+            return None
+        windows = render_distill_exchange_windows(rendering, [ref.exchange_index])
+        if not windows or str(ref.content_sha256 or "").lower() != windows[0]["content_sha256"]:
+            return None
+        return "\n\n".join(_parse_exchanges(rendering)[1][ref.exchange_index - 1][ref.role])
+    except (KeyError, ValueError, OSError):
+        return None
+
+
+def _reopen_source_report(backend: LocalMemoryBackend, source: KnowledgeSource,
+                           query: dict[str, list[str]], digest: str) -> tuple[str, str, str | None, bool]:
+    if set(query) != {"source_id", "source_revision", "exchange", "role"}:
+        return "unverified", "source_report_locator_incomplete", None, False
+    speaker = _single_query_value(query, "role")
+    exchange = _query_int(query, "exchange")
+    source_id = _single_query_value(query, "source_id")
+    source_revision = _single_query_value(query, "source_revision")
+    if speaker is None or speaker not in {"user", "assistant"} or exchange is None or not source_id or not source_revision:
+        return "unverified", "source_report_speaker_unproved", None, False
+    try:
+        revision, rendering, raw = _source_report_context(
+            backend, project_name=source.project_name, source_id=source_id, source_revision=source_revision)
+        proved = _source_report_author_indexes(revision, rendering, raw, speaker)
+        if proved is None or exchange not in proved:
+            return "unverified", "source_report_speaker_unproved", None, False
+        windows = render_distill_exchange_windows(rendering, [exchange])
+        if not windows or windows[0]["content_sha256"] != digest:
+            return "contradicted", "knowledge_source_digest_changed", None, False
+        spoken = _parse_exchanges(rendering)[1][exchange - 1][speaker]
+        report = SourceReport(speaker=cast(Literal["user", "assistant"], speaker), period=_source_report_period(revision, raw),
+            session_id=revision.session_id, source_id=revision.source_id,
+            source_revision=revision.source_revision, exchange_indexes=[exchange],
+            text=" ".join(" ".join(spoken).split()))
+    except (KeyError, ValueError, OSError):
+        return "unverified", "source_report_source_incomplete", None, False
+    content, truncated = _bounded_source_content(report.render_statement())
+    return "verified", "source_report_native_refs_current", content, truncated
+
+
 async def _validate_user_statement_refs(
     backend: LocalMemoryBackend,
     candidate: Any,
@@ -929,6 +1262,8 @@ def _validate_transcript_refs(
     backend: LocalMemoryBackend,
     candidate: Any,
     refs: list[EvidenceRef],
+    *,
+    require_complete_source: bool = False,
 ) -> tuple[str, list[str]]:
     job = _candidate_job(backend, candidate)
     if job is None:
@@ -940,16 +1275,51 @@ def _validate_transcript_refs(
             source_revision=job.source_revision,
         )
     }
+    rendering: str | None = None
     for ref in refs:
-        if ref.chunk_index is None or not _SHA256.fullmatch(
-            str(ref.content_sha256 or "").lower()
+        if (
+            (ref.chunk_index is None) == (ref.exchange_index is None)
+            or not _SHA256.fullmatch(str(ref.content_sha256 or "").lower())
         ):
             return "unverified", ["transcript_ref_incomplete"]
-        chunk = chunks.get(ref.chunk_index)
-        if chunk is None:
-            return "unverified", ["transcript_chunk_missing"]
-        if chunk.content_sha256 != str(ref.content_sha256).lower():
+        if ref.chunk_index is not None:
+            chunk = chunks.get(ref.chunk_index)
+            if chunk is None:
+                return "unverified", ["transcript_chunk_missing"]
+            actual_digest = chunk.content_sha256
+        else:
+            if ref.exchange_index is None:
+                return "unverified", ["transcript_ref_incomplete"]
+            if rendering is None:
+                try:
+                    rendering = backend.transcript_store.reconstruct(
+                        job.source_id, source_revision=job.source_revision,
+                    )
+                except (KeyError, ValueError):
+                    return "unverified", ["transcript_source_incomplete"]
+                projection = repair_source_observation_projection(
+                    backend, source_id=job.source_id, source_revision=job.source_revision,
+                )
+                if projection is not None:
+                    rendering = projection.raw_content
+            windows = render_distill_exchange_windows(rendering, [ref.exchange_index])
+            if not windows:
+                return "unverified", ["transcript_exchange_missing"]
+            actual_digest = str(windows[0].get("content_sha256") or "")
+        if actual_digest != str(ref.content_sha256).lower():
             return "contradicted", ["transcript_digest_changed"]
+    if require_complete_source:
+        # A valid cited chunk alone must not close work whose immutable source
+        # or another chunk disappeared. Reuse the ledger's full hash checks.
+        try:
+            backend.transcript_store.reconstruct(
+                job.source_id, source_revision=job.source_revision,
+            )
+            backend.transcript_store.reconstruct_raw(
+                job.source_id, source_revision=job.source_revision,
+            )
+        except (KeyError, ValueError):
+            return "unverified", ["transcript_source_incomplete"]
     return "verified", ["transcript_refs_current"]
 
 
@@ -996,6 +1366,7 @@ __all__ = [
     "apply_validation",
     "evidence_summary_key",
     "sanitize_evidence_refs",
+    "source_report_speaker_excerpt",
     "reopen_knowledge_sources",
     "reopen_dream_knowledge_sources",
     "uses_evidence_admission",

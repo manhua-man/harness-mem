@@ -408,6 +408,7 @@ def test_assimilation_retries_one_invalid_knowledge_item_shape(tmp_path: Path) -
                 raise ProviderError(
                     "Responses provider returned invalid assimilation JSON: missing title",
                     kind="unrecoverable",
+                    failure_reason="decision_schema",
                 )
             return ProviderResult(
                 decision=AssimilationDecision.model_validate({"points": []}),
@@ -827,10 +828,25 @@ def test_assimilation_does_not_recover_ambiguous_source_clauses(
     assert result.schema_valid is False
 
 
+@pytest.mark.parametrize(("batch_size", "effective_size"), [(None, 16), (1, 1), (8, 8), (16, 16)])
 def test_assimilation_batches_large_verified_sets_and_revalidates_full_coverage(
     tmp_path: Path,
+    batch_size: int | None,
+    effective_size: int,
 ) -> None:
-    candidate_ids = tuple(f"candidate-{index}" for index in range(7))
+    from harness_mem.core.schemas.source_report import SourceReport
+
+    candidate_ids = tuple(f"candidate-{index}" for index in range(19))
+    report = SourceReport(speaker="assistant", period="unknown source-session timestamp",
+        session_id="session", source_id="source", source_revision="sha256:source",
+        exchange_indexes=[1], text="This bounded diagnostic did not establish deployment.")
+    current_truth = [
+        {"handle": "T1", "kind": "knowledge_entry", "title": "Ordinary scope",
+         "statement": "An unrelated fact retains its scope.", "topic_path": ["scope"]},
+        {"handle": "T2", "kind": "knowledge_entry", "title": report.render_title(),
+         "statement": report.render_statement(), "topic_path": ["scope"],
+         "source_report": report.model_dump(mode="json", exclude={"text"})},
+    ]
     prepared = SeparatedPreparedAssimilation(
         project_name="demo",
         project_root=str(tmp_path),
@@ -840,12 +856,12 @@ def test_assimilation_batches_large_verified_sets_and_revalidates_full_coverage(
         answer_status_by_candidate={
             candidate_id: "ANSWERED" for candidate_id in candidate_ids
         },
-        truth_by_handle={},
+        truth_by_handle={"T1": "truth-1", "T2": "truth-2"},
         manifest={
             "contract_version": "separated-knowledge-assimilation-v1",
             "project_name": "demo",
             "current_modules": [],
-            "current_truth": [],
+            "current_truth": current_truth,
             "verified_candidates": [
                 {
                     "candidate_id": candidate_id,
@@ -855,6 +871,7 @@ def test_assimilation_batches_large_verified_sets_and_revalidates_full_coverage(
             ],
         },
     )
+    original_manifest = json.loads(json.dumps(prepared.manifest))
 
     class _Provider:
         name = "bounded-batch-provider"
@@ -865,6 +882,7 @@ def test_assimilation_batches_large_verified_sets_and_revalidates_full_coverage(
 
         def assimilate(self, manifest, *, runtime_dir, heartbeat=None):
             del runtime_dir
+            assert manifest["current_truth"] == current_truth
             batch = [
                 item["candidate_id"] for item in manifest["verified_candidates"]
             ]
@@ -917,15 +935,19 @@ def test_assimilation_batches_large_verified_sets_and_revalidates_full_coverage(
         prepared=prepared,
         runtime_dir=tmp_path,
         heartbeat=None,
+        _batch_size=batch_size,
     )
 
-    assert provider.batches == [[candidate_id] for candidate_id in candidate_ids]
-    assert provider.prior_counts == list(range(7))
+    expected = [list(candidate_ids[offset:offset + effective_size])
+                for offset in range(0, len(candidate_ids), effective_size)]
+    assert provider.batches == expected
+    assert provider.prior_counts == list(range(0, len(candidate_ids), effective_size))
+    assert prepared.manifest == original_manifest
     assert [point.candidate_id for point in result.decision.points] == list(
         candidate_ids
     )
-    assert result.attempt_count == 7
-    assert result.total_tokens == 140
+    assert result.attempt_count == len(expected)
+    assert result.total_tokens == 20 * len(expected)
 
 
 def test_assimilation_hides_truth_retired_by_an_earlier_batch(tmp_path: Path) -> None:
@@ -1333,13 +1355,18 @@ def test_invalid_assimilation_point_defers_without_blocking_other_points(
         model = "extract-model"
         assimilation_model = "assimilation-model"
 
+        def __init__(self):
+            self.calls = 0
+
         def assimilate(self, manifest, *, runtime_dir, heartbeat=None):
             del runtime_dir, heartbeat
+            self.calls += 1
             candidate_id = manifest["verified_candidates"][0]["candidate_id"]
             if candidate_id == "bad-point":
                 raise ProviderError(
                     "Responses provider returned invalid assimilation JSON: bad point",
                     kind="unrecoverable",
+                    failure_reason="decision_schema",
                 )
             return ProviderResult(
                 decision=AssimilationDecision.model_validate(
@@ -1369,8 +1396,9 @@ def test_invalid_assimilation_point_defers_without_blocking_other_points(
                 event_count=1,
             )
 
+    provider = _Provider()
     result = _assimilate_prepared_in_bounded_batches(
-        _Provider(),
+        provider,
         prepared=prepared,
         runtime_dir=tmp_path,
         heartbeat=None,
@@ -1382,7 +1410,8 @@ def test_invalid_assimilation_point_defers_without_blocking_other_points(
     ]
     assert result.provider == "point-isolation-provider"
     assert result.schema_valid is False
-    assert result.attempt_count == 4
+    assert result.attempt_count == provider.calls == 7
+    assert result.input_tokens is result.output_tokens is result.total_tokens is None
 
 
 def test_transient_assimilation_failure_keeps_job_retryable(tmp_path: Path) -> None:
@@ -1750,6 +1779,7 @@ def test_bounded_assimilation_resolves_points_that_reuse_a_mutating_truth_target
         prepared=prepared,
         runtime_dir=tmp_path,
         heartbeat=None,
+        _batch_size=1,
     )
 
     assert provider.batches == [
@@ -3177,7 +3207,7 @@ def test_autonomous_worker_persists_job_bound_handoff_for_partial_review() -> No
     ]
 
 
-def test_autonomous_worker_filters_handoff_and_bare_replaced_candidates() -> None:
+def test_autonomous_worker_filters_handoff_not_replacement_semantics() -> None:
     decision = AutonomousDecision.model_validate(
         {
             "semantic_review": {
@@ -3253,11 +3283,54 @@ def test_autonomous_worker_filters_handoff_and_bare_replaced_candidates() -> Non
 
     assert reasons == [
         None,
-        "bare replaced history belongs to summary or final outcome",
+        None,
         "unfinished work belongs to the job-bound handoff",
         "unfinished work belongs to the job-bound handoff",
         None,
     ]
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "Aster Harbor 正式导出仅支持TSV，CSV不得继续开放，csv_allowed=false；此前试点支持CSV的选择已被替代。",
+        "The formal route is the primary route; the pilot route was superseded.",
+        "The old interface was replaced in the supported migration.",
+        "旧接口被替代；调用者必须使用带校验的新接口。",
+    ],
+)
+def test_replacement_wording_reaches_semantic_verification(statement: str) -> None:
+    candidate = DistillCandidate.model_validate(
+        {
+            "kind": "memory",
+            "category": "knowledge",
+            "content": statement,
+            "confidence": 0.5,
+            "evidence_basis": "user_statement",
+            "verification_outcome": "unverified",
+            "verification_refs": [],
+            "verification_reason_codes": [],
+        }
+    )
+    decision = AutonomousDecision.model_validate(
+        {
+            "semantic_review": {
+                "session_summary": "A source describes a bounded replacement.",
+                "final_user_request": "Retain the supported decision.",
+                "final_outcome": "The candidate still requires semantic verification.",
+                "last_turn_status": "answered",
+                "contradictions": [],
+                "unfinished_work": [],
+                "evidence_status": "partial",
+                "promotion_decision": "partial",
+                "zero_candidate_challenge": None,
+            },
+            "candidates": [candidate.model_dump()],
+        }
+    )
+    # This is only routing to the existing evidence/durable-value stages,
+    # never an assertion that the point is supported or should be written.
+    assert provider_candidate_control_reason(candidate, decision=decision) is None
 
 
 def test_autonomous_worker_normalizes_unfinished_promote_to_partial() -> None:
@@ -3837,6 +3910,60 @@ def test_autonomous_worker_completes_job_materializes_note_and_receipt(
     assert incomplete["provider_metrics_bound"] is False
     assert incomplete["lifecycle_verified"] is False
     asyncio.run(backend.close())
+
+
+def test_note_io_failure_preserves_all_native_paid_stage_journal(tmp_path, monkeypatch):
+    from dataclasses import replace
+    from harness_mem.autonomous import worker as owner
+
+    project = tmp_path / 'project'
+    project.mkdir()
+    monkeypatch.setattr(Path, 'home', lambda: tmp_path / 'home')
+    (project / '.harness-mem.toml').write_text('[distill.autonomous]\nenabled=true\n', encoding='utf-8')
+    backend = LocalMemoryBackend(tmp_path / 'data')
+    asyncio.run(backend.init())
+    text = 'User: Always use SQLite for local indexes in this project.\n\nAssistant: I will preserve that project storage decision.\n'
+    provider = _DeterministicProvider()
+    provider._native_results = []
+    for name in ('decide', 'verify', 'assimilate'):
+        method = getattr(provider, name)
+        def observed(manifest, *, runtime_dir, heartbeat=None, _method=method, _name=name):
+            result = _method(manifest, runtime_dir=runtime_dir, heartbeat=heartbeat)
+            usage = {key: getattr(result, key) for key in ('input_tokens', 'output_tokens', 'total_tokens')}
+            result = replace(result, native_attempts=({'call_id': _name, 'model_dispatched': True,
+                'usage': usage, 'known_usage_subtotal': usage},))
+            provider._native_results.append(replace(result, decision=None))
+            return result
+        setattr(provider, name, observed)
+    def failed_note(*_args, **_kwargs):
+        raise OSError('fixture Note disk failure after three paid calls')
+    monkeypatch.setattr(owner, '_materialize_note', failed_note)
+    monkeypatch.setattr(owner, 'pending_distill_jobs', lambda *_args, **_kwargs: [])
+    try:
+        snapshot = asyncio.run(persist_session_snapshot(backend,
+            Observation(session_id='note-failure', client='codex', raw_content=text,
+                        content_type='transcript', timestamp=datetime.now(timezone.utc), metadata={}),
+            project_name='demo', project_root=str(project), client='codex', session_id='note-failure',
+            source_kind='jsonl', source_uri='file:///fictional-note-failure.jsonl', source_text=text))
+        result = run_autonomous_distill_batch(backend, project_name='demo', project_root=project,
+            config=load_merged_config(project), trigger_id='note-failure', client='codex', provider=provider,
+            max_jobs=1, preferred_job_id=snapshot.distill_job_id, notes_dir=tmp_path / 'notes')
+        outcome = result['outcomes'][0]
+        assert outcome['status'] == 'deferred'
+        assert 'Note disk failure' in outcome['error']['message']
+        assert [row['call_id'] for row in outcome['provider']['native_attempts']] == ['decide', 'verify', 'assimilate']
+        assert outcome['provider']['total_tokens'] == 1180
+        receipt = read_autonomous_receipt(backend.data_dir, project_name='demo', project_root=project)
+        # The top-level compatibility provider remains a verified-completion
+        # field; the deferred job's paid history is in batch.jobs, not promoted
+        # into a successful-completion record.
+        assert receipt['provider'] is None
+        assert receipt['batch']['jobs'][0]['provider']['total_tokens'] == 1180
+        assert receipt['batch']['total_tokens'] == 1180
+        assert receipt['batch']['known_usage_subtotal']['total_tokens'] == 1180
+        assert len(receipt['batch']['jobs'][0]['provider']['native_attempts']) == 3
+    finally:
+        asyncio.run(backend.close())
 
 
 def test_missing_summary_repair_uses_job_bound_note_after_identity_pruning(

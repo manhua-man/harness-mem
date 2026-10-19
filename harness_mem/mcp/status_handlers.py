@@ -75,7 +75,7 @@ def _bootstrap_status_workspace(
         contextlib.redirect_stdout(install_output),
         contextlib.redirect_stderr(io.StringIO()),
     ):
-        install_status = cmd_install_hook_suite(host, str(resolved_root), False)
+        install_status = cmd_install_hook_suite(host, str(resolved_root), False, scope="user")
     failure_kind = None
     try:
         report = json.loads(install_output.getvalue())
@@ -187,7 +187,7 @@ def tool_get_project_status(
     message = "Memory storage is ready; Hook files are prepared."
     if resolved_host == "codex":
         message += (
-            " If not yet trusted, review project Hooks in Codex Settings, then start a new task."
+            " If not yet trusted, review user Hooks in Codex Settings, then start a new task."
         )
     return {
         "success": True,

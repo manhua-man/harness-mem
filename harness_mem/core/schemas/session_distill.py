@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 DistillJobStatus = Literal[
@@ -141,6 +141,23 @@ class ZeroCandidateChallenge(BaseModel):
         return self
 
 
+class RetainedStateRef(BaseModel):
+    """An explicitly classified state tied to its saved promotion point."""
+
+    candidate_id: str = Field(min_length=1)
+    unfinished_work_item: str = Field(min_length=1)
+
+    model_config = {"extra": "forbid"}
+
+    @field_validator("candidate_id", "unfinished_work_item")
+    @classmethod
+    def nonblank_reference(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("retained-state references must not be blank")
+        return value
+
+
 class SessionSemanticReview(BaseModel):
     """Required end-of-session judgment before candidate promotion completes."""
 
@@ -150,6 +167,7 @@ class SessionSemanticReview(BaseModel):
     last_turn_status: Literal["answered", "unfinished", "unknown"]
     contradictions: list[str]
     unfinished_work: list[str]
+    retained_state_refs: list[RetainedStateRef] = Field(default_factory=list)
     evidence_status: Literal[
         "answered",
         "partial",

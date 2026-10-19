@@ -188,6 +188,8 @@ def distill_drainer_metrics(
     }
     for job in completed_7d:
         admission = dict(job.promotion_summary.get("evidence_admission") or {})
+        if admission.get("source_report"):
+            evidence_admission_7d.setdefault("source_report", 0)
         for key in evidence_admission_7d:
             evidence_admission_7d[key] += max(0, int(admission.get(key) or 0))
     cleanup_partial = [

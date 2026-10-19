@@ -1,0 +1,391 @@
+{
+  "schema": "product-convergence-budget-proposal-v2",
+  "date": "2026-10-17",
+  "timezone": "Asia/Hong_Kong",
+  "status": "evaluation_completed_quality_not_accepted",
+  "latest_operator_instruction": "所有无聊的边界限制都去除，你可以看看我们产品相关技能族",
+  "previous_numeric_limits_are_historical_not_current_stop_gates": true,
+  "current_accounting_policy": "retain all known usage and failures; keep previous unsettled usage explicitly unknown; do not block the actual workflow on those former gates",
+  "current_data_policy": "keep real memory, global configuration and original sources protected; use task-owned storage",
+  "scope": "native_workflow_and_six_scenario_evaluation_closed",
+  "offline_repair_allowed": true,
+  "additional_offline_repair": {
+    "authorization": "Operator: 继续追加",
+    "status": "closed",
+    "started_at_utc": "2026-10-17T01:09:54+00:00",
+    "scope": [
+      "apostrophe_and_weak_match_noise",
+      "explicit_adapter_capability_boundaries",
+      "small_offline_regressions"
+    ],
+    "model_execution_allowed": false,
+    "artifact_cap_increased": false,
+    "time_cap_reset": false
+  },
+  "execution_allowed": false,
+  "qualification_allowed": true,
+  "model_execution_allowed": false,
+  "model_test_allowance_current": null,
+  "model_execution_status": "all_requested_native_tests_closed_quality_rejected",
+  "operator_budget_amendment": {
+    "single_request_output_limit_condition_waived": true,
+    "authorization": "User explicitly removed the output-limit condition and accepted actual-usage cumulative stopping",
+    "enforcement": "post_response_usage_stop_not_absolute_inflight_token_bound",
+    "last_request_can_overshoot": true,
+    "unknown_usage": "retain_unknown_cost_and_continue_under_latest_operator_instruction",
+    "original_token_request_time_artifact_thresholds_retained": false,
+    "pilot_driver": "F:/AIInfra/harness-mem-convergence-20261017/execute_native_pilot.py",
+    "old_comparison_runner_remains_disabled": true
+  },
+  "qualification_result": "external_scope_and_no_dispatch_guard_verified_read_probe_complete",
+  "unqualified_dispatch_refusal_enforced": true,
+  "native_output_limit_qualified": false,
+  "final_qualification_recheck": {
+    "operator_request": "Execute the approved complete product test; fixture tests do not satisfy it",
+    "status": "closed_without_generation",
+    "installed_cli_version": "0.162.1",
+    "native_per_request_output_bound_verified": false,
+    "full_input_reservation_path_verified": false,
+    "retry_controls_documented_but_complete_native_gate_unqualified": true,
+    "real_model_complete_workflows_executed": 0,
+    "native_claude_mem_comparisons_executed": 0,
+    "heldout_complete_scenarios_executed": 0,
+    "new_runtime_tests_or_product_repairs": 0,
+    "receipt": "F:/AIInfra/harness-mem-convergence-20261017/model-qualification-recheck.json"
+  },
+  "artifact_root": "F:/AIInfra/harness-mem-convergence-20261017",
+  "controlled_model_requests_used": null,
+  "controlled_model_tokens_used": null,
+  "controlled_model_execution_seconds_used": null,
+  "native_pilot_result": {
+    "status": "incomplete_execution_failure",
+    "completed_provider_responses_known": 7,
+    "known_input_tokens": 45353,
+    "known_output_tokens": 789,
+    "known_total_token_subtotal": 46142,
+    "cached_input_subset_already_included": 29312,
+    "unsettled_native_turns": 1,
+    "actual_total_request_count_and_tokens": "unknown_not_zero",
+    "observed_paid_native_phase_wall_seconds": 69.219,
+    "native_phase_wall_includes_startup_and_tools": true,
+    "task_current_knowledge_rows_after_stop": 0,
+    "complete_workflows": 0,
+    "native_claude_mem_comparisons": 0,
+    "heldout_complete_scenarios": 0,
+    "artifact_bytes_after_stop": 201447625,
+    "artifact_cap_breached_bytes": 1447625,
+    "owned_native_processes_remaining_at_stop_check": 0,
+    "rebuildable_cache_delete_auto_review": "rejected_blocked_by_policy",
+    "explicit_cache_cleanup_question": "operator_approved_then_manually_removed_cache_files; verified",
+    "approved_cache_cleanup_result": {
+      "status": "operator_removed_files_verified_empty_directory",
+      "target": "F:/AIInfra/harness-mem-convergence-20261017/retrieval-repair/mypy-cache",
+      "verified_resolved_target_inside_task_root": true,
+      "linked_entries": 0,
+      "cache_files_retained": 0,
+      "cache_bytes_retained": 0,
+      "removed_by": "operator",
+      "verified_released_bytes": 18546917,
+      "empty_directory_remains": true,
+      "artifact_bytes_after_operator_cleanup": 182900708,
+      "remaining_artifact_bytes": 17099292,
+      "artifact_cap_currently_breached": false,
+      "prior_automatic_rejection_reason": "blocked by policy"
+    },
+    "failure_scope": "test_driver_configuration_and_artifact_guard; not a product quality verdict",
+    "usage_ledger": "F:/AIInfra/harness-mem-convergence-20261017/native-pilot/usage-ledger.json"
+  },
+  "engineering_work_packages_used": 3,
+  "product_repair_rounds_used": 2,
+  "initial_cycle_usage": {
+    "engineering_work_packages_used": 2,
+    "product_repair_rounds_used": 1
+  },
+  "heldout_revalidation_rounds_used": 1,
+  "development_read_replays_after_initial": 4,
+  "automatic_followup_execution_allowed": false,
+  "runtime_test_followup": {
+    "authorization": "Operator: 所以你开始测试啊",
+    "status": "closed",
+    "model_execution_allowed": false,
+    "selected_runtime_claims_passed": 3,
+    "correction_and_scope_tests_passed": 4,
+    "fresh_process_readback_checks_passed": 10,
+    "fresh_readback_mcp_processes": 4,
+    "semantic_mode": "deterministic_fixture_agent",
+    "initial_manual_probe_failed": true,
+    "test_fixture_compatibility_fix": "allow optional _native_results diagnostics; keep semantic calls forbidden",
+    "artifact_cap_increased": false,
+    "heldout_complete_scenarios_executed": 0
+  },
+  "final_strict_retrieval_diagnostic": {
+    "passed": 19,
+    "scored": 30,
+    "remaining_failed": 11,
+    "precision_regression_case_count": 1,
+    "precision_regression_reference": "initial_16_of_30_state",
+    "new_precision_regression_case_count": 0,
+    "new_regression_reference": "preceding_closed_17_of_30_state",
+    "quality_non_regression_accepted": false,
+    "native_complete_workflow_accepted": false
+  },
+  "model_test_allowance_before_approval": 0,
+  "budget_enforcement": "observational_accounting_operator_removed_former_test_stop_gates",
+  "supersedes": "previous unapproved 5,000,000-token / 540-answer proposal",
+  "protocol": "benchmark-plan-20261017.md",
+  "controlled_test_model_token_cap": 500000,
+  "first_pilot_token_cap": 100000,
+  "token_unit": "input_plus_output_including_cached_input",
+  "all_phases_share_one_cap": true,
+  "includes": [
+    "native_ingestion",
+    "verification_and_assimilation",
+    "update",
+    "retrieval_consumers",
+    "answers",
+    "scoring_if_required",
+    "all_model_retries_and_probes"
+  ],
+  "max_actual_provider_requests": 80,
+  "max_cumulative_model_execution_wall_seconds": 3600,
+  "max_engineering_work_seconds": 21600,
+  "engineering_work_packages": [
+    "adapter_and_diagnosis",
+    "one_root_cause_repair",
+    "operator_authorized_additional_offline_repair"
+  ],
+  "max_product_repair_rounds": 2,
+  "max_heldout_revalidation_rounds": 1,
+  "heldout_short_complete_scenarios": 6,
+  "extra_engineering_or_review_subagents_allowed": false,
+  "max_new_artifact_and_dependency_bytes": 200000000,
+  "artifact_location": "one task-owned directory outside the repository",
+  "prior_and_current_chat_cost": "not_zero; report separately from future controlled test ledger",
+  "interactive_host_and_platform_cost_control": "not_enforced_by_test_runner; never claim the test cap is an all-task cap",
+  "all_task_absolute_cap_requirement": "if required, verify host enforcement before execution or stop",
+  "dispatch_gate_required_before_model_execution": true,
+  "input_upper_bound_unavailable": "post_response_usage_stopping_authorized; preserve_complete_inputs",
+  "actual_output_limit_unverified": "operator_waived_this_precondition",
+  "hidden_retry_path_uncontrolled": "deny_dispatch",
+  "unknown_usage": "preserve_known_subtotals_mark_unsettled_usage_unknown_and_stop",
+  "unsafe_or_shared_storage_reset": "deny_execution",
+  "budget_time_or_artifact_limit": "stop_without_automatic_increase",
+  "comparative_cost_requires_equal_correct_completion": true,
+  "proposal_acceptance_targets": {
+    "critical_scenarios_correct": 6,
+    "unsupported_facts_or_wrong_authority": 0,
+    "warm_local_read_tool_observed_p95_seconds": 1,
+    "no_extra_semantic_generation_for_plain_read": true,
+    "user_workflow": "natural_language_without_identifiers_directories_or_repeated_approvals",
+    "value_gate": "20% less full-cycle tokens OR user wait than equally correct claude-mem, other not >10% worse; or an explicitly user-valued verified capability"
+  },
+  "forbidden": [
+    "new_private_cli_compilation",
+    "proxy_sandbox_or_account_repair",
+    "global_installation_or_config_changes",
+    "personal_skill_changes",
+    "real_memory_or_original_session_mutation",
+    "shared_MCP_reload",
+    "new_180_or_13_source_runs",
+    "automatic_extra_test_rounds",
+    "automatic_migration_or_release"
+  ],
+  "run_manifest_approved": false,
+  "current_execution_policy": "This evaluation is finished; former numeric/unknown-usage stop gates remain removed. No new test round has been scheduled.",
+  "native_result_current": {
+    "status": "evaluation_completed_quality_not_accepted",
+    "closed_at_utc": "2026-10-17T07:14:16.148293+00:00",
+    "operator_removed_former_test_stop_gates": true,
+    "complete_scenarios_executed": 6,
+    "never_previously_run_scenarios": 5,
+    "primary_runtime_files_frozen": 240,
+    "one_canonical_profile_sha256": "9598bb40726b22dbdc5a7331bcea907b0a982d757c8f2665b4332b5222fab904",
+    "complete_sources_literal_checked": 12,
+    "original_message_bodies_literal_checked": 24,
+    "precommitted_criteria_passed": 29,
+    "precommitted_criteria_total": 30,
+    "whole_content_quality_accepted": false,
+    "six_hm_cost": {
+      "known_completed_requests": 136,
+      "input_tokens": 1344959,
+      "output_tokens": 30039,
+      "cached_input_subset": 978688,
+      "known_total_tokens": 1374998,
+      "native_phase_wall_seconds": 2740.6056023997953
+    },
+    "six_baseline_cost": {
+      "known_completed_requests": 24,
+      "input_tokens": 77082,
+      "output_tokens": 6110,
+      "cached_input_subset": 27648,
+      "known_total_tokens": 83192,
+      "native_phase_wall_seconds": 791.923763800296
+    },
+    "total_known_completed_requests": 275,
+    "total_known_tokens": 2724148,
+    "actual_total_usage": "unknown_due_to_retained_interrupted_turn",
+    "currency_and_chat_engineering_cost": null,
+    "artifact_root": "F:\\AIInfra\\harness-mem-convergence-20261017",
+    "no_new_round_pending": true,
+    "recommendation": "Do not claim stable daily acceptance or expand rollout. Resolve current-fact versus historical-source precedence and retention of explicit undecided states in one later scoped change. Reuse upstream and existing lifecycle owners.",
+    "model_profile_reconciliation": {
+      "actual_scenario_profiles": {
+        "01-tool-library": {
+          "native_attested_profiles": [
+            {
+              "model": "gpt-6-luna",
+              "effort": "xhigh"
+            }
+          ],
+          "within_scenario_hm_baseline_profile_matches": true
+        },
+        "02-language-choice": {
+          "native_attested_profiles": [
+            {
+              "model": "gpt-6-luna",
+              "effort": "xhigh"
+            }
+          ],
+          "within_scenario_hm_baseline_profile_matches": true
+        },
+        "03-uncertain-capacity": {
+          "native_attested_profiles": [
+            {
+              "model": "gpt-6-luna",
+              "effort": "xhigh"
+            }
+          ],
+          "within_scenario_hm_baseline_profile_matches": true
+        },
+        "04-targeted-forget": {
+          "native_attested_profiles": [
+            {
+              "model": "gpt-6.1-sol",
+              "effort": "xhigh"
+            }
+          ],
+          "within_scenario_hm_baseline_profile_matches": true
+        },
+        "05-two-scopes": {
+          "native_attested_profiles": [
+            {
+              "model": "gpt-6.1-sol",
+              "effort": "xhigh"
+            }
+          ],
+          "within_scenario_hm_baseline_profile_matches": true
+        },
+        "06-conditional-exception": {
+          "native_attested_profiles": [
+            {
+              "model": "gpt-6.1-sol",
+              "effort": "xhigh"
+            }
+          ],
+          "within_scenario_hm_baseline_profile_matches": true
+        }
+      },
+      "single_model_across_all_six": false,
+      "original_shared_profile_intent_not_met": true,
+      "same_model_within_each_pair_verified": true,
+      "pilot_and_cm_requested_profile": {
+        "model": "gpt-6-luna",
+        "effort": "xhigh"
+      },
+      "global_config_difference_fields_only": [
+        "model"
+      ],
+      "global_config_writer_attribution": "unknown; did not restore",
+      "new_task_homes_inherited_changed_global_model_instead_of_pinning_first_profile": true,
+      "six_scenario_single_model_acceptance_qualified": false,
+      "no_generation_rerun_for_this_audit": true,
+      "detailed_config_identity_receipt": "F:\\AIInfra\\harness-mem-convergence-20261017\\global-config-difference.json"
+    },
+    "single_model_acceptance_qualified": false
+  },
+  "known_test_usage_current": {
+    "known_completed_unique_requests": 275,
+    "known_input_tokens": 2647412,
+    "known_output_tokens": 76736,
+    "known_total_tokens": 2724148,
+    "cached_input_subset_already_included": 1956992,
+    "unsettled_usage_retained": true,
+    "currency_chat_platform_engineering": null,
+    "receipt": "F:\\AIInfra\\harness-mem-convergence-20261017\\actual-usage-accounting.json"
+  },
+  "historical_fields_below_current_result_are_not_current_totals": true,
+  "single_model_acceptance_qualified": false,
+  "model_profile_reconciliation": {
+    "actual_scenario_profiles": {
+      "01-tool-library": {
+        "native_attested_profiles": [
+          {
+            "model": "gpt-6-luna",
+            "effort": "xhigh"
+          }
+        ],
+        "within_scenario_hm_baseline_profile_matches": true
+      },
+      "02-language-choice": {
+        "native_attested_profiles": [
+          {
+            "model": "gpt-6-luna",
+            "effort": "xhigh"
+          }
+        ],
+        "within_scenario_hm_baseline_profile_matches": true
+      },
+      "03-uncertain-capacity": {
+        "native_attested_profiles": [
+          {
+            "model": "gpt-6-luna",
+            "effort": "xhigh"
+          }
+        ],
+        "within_scenario_hm_baseline_profile_matches": true
+      },
+      "04-targeted-forget": {
+        "native_attested_profiles": [
+          {
+            "model": "gpt-6.1-sol",
+            "effort": "xhigh"
+          }
+        ],
+        "within_scenario_hm_baseline_profile_matches": true
+      },
+      "05-two-scopes": {
+        "native_attested_profiles": [
+          {
+            "model": "gpt-6.1-sol",
+            "effort": "xhigh"
+          }
+        ],
+        "within_scenario_hm_baseline_profile_matches": true
+      },
+      "06-conditional-exception": {
+        "native_attested_profiles": [
+          {
+            "model": "gpt-6.1-sol",
+            "effort": "xhigh"
+          }
+        ],
+        "within_scenario_hm_baseline_profile_matches": true
+      }
+    },
+    "single_model_across_all_six": false,
+    "original_shared_profile_intent_not_met": true,
+    "same_model_within_each_pair_verified": true,
+    "pilot_and_cm_requested_profile": {
+      "model": "gpt-6-luna",
+      "effort": "xhigh"
+    },
+    "global_config_difference_fields_only": [
+      "model"
+    ],
+    "global_config_writer_attribution": "unknown; did not restore",
+    "new_task_homes_inherited_changed_global_model_instead_of_pinning_first_profile": true,
+    "six_scenario_single_model_acceptance_qualified": false,
+    "no_generation_rerun_for_this_audit": true,
+    "detailed_config_identity_receipt": "F:\\AIInfra\\harness-mem-convergence-20261017\\global-config-difference.json"
+  }
+}

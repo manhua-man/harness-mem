@@ -45,6 +45,74 @@ deliberately different responsibilities:
 
 ## Read-only inspection and manual scope (unreleased)
 
+An explicit correction may pass the exact readable old entries as
+`prepare_session_distill(target_knowledge=[...], session_id=...)`. The runtime
+resolves their unique current owner, then captures the selected native source
+through the existing intake and job path. The source workspace may differ from
+the memory's project label; callers do not need to reconstruct that ownership.
+Explicit conflicting project selectors, ambiguous targets, and source capture
+exclusions still fail before knowledge writes.
+
+`prepare_session_distill(include_current=true)` can also return related current
+knowledge with the complete frozen source. It reconstructs and checks the bound
+revision, then uses all user/assistant prose for lexical context retrieval.
+This opt-in tolerates multiple Chinese topics without changing ordinary search
+ranking; it is not an exhaustive semantic-match guarantee. The context keeps
+full statements and project labels but does not bind an owner or authorize a
+write. The daily entry requests `scope="all"`; `scope="project"` keeps the
+prepared project's strict filter. The API's legacy scope default is unchanged.
+Read failures retain the prepared source/job and report unavailable, not empty.
+The legacy owner-resolving `current_query` option is mutually exclusive with
+`include_current`. Exact correction targets still pass the original evidence,
+ownership, transaction and readback checks.
+
+A successful, review-ready preparation with complete semantic source windows
+also returns `finalize_contract`: a call template, canonical required fields and
+enum choices. Its optional user-statement and assistant-report examples contain
+placeholders, not verified candidates. The Agent still reads every source and
+chooses each actual point, disposition and current target. For a targeted point,
+copy the complete selected old-row array into
+`memory_points[i].target_knowledge`; a top-level preparation target does not
+replace that per-point field. Failed, completed, raw and incomplete preparations
+omit this instruction template. Preparation does not propose, verify or apply
+knowledge, and the existing write owner and evidence checks remain in force.
+
+Ordinary recall uses current knowledge. Explicit raw search also returns
+matching current entries and their checked bound evidence. Existing completed
+job receipts may link a matched old source through replacements ending in a
+current entry, including searches for an old value that no longer appears in
+current prose. This is a read projection, not another history store or an
+automatic conflict decision. Changed, missing and out-of-scope evidence remains
+visible. Repository evidence uses the registered project context, never the
+shared MCP process working directory.
+
+An explicitly undecided, unknown or unapproved setting can be supported current
+knowledge. Preserve its named subject and applicable scope, including unchanged
+conditions during corrections. An unfinished action belongs in a handoff;
+missing information, guesses and assistant suggestions do not establish a
+user's undecided or unapproved state.
+
+Operator-authorized attributed reports are being added on the existing current
+knowledge path, not in a second store. Its native reference proof binds the
+speaker's actual source text, period and immutable-session scope. Semantic
+support for a paraphrase is a separate judgment: the autonomous verifier reads
+that speaker's prose separately from complete conversational context; manual
+use keeps the current Agent as semantic verifier. A caller's requested
+`verified` flag or matching whole-exchange digest is not itself proof that the
+selected speaker entailed the paraphrase. Do not describe reference checks as
+an unforgeable semantic oracle.
+It does not establish external current truth, actual execution or user approval.
+The typed descriptor and readable statement retain speaker, source period (or
+explicitly unknown date), and cited-session scope. Ordinary transcript evidence
+still cannot verify factual knowledge. Reports cannot replace/refine factual
+rows, or be upgraded by a factual rewrite. Pending re-submission cannot change
+an already-bound report's authority, speaker, source revision or cited scope.
+Unfinished material retains the same readable and typed report boundary;
+global retrieval does not collapse distinct report-source identities.
+The period label is source-session time, not each utterance's exact timestamp.
+This is an implementation contract;
+native content and full-lifecycle acceptance remain pending.
+
 The working tree adds `inspect_sessions` to the previous 19 public tools for a
 20-tool surface; `dream_auto_tick` remains internal. This differs from the
 published 0.9.28 tool set even though its count is also 20.
@@ -63,6 +131,12 @@ failures. The runtime fingerprint is diagnostic context, not a gate that blocks
 resuming unchanged sources after a code update. It is not a second knowledge store or a
 history of knowledge. Explicit `retry_failures=true` clears failures only for
 an active batch; a stopped batch cannot automatically resume.
+
+For an already-known native identity, `client` plus `session_id` and
+`scope="all"` resolves that source directly through the same frozen manual
+batch path. An unavailable or cross-host ambiguous identity fails without
+silently selecting another session. Full inventory is needed only to choose
+sources; it need not be printed into the Agent's context.
 
 The current Agent performs extraction and judgment through the existing chunk
 and finalize flow, independently of background CLI availability or authorization.
@@ -143,8 +217,14 @@ One session may contain more than one promotion point. The candidates remain
 independently addressable; the session summary is separate and never substitutes
 for candidate content.
 
-Extraction optimizes bounded recall. It may surface a one-off request or
-temporary state as a signal, but that signal is not yet durable memory.
+Source coverage is complete; durable selection is by topic and its latest
+supported conclusion, not by completed reply or individual attempt. Greetings,
+temporary progress and single-run measurements remain in the session review.
+Explicit continuing decisions and corrections can be retained while the task
+is unfinished. Attribution or an evidence disclaimer alone does not establish
+long-term value. Later verified results update matching current knowledge;
+reports may update the same source/session/speaker/period account without
+crossing the report/fact authority boundary.
 
 **Quality signals:** important promotion points are not missed; a whole session
 is not collapsed into one conclusion; each candidate is narrow enough for an
@@ -193,6 +273,13 @@ The runtime keeps three judgments distinct:
 `NOT_APPLICABLE` never acts as a hidden promotable state. A supported durable
 user preference is `ANSWERED` on authentic user-statement evidence; otherwise
 the point does not proceed to durable assimilation.
+
+An explicit, reasoned transcript-only `no_write` or `reject`, without knowledge
+targets or a conflict, may close as `NOT_APPLICABLE` after the complete frozen
+source and cited digests are rechecked. It is not evidence that the transcript's
+claim is true. Missing or changed source material still blocks closure; every
+knowledge-writing disposition retains the ordinary verification gate. Other
+real handoffs or unresolved work keep organization partial.
 
 The reference's author field may be omitted when the frozen source can establish
 the actual author. Automatic proof currently covers supported Codex/Cursor
@@ -391,14 +478,16 @@ context cost, and zero internal-noise or obsolete-knowledge leakage by default.
 
 `review` and `dream` are core cross-module capabilities around stages 3--4,
 not a sixth linear knowledge stage and not operator-only maintenance. There are
-two session entry paths: a person can explicitly run `distill` in the active
-host, while a Hook records the session and wakes Dream. Hook never performs
-semantic work itself.
+one automatic daily entry path: the Hook records the session and wakes Dream.
+Human use is inspection and review of existing memory or processing jobs,
+including explicit corrections and deletion. Hook never performs semantic
+work itself. The internal distillation core remains shared by automation and
+review; it is not a user-facing remember command.
 
 ```text
-explicit distill
--> active host reads one session
--> extract -> verify -> assimilate
+human review
+-> inspect existing memory or job
+-> verify correction -> assimilate
 
 Hook
 -> persist session/revision and job -> source-bound Dream activity
@@ -410,8 +499,9 @@ Unattended processing preserves two queues behind that compact flow. The
 session processing queue owns one immutable session job; the project governance
 queue owns project-wide duplicate, conflict, staleness, source, and retrieval-
 feedback checks. One restricted Dream semantic executor may serve both queues,
-but they are not the same processing chain. Manual explicit distill bypasses
-both background queues and remains in the active host.
+but they are not the same processing chain. Human correction of an existing
+memory remains in the active host and uses the existing source and transaction
+checks; users do not select each session for remembering.
 
 - **Review** is the human correction path: confirm, correct, replace, or delete
   a memory when the evidence or product boundary requires a person to decide.
@@ -450,7 +540,7 @@ The public actions map to the modules as follows:
 | Action or entry point | Architecture position |
 |---|---|
 | Hooks, archive maintenance | Stage 0: Hooks persist and queue; they do not call a provider |
-| `distill` | Explicit human path, orchestrated by the active host across stages 1--3 |
+| Internal distillation core | Automatic session processing and source-verified review corrections across stages 1--3 |
 | `wake`, `search`, `search-all` | Stage 4: retrieval/use |
 | `dream` | Unattended Hook path and project governance across stages 1--3 and 3--4 |
 | `review` | Human correction, conflict resolution, replacement, and deletion across stages 3--4 |

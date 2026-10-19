@@ -5,9 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from harness_mem.hook_runtime import collect_hook_file_statuses
 
@@ -17,10 +18,45 @@ __all__ = [
     "inspect_hook_execution_receipt",
     "read_hook_execution_receipt",
     "record_hook_execution",
+    "serialize_native_hook_event",
 ]
 
 _SCHEMA_VERSION = 1
 HOOK_RECEIPT_FRESHNESS_SECONDS = 24 * 60 * 60
+
+
+@contextmanager
+def serialize_native_hook_event(data_dir: Path, *, identity: dict[str, str]) -> Iterator[Path]:
+    """Serialize one exact native event across runners without time-window guesses.
+
+    The OS releases the lock after a crash. Keep its inode in place so another
+    process cannot acquire a different lock by recreating an unlinked pathname.
+    """
+    key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode("utf-8")).hexdigest()
+    root = Path(data_dir) / "hook_runtime" / "native-events"
+    root.mkdir(parents=True, exist_ok=True)
+    with (root / f"{key}.lock").open("a+b") as stream:
+        if os.name == "nt":
+            import msvcrt
+
+            stream.seek(0, os.SEEK_END)
+            if stream.tell() == 0:
+                stream.write(b"\0")
+                stream.flush()
+            stream.seek(0)
+            msvcrt.locking(stream.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+        try:
+            yield root / f"{key}.json"
+        finally:
+            if os.name == "nt":
+                stream.seek(0)
+                msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
 
 def hook_configuration_fingerprint(
@@ -36,9 +72,15 @@ def hook_configuration_fingerprint(
         client=client,
         home_dir=home_dir,
     )
-    if not statuses or any(
-        not status.exists or not status.configured for status in statuses
-    ):
+    global_hooks = [status for status in statuses if status.scope == "global"]
+    project_hooks = [status for status in statuses if status.scope == "project"]
+    if any(status.exists and status.configured for status in global_hooks):
+        # User-level Hooks are a complete installation. Absent/empty project
+        # registrations are normal and must not disable receipts or deduping.
+        statuses = [status for status in statuses if status.exists and status.configured]
+    elif project_hooks and all(status.exists and status.configured for status in project_hooks):
+        statuses = project_hooks
+    else:
         return None
 
     digest = hashlib.sha256()
@@ -63,6 +105,7 @@ def record_hook_execution(
     action: str,
     source: str,
     trigger_id: str | None,
+    session_id: str | None = None,
 ) -> Path | None:
     """Record a successful hook action against its current config fingerprint."""
 
@@ -71,7 +114,7 @@ def record_hook_execution(
     if fingerprint is None:
         return None
 
-    target = _receipt_path(data_dir, project_root=root, client=client, action=action)
+    target = _receipt_path(data_dir, project_root=root, client=client, action=action, session_id=session_id)
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "schema_version": _SCHEMA_VERSION,
@@ -84,6 +127,8 @@ def record_hook_execution(
         "config_fingerprint": fingerprint,
         "completed_at": datetime.now(timezone.utc).isoformat(),
     }
+    if session_id is not None:
+        payload["session_id"] = session_id
     temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
     temporary.write_text(
         json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True) + "\n",
@@ -99,6 +144,7 @@ def read_hook_execution_receipt(
     project_root: Path,
     client: str,
     action: str,
+    session_id: str | None = None,
 ) -> dict[str, Any] | None:
     """Return a receipt only when it matches the current hook configuration."""
 
@@ -106,7 +152,7 @@ def read_hook_execution_receipt(
     fingerprint = hook_configuration_fingerprint(root, client=client)
     if fingerprint is None:
         return None
-    path = _receipt_path(data_dir, project_root=root, client=client, action=action)
+    path = _receipt_path(data_dir, project_root=root, client=client, action=action, session_id=session_id)
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -120,6 +166,8 @@ def read_hook_execution_receipt(
         "action": action,
         "config_fingerprint": fingerprint,
     }
+    if session_id is not None:
+        expected["session_id"] = session_id
     if any(payload.get(key) != value for key, value in expected.items()):
         return None
     return payload
@@ -233,7 +281,12 @@ def _receipt_path(
     project_root: Path,
     client: str,
     action: str,
+    session_id: str | None = None,
 ) -> Path:
     root_key = hashlib.sha256(str(project_root).encode("utf-8")).hexdigest()[:24]
     safe_action = action.replace("/", "-").replace("\\", "-")
-    return Path(data_dir) / "hook_runtime" / f"{client}-{root_key}-{safe_action}.json"
+    session_key = (
+        "-session-" + hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:24]
+        if session_id is not None else ""
+    )
+    return Path(data_dir) / "hook_runtime" / f"{client}-{root_key}-{safe_action}{session_key}.json"

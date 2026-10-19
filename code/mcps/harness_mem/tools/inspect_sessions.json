@@ -1,6 +1,6 @@
 {
   "name": "inspect_sessions",
-  "description": "Inspect native sessions on this device, read frozen batch progress, or page a selected complete source. Default inventory includes sessions with missing, absent or multiple workspace directories. A directory is optional context, never a requirement. Discovery references are not immutable revisions; prepare captures and binds one complete selected source at a time. Never imports, creates jobs, writes memory or triggers background work.",
+  "description": "Read-only device-session inventory, source pages, themes or frozen-batch progress. Missing/absent/multiple workspace roots are valid; directories are optional. Discovery refs are not immutable revisions: prepare fully reads and freezes selected sources. No imports, jobs, memory writes or background work.",
   "inputSchema": {
     "type": "object",
     "properties": {

@@ -1,12 +1,11 @@
 {
   "name": "record_context_outcome",
-  "description": "Record whether returned wake/search context was used, ignored, or misleading for the caller's task. This writes only a RetrievalSignal(context_outcome) shadow record and never mutates confirmed truth. Opt-in ranking may later use the signal as a small explainable hint.",
+  "description": "Record used/ignored/misleading context as a shadow RetrievalSignal(context_outcome); never changes confirmed truth. Opt-in ranking may use the signal as a small explainable hint.",
   "inputSchema": {
     "type": "object",
     "properties": {
       "project_name": {
-        "type": "string",
-        "description": "Project name"
+        "type": "string"
       },
       "surface": {
         "type": "string",
@@ -25,8 +24,7 @@
           "used",
           "ignored",
           "misleading"
-        ],
-        "description": "Whether the surfaced context helped the task."
+        ]
       },
       "reason": {
         "type": "string",

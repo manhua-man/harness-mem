@@ -1,6 +1,6 @@
 {
   "name": "autopilot_search_tick",
-  "description": "Host-neutral runtime scheduler for automatic task-aware memory search. Given an agent event (PI context/tool_result/save_point, Claude Code PostToolUse, Cursor after-agent, etc.), it decides whether a concrete memory-backed uncertainty exists. When it does, it runs bounded search_memory and returns context_injection for the next provider request; otherwise it returns the skip reason. This is not a session-start wake replacement.",
+  "description": "Host-neutral task-aware search scheduler for Agent events. Concrete memory-backed uncertainty runs bounded search_memory and returns context_injection; otherwise returns a skip reason. Not a session-start wake replacement.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -38,7 +38,6 @@
       },
       "is_error": {
         "type": "boolean",
-        "description": "Whether the tool result is an error.",
         "default": false
       },
       "candidate_claims": {

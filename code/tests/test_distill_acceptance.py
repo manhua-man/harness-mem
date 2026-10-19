@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import hashlib
 import logging
@@ -466,7 +467,10 @@ def _prepare(
         session_id=fixture_id,
         run_ingest=False,
         evidence_mode="semantic",
-        detail_level="compact",
+        # These admission/finalization fixtures use the diagnostic challenge
+        # and evidence envelopes. The normal compact surface intentionally
+        # omits those internal fields; its presentation is tested separately.
+        detail_level="full",
         budget_tokens=3000,
     )
     return snapshot, packet
@@ -637,10 +641,14 @@ def test_b1_f2_user_preference_promotes_once_and_is_retrievable(tmp_path: Path) 
                 query="tokens result quality",
                 project_name="acceptance",
             )
-        assert finalized["promotion"]["promoted"] == 1
+        assert finalized["success"] and finalized["readback_verified"]
+        assert [item["change"] for item in finalized["knowledge_changes"]] == ["added"]
+        completed = backend.transcript_store.get_distill_job(snapshot.distill_job_id)
+        assert completed is not None and completed.promotion_summary["promoted"] == 1
         assert readable["memories"] == [
             {
                 "title": "Keep distillation efficient",
+                "project_name": "acceptance",
                 "statement": (
                     "Use less time and fewer tokens without reducing distill result "
                     "quality."
@@ -704,7 +712,25 @@ def test_b2_autonomous_partial_creates_handoff_and_only_one_truth(
 
     class _PartialProvider:
         name = "partial-provider"
-        verify = _verify_all_candidates
+
+        def __init__(self):
+            self.verified_statements = []
+
+        def verify(self, manifest, *, runtime_dir, heartbeat=None):
+            self.verified_statements = [item["statement"] for item in manifest["candidates"]]
+            result = _verify_all_candidates(self, manifest, runtime_dir=runtime_dir, heartbeat=heartbeat)
+            # The source does say the unnamed old approach was superseded,
+            # but this fixture grants it no continuing utility. The semantic
+            # stage must make that decision; a word filter must not hide it.
+            points = [
+                point.model_copy(update={
+                    "future_scope": "session_only",
+                    "reason": "Only an unnamed old approach's session state; no reusable successor decision.",
+                }) if self.verified_statements[point.candidate_index]
+                == "The older truncate-first approach is superseded." else point
+                for point in result.decision.points
+            ]
+            return replace(result, decision=CandidateVerificationDecision(points=points))
 
         def decide(self, manifest, *, runtime_dir, heartbeat=None):
             first, second = manifest["zero_candidate_exchange_refs"][:2]
@@ -784,6 +810,7 @@ def test_b2_autonomous_partial_creates_handoff_and_only_one_truth(
             del runtime_dir, heartbeat
             return _assimilate_all_as_add(manifest, provider=self.name)
 
+    provider = _PartialProvider()
     try:
         result = run_autonomous_distill_batch(
             backend,
@@ -792,7 +819,7 @@ def test_b2_autonomous_partial_creates_handoff_and_only_one_truth(
             config=MergedConfig(dream_auto_enabled=False),
             trigger_id="F3",
             client="codex",
-            provider=_PartialProvider(),
+            provider=provider,
             notes_dir=tmp_path / "notes",
             max_jobs=1,
             preferred_job_id=job.id,
@@ -809,6 +836,10 @@ def test_b2_autonomous_partial_creates_handoff_and_only_one_truth(
         stored = backend.transcript_store.get_distill_job(job.id)
 
         assert result["state"] == "succeeded", result
+        assert provider.verified_statements == [
+            "Use lower latency and fewer tokens without reducing quality.",
+            "The older truncate-first approach is superseded.",
+        ]
         assert len(truths) == 1
         assert legacy_truths == []
         assert len(handoffs) == 1
@@ -835,7 +866,10 @@ def test_b3_f1_zero_candidate_closes_without_pending_noise(tmp_path: Path) -> No
                 "acceptance", status="pending", limit=100
             )
         )
-        assert finalized["completion"]["disposition"] == "no_candidate"
+        completed = backend.transcript_store.get_distill_job(snapshot.distill_job_id)
+        assert finalized["success"] and finalized["knowledge_changes"] == []
+        assert completed is not None and completed.status == "completed"
+        assert completed.completion_disposition == "no_candidate"
         assert pending == []
         assert Path(finalized["note"]["path"]).is_file()
     finally:
@@ -999,7 +1033,9 @@ def test_d2_assistant_role_cannot_impersonate_user_statement(tmp_path: Path) -> 
                 candidate["entry_id"]
             )
         )
-        assert finalized["promotion"]["promoted"] == 0
+        assert finalized["success"] and finalized["knowledge_changes"] == []
+        completed = backend.transcript_store.get_distill_job(snapshot.distill_job_id)
+        assert completed is not None and completed.promotion_summary["promoted"] == 0
         assert compatibility is None
         assert stored is not None
         assert stored.status == "deferred"
@@ -1019,6 +1055,10 @@ def test_e1_finalize_replay_keeps_note_hash_and_truth_count(tmp_path: Path) -> N
                 job_id=snapshot.distill_job_id,
                 semantic_review=_preference_review(),
             )
+            first_job = backend.transcript_store.get_distill_job(snapshot.distill_job_id)
+            assert first_job is not None
+            first_completion = first_job.completion_disposition
+            first_promotion = dict(first_job.promotion_summary)
             second = tool_handlers.tool_finalize_session_distill(
                 project_name="acceptance",
                 job_id=snapshot.distill_job_id,
@@ -1028,8 +1068,13 @@ def test_e1_finalize_replay_keeps_note_hash_and_truth_count(tmp_path: Path) -> N
             backend.structured_store.knowledge_store.list_entries("acceptance")
         )
         assert second["idempotent_replay"] is True
-        assert first["completion"] == second["completion"]
-        assert first["promotion"] == second["promotion"]
+        assert first["readback_verified"] and second["readback_verified"]
+        assert first["knowledge_changes"] == second["knowledge_changes"]
+        second_job = backend.transcript_store.get_distill_job(snapshot.distill_job_id)
+        assert second_job is not None and second_job.status == "completed"
+        assert first_completion == second_job.completion_disposition
+        assert first_promotion == second_job.promotion_summary
+        assert not {"promotion", "completion"} & first.keys()
         assert first["note"]["path"] == second["note"]["path"]
         assert first["note"]["sha256"] == second["note"]["sha256"]
         assert len(truths) == 1

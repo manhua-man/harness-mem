@@ -1,12 +1,60 @@
 {
   "name": "prepare_session_distill",
-  "description": "Prepare one remember-this-session decision packet. An explicit session_id selects that session directly, including parked work. Semantic mode checks the complete source so the common path can finalize without another prepare call.",
+  "description": "Prepare source-verified review of an existing memory or processing job. Requires target_knowledge from search or an existing distill_job_id. Daily recording and session processing are automatic; this is not a manual remember or batch entry. Default semantic mode checks complete sources; submit reviewed memory_points in finalize without preparing again. include_current returns source-derived relevant current facts with the full source, without changing job ownership; mutually exclusive with current_query. current_query returns all matching current facts in the same packet and resolves their common owner, avoiding a separate search. For a correction, pass target_knowledge from search; its unique current owner is resolved automatically.",
   "inputSchema": {
     "type": "object",
     "properties": {
       "project_name": {
         "type": "string",
-        "description": "Optional context label for selected-session processing; it is not a globally unique directory identity."
+        "description": "Optional context label, not a unique directory identity."
+      },
+      "include_current": {
+        "type": "boolean",
+        "default": false,
+        "description": "Include related current memories using the complete immutable source text as query. Context only, no exhaustive semantic-match guarantee or automatic owner binding; explicit project scope stays strict."
+      },
+      "current_query": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Topic whose complete current memories should accompany this one prepared session/job; their common owner is resolved, no write implied."
+      },
+      "target_knowledge": {
+        "type": "array",
+        "minItems": 1,
+        "description": "Exact current memories from search to correct; runtime resolves their common write owner. Reuse title, statement, optional module and project_name.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "statement": {
+              "type": "string"
+            },
+            "module": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "project_name": {
+              "type": "string"
+            }
+          },
+          "anyOf": [
+            {
+              "required": [
+                "title"
+              ]
+            },
+            {
+              "required": [
+                "statement"
+              ]
+            }
+          ]
+        }
       },
       "client": {
         "type": "string",
@@ -22,7 +70,7 @@
           "opencode",
           "hermes"
         ],
-        "description": "Transcript source to sync before distill (default: auto)",
+        "description": "Transcript source to sync before distill",
         "default": "auto"
       },
       "limit": {
@@ -40,12 +88,12 @@
           "project",
           "all"
         ],
-        "description": "Use all for device-wide selected-session processing without directory setup; project preserves explicit legacy source filters.",
+        "description": "all: selected device sessions without directory setup; project: explicit source filter.",
         "default": "project"
       },
       "project_root": {
         "type": "string",
-        "description": "Optional source context for repository evidence; not required for selected device sessions or verified user statements."
+        "description": "Optional repository-evidence context; not required for device sessions or verified user statements."
       },
       "observation_limit": {
         "type": "integer",
@@ -53,70 +101,16 @@
       },
       "run_ingest": {
         "type": "boolean",
-        "description": "Run low-level transcript sync before building the packet (default: true)",
+        "description": "Run low-level transcript sync before building the packet",
         "default": true
-      },
-      "batch_sessions": {
-        "type": "array",
-        "items": {
-          "type": "object",
-          "properties": {
-            "client": {
-              "type": "string"
-            },
-            "session_id": {
-              "type": "string"
-            },
-            "source_id": {
-              "type": "string"
-            },
-            "source_revision": {
-              "type": "string"
-            },
-            "reference_id": {
-              "type": "string"
-            },
-            "project_root": {
-              "type": "string"
-            },
-            "project_name": {
-              "type": "string"
-            },
-            "scope": {
-              "type": "string",
-              "enum": [
-                "all",
-                "project"
-              ]
-            }
-          },
-          "required": [
-            "client",
-            "session_id",
-            "source_id",
-            "source_revision",
-            "reference_id"
-          ]
-        },
-        "minItems": 1,
-        "description": "Freeze selected native references from inspection for continuous manual processing. Device sources are fully read and bound one at a time; no directory setup, background CLI or source deletion."
-      },
-      "batch_id": {
-        "type": "string",
-        "description": "Resume the next unresolved item in an existing manual batch"
-      },
-      "retry_failures": {
-        "type": "boolean",
-        "default": false,
-        "description": "Explicitly retry failed sources in an active batch, or recheck unfinished points in a directly selected completed session; never resets a stopped batch"
       },
       "distill_job_id": {
         "type": "string",
-        "description": "Optional active job id to claim exactly. Used by automatic maintenance so the selected job is processed deterministically."
+        "description": "Review or resume this exact existing processing job; does not start manual session discovery."
       },
       "session_id": {
         "type": "string",
-        "description": "Optional user-facing session id to select directly. The latest matching project job is activated when parked."
+        "description": "Native source of an explicit correction; use with exact target_knowledge from search."
       },
       "defer_job_id": {
         "type": "string",
@@ -136,7 +130,7 @@
           "raw",
           "semantic"
         ],
-        "description": "Evidence delivery mode. raw preserves the existing per-chunk Agent loop; semantic lets runtime hash-verify/checkpoint every raw chunk and returns the smaller parser-derived session rendering.",
+        "description": "raw: per-chunk Agent loop. semantic: runtime hash-checks/checkpoints EVERY raw chunk and returns complete parsed exchanges.",
         "default": "semantic"
       },
       "detail_level": {
@@ -145,13 +139,13 @@
           "compact",
           "full"
         ],
-        "description": "compact returns complete readable exchanges and necessary references without duplicated diagnostics; full includes diagnostic details.",
+        "description": "compact: complete exchanges/refs, no duplicate diagnostics. full: include diagnostics.",
         "default": "compact"
       },
       "budget_tokens": {
         "type": "integer",
         "minimum": 256,
-        "description": "Advisory diagnostic-response budget, never a source-reading limit. Complete conversation is retained in the normal response.",
+        "description": "Advisory diagnostic budget, NEVER a source-reading limit; complete conversation remains returned.",
         "default": 3000
       },
       "drilldown_exchange_indexes": {
@@ -160,7 +154,7 @@
           "type": "integer",
           "minimum": 1
         },
-        "description": "Read complete semantic windows for selected one-based exchange indexes before querying candidate-grade raw proof."
+        "description": "Complete semantic windows at one-based indexes before raw-proof drilldown."
       },
       "drilldown_chunk_indexes": {
         "type": "array",
@@ -168,12 +162,12 @@
           "type": "integer",
           "minimum": 0
         },
-        "description": "Read-only raw chunk indexes to return after a job reaches reviewing; use for candidate-grade evidence drilldown."
+        "description": "Read-only raw chunk indexes after reviewing, for candidate-grade evidence."
       },
       "drilldown_query": {
         "type": "string",
         "maxLength": 200,
-        "description": "Read-only search over raw chunks after the job reaches reviewing. Returns every matching chunk when semantic evidence needs proof."
+        "description": "Read-only raw search after reviewing; returns every matching chunk for proof."
       }
     }
   }

@@ -115,6 +115,7 @@ async def build_wake_injection(
     apply_surface_side_effects: bool = True,
     current_task: str | None = None,
     budget_tokens: int | None = None,
+    selection_receipt: dict[str, Any] | None = None,
 ) -> str:
     """Render the same task-aware current-knowledge selection used by MCP."""
     query = (current_task or "").strip()
@@ -151,6 +152,11 @@ async def build_wake_injection(
         ),
         availability_only=not query, render=render,
     )
+    if selection_receipt is not None:
+        selection_receipt.update(
+            query_present=bool(query), matched_count=len(entries),
+            returned_count=len(page) if not index else 0, index_only=bool(index),
+        )
     if apply_surface_side_effects and not index and page:
         await _apply_surface_side_effects(backend, page)
     return render(page, reading, index)

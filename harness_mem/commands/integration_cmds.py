@@ -43,8 +43,8 @@ def _resolve_project_root(project_root: str | None) -> Path:
     return Path(os.getcwd()) if project_root is None else Path(project_root).resolve()
 
 
-def cmd_install_hook_suite(client: str, project_root: str | None, force: bool) -> int:
-    """Repair project Hooks for one host or all supported hosts."""
+def cmd_install_hook_suite(client: str, project_root: str | None, force: bool, *, scope: str = "project") -> int:
+    """Repair native Hooks for one host or all supported hosts."""
 
     clients = COMMAND_HOSTS if client == "all" else (client,)
     report = repair_project_hooks(
@@ -52,6 +52,7 @@ def cmd_install_hook_suite(client: str, project_root: str | None, force: bool) -
         project_root=_resolve_project_root(project_root),
         force=force,
         hook_runner_provider=verified_hook_runner,
+        scope=scope,  # type: ignore[arg-type]
     )
     payload = report.to_dict()
     payload["messages"] = [

@@ -8,6 +8,10 @@ The release-planning derivation is documented in
 [evidence-to-roadmap.md](evidence-to-roadmap.md); it separates upstream facts
 from harness-mem gaps and proposed work.
 
+The [2026-10-20 write-path review](write-path-20261020.md) pins current
+Hindsight, claude-mem and Mem0 implementations for admission, actual updates
+and Dream transactions; deployment remains separate from natural acceptance.
+
 ## Current reference set
 
 | Project | Role | Note |
@@ -47,6 +51,11 @@ retrieval/index trio, then the evaluation and host-compatibility pages:
    composition; [vstash](vstash.md) remains paper-only.
 
 ## Version and evidence rules
+
+Performance claims have a separate [scope and denominator comparison](performance-comparison.md)
+(checked 2026-10-15). Search-only/context-size numbers are not full Codex task
+latency or billed-cost evidence; our matched experiment is recorded in
+[the performance report](../performance-20261015.md).
 
 - Stable core or SDK tags are implementation truth. Prereleases, integration
   tags, papers, and untagged commits are recorded separately.

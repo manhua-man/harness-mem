@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 import re
 from typing import Any
 
 from harness_mem.commands import support as _support
+from harness_mem.commands.evidence_admission import reopen_knowledge_sources
+from harness_mem.commands.session_inventory import completed_job_ids, resolve_session_scope
 from harness_mem.file_context import build_file_context
+from harness_mem.mcp.read_projection import project_memory_entries
 from harness_mem.read_api import (
     regex_search_observations,
     serialize_observation,
@@ -47,7 +51,7 @@ def tool_search_raw(
     scope: str = "project",
     limit: int | None = None,
 ) -> dict:
-    """Regex search raw observation evidence."""
+    """Read raw matches alongside relevant current knowledge and its evidence."""
     if scope not in {"project", "all"}:
         return {"success": False, "error": "scope must be one of: project, all"}
     if scope == "project" and not project_name:
@@ -67,6 +71,11 @@ def tool_search_raw(
                 limit=limit,
             )
         )
+        current = asyncio.run(_current_knowledge_for_raw_search(
+            backend, pattern=pattern,
+            project_name=project_name if scope == "project" else None, limit=limit,
+            observations=[match.observation for match in matches],
+        ))
     except re.error as exc:
         return {"success": False, "error": f"invalid regex: {exc}"}
 
@@ -78,7 +87,74 @@ def tool_search_raw(
         "limit": limit,
         "matches": [serialize_regex_observation_match(match) for match in matches],
         "count": len(matches),
+        "current_knowledge": current,
+        "evidence_note": (
+            "Raw observations preserve what was said then. Current knowledge below "
+            "includes its bound evidence; compare explicit corrections and scope before "
+            "treating an older statement as an unresolved current conflict."
+        ),
     }
+
+
+async def _current_knowledge_for_raw_search(
+    backend: Any, *, pattern: str, project_name: str | None, limit: int | None,
+    observations: list[Any],
+) -> list[dict[str, Any]]:
+    """Reopen only matching current rows; do not infer history or mutate truth."""
+    expression = re.compile(pattern, re.IGNORECASE)
+    store = backend.structured_store.knowledge_store
+    projects = [project_name] if project_name is not None else await store.known_projects()
+    selected = []
+    for name in projects:
+        entries = await store.list_entries(name)
+        jobs = backend.transcript_store.list_distill_jobs(project_name=name)
+        proven, _ = completed_job_ids(jobs, {entry.id: entry.to_dict() for entry in entries})
+        matched_sources = {
+            observation.metadata.get("transcript_source_id") for observation in observations
+            if observation.metadata.get("project_name") == name
+        }
+        linked = {
+            identity for job in jobs if job.id in proven and job.source_id in matched_sources
+            for point in job.promotion_summary.get("points") or []
+            for identity in point.get("canonical_truth_ids") or []
+        }
+        # Existing proved job receipts supply replacement edges. No knowledge
+        # history, guessed title relation or new durable lineage is created.
+        while True:
+            successors = {
+                identity for job in jobs if job.id in proven
+                for point in job.promotion_summary.get("points") or []
+                if point.get("disposition") in {"replace", "refine"}
+                and linked.intersection(point.get("replaced_truth_ids") or [])
+                for identity in point.get("canonical_truth_ids") or []
+            }
+            if successors <= linked:
+                break
+            linked.update(successors)
+        for entry in entries:
+            if entry.id in linked or expression.search(f"{entry.title}\n{entry.statement}"):
+                selected.append(entry)
+    if limit is not None:
+        selected = selected[:max(0, int(limit))]
+    result = []
+    for entry in selected:
+        context = resolve_session_scope(Path(backend.data_dir), project_name=entry.project_name)
+        validation, reopened = await reopen_knowledge_sources(
+            backend, project_name=entry.project_name,
+            sources=await store.list_sources(entry.id), project_root=context[1] if context else None,
+        )
+        result.append({
+            **project_memory_entries([entry], include_project=True, include_modules=True)[0],
+            "updated_at": entry.updated_at.isoformat(),
+            "source_status": validation.verification_outcome,
+            "source_reasons": list(validation.reason_codes),
+            "source_evidence": [
+                {"kind": item.source_kind, "status": item.verification_outcome,
+                 "content": item.content, "truncated": item.truncated}
+                for item in reopened
+            ],
+        })
+    return result
 
 
 def tool_get_observations(

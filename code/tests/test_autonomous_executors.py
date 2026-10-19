@@ -6,22 +6,24 @@ from contextlib import nullcontext
 import json
 import os
 from pathlib import Path
+import sys
 from typing import Any
 
 import pytest
 
-from harness_mem.autonomous.executors import host_structured_cli
+from harness_mem.autonomous.executors import codex_app_server, host_structured_cli
 from harness_mem.autonomous.executors import host_cli
 from harness_mem.autonomous.executors.host_structured_cli import HostStructuredCliProvider
 from harness_mem.autonomous.executors.registry import build_semantic_executor
 from harness_mem.autonomous.provider import ProviderError
 from harness_mem.autonomous.models import AutonomousDecision
 from harness_mem.config.merge import MergedConfig, load_merged_config
+from test_codex_memory_task_profile import fake_codex_rpc  # noqa: F401
 
 
 @pytest.fixture(autouse=True)
 def fake_process_scope(monkeypatch: pytest.MonkeyPatch) -> None:
-    # This file mocks Popen; real Windows process containment is tested separately.
+    # These unit tests fake process I/O; real containment is tested separately.
     monkeypatch.setattr(
         host_structured_cli, "_invocation_process_scope",
         lambda _process, **_kwargs: nullcontext(),
@@ -116,24 +118,36 @@ def test_stream_allocation_failure_does_not_register_a_provider_lease(
 ) -> None:
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "fictional-codex-home"))
     leases: list[str] = []
-    temporary_file = host_structured_cli.tempfile.TemporaryFile
-    calls = 0
+    write_text = Path.write_text
 
-    def allocate(**kwargs):
-        nonlocal calls
-        calls += 1
-        if calls == fail_at:
+    def write_instructions(path, *args, **kwargs):
+        if path.name == "instructions.md":
             raise OSError("fixture allocation failed")
-        return temporary_file(**kwargs)
+        return write_text(path, *args, **kwargs)
 
-    monkeypatch.setattr(host_structured_cli.tempfile, "TemporaryFile", allocate)
+    def allocate(**_kwargs):
+        raise OSError("fixture allocation failed")
+
+    # The app-server now allocates an instruction file and stderr capture,
+    # rather than two per-exec captures. Both must finish before lease registration.
+    if fail_at == 1:
+        monkeypatch.setattr(Path, "write_text", write_instructions)
+    else:
+        monkeypatch.setattr(codex_app_server.tempfile, "TemporaryFile", allocate)
     monkeypatch.setattr(
-        host_structured_cli, "register_provider_process_lease",
+        codex_app_server, "register_provider_process_lease",
         lambda *_args, **_kwargs: leases.append("lease"),
     )
-    provider = HostStructuredCliProvider(host_client="codex", executable="fixture")
-    with pytest.raises(OSError, match="fixture allocation failed"):
+    monkeypatch.setattr(
+        codex_app_server.CodexAppServer, "_spawn",
+        lambda *_args: pytest.fail("allocation failure must precede process startup"),
+    )
+    provider = HostStructuredCliProvider(host_client="codex", executable=sys.executable)
+    with pytest.raises(ProviderError, match="fixture allocation failed") as raised:
         provider.assimilate({}, runtime_dir=tmp_path / "runtime")
+    assert raised.value.native_attempts[-1]["model_dispatched"] is False
+    assert raised.value.attempt_results[-1].total_tokens is None
+    provider.close()
     assert leases == []
     assert not list((tmp_path / "runtime").iterdir())
 
@@ -262,7 +276,7 @@ def test_build_semantic_executor_requires_host_cli_when_authorized(
 @pytest.mark.parametrize(
     ("host_client", "env_name", "binary", "expected_token"),
     [
-        ("codex", "HARNESS_MEM_CODEX_EXECUTABLE", "codex-bin", "exec"),
+        ("codex", "HARNESS_MEM_CODEX_EXECUTABLE", "codex-bin", "app-server"),
         ("hermes", "HARNESS_MEM_HERMES_EXECUTABLE", "hermes-bin", "-z"),
         (
             "claude-code",
@@ -280,10 +294,13 @@ def test_host_cli_invokes_structured_command_for_each_host(
     env_name: str,
     binary: str,
     expected_token: str,
+    request: pytest.FixtureRequest,
 ) -> None:
     monkeypatch.setenv(env_name, binary)
     monkeypatch.setenv("HARNESS_MEM_DISTILL_MODEL", "must-not-be-forwarded")
     monkeypatch.setenv("HARNESS_MEM_ASSIMILATION_MODEL", "must-not-be-forwarded")
+    if host_client == "codex":
+        monkeypatch.setenv("CODEX_HOME", str(tmp_path / "fictional-codex-home"))
     captured: dict[str, Any] = {}
     lease_events: list[str] = []
 
@@ -315,10 +332,6 @@ def test_host_cli_invokes_structured_command_for_each_host(
                 )
                 return (payload, "")
             captured["prompt"] = input
-            if "--output-last-message" in command:
-                output_path = command[command.index("--output-last-message") + 1]
-                Path(output_path).write_text(payload, encoding="utf-8")
-                return ("{}", "")
             if "--output" in command:
                 output_path = command[command.index("--output") + 1]
                 Path(output_path).write_text(payload, encoding="utf-8")
@@ -343,6 +356,9 @@ def test_host_cli_invokes_structured_command_for_each_host(
         "harness_mem.autonomous.executors.host_structured_cli.release_provider_process_lease",
         lambda _path: lease_events.append("release"),
     )
+    if host_client == "codex":
+        captured = request.getfixturevalue("fake_codex_rpc")(output=json.dumps(_decision_payload()))
+        lease_events = captured["lease_events"]
 
     provider = HostStructuredCliProvider(
         host_client=host_client,
@@ -352,6 +368,9 @@ def test_host_cli_invokes_structured_command_for_each_host(
         _decision_manifest(),
         runtime_dir=tmp_path / "runtime",
     )
+    if host_client == "codex":
+        assert lease_events == ["lease", "popen"]
+        assert provider.close()["closed"] is True
 
     assert expected_token in captured["command"]
     assert captured["command"][0] == binary
@@ -361,7 +380,21 @@ def test_host_cli_invokes_structured_command_for_each_host(
     assert isinstance(result.decision, AutonomousDecision)
     assert result.host_client == host_client
     assert result.provider == f"{host_client}_cli"
-    assert result.model is None
+    if host_client == "codex":
+        assert result.model == "chosen-by-operator"
+        native, = result.native_attempts
+        assert native["requested_profile"] == native["effective_profile"] == captured["profile"]
+        starts = [row["params"] for row in captured["requests"] if row["method"] == "thread/start"]
+        turns = [row["params"] for row in captured["requests"] if row["method"] == "turn/start"]
+        assert len(starts) == len(turns) == 1
+        assert "model" not in starts[0] and "model" not in turns[0]
+        assert "reasoningEffort" not in starts[0] and "serviceTier" not in starts[0]
+        assert not any(key in starts[0]["config"] for key in ("model", "model_provider", "model_reasoning_effort", "service_tier"))
+        assert turns[0]["input"] == [{"type": "text", "text": host_structured_cli._build_prompt(_decision_manifest())}]
+        assert turns[0]["outputSchema"]["additionalProperties"] is False
+        assert native["thread_closed"] is True
+    else:
+        assert result.model is None
     assert result.receipt()["host_client"] == host_client
     assert lease_events == ["lease", "popen", "release"]
     if host_client == "hermes":
@@ -380,7 +413,8 @@ def test_host_cli_invokes_structured_command_for_each_host(
         assert 'Use this shape: {"review"' in captured["prompt"]
         assert "Every object key and every string value must use ASCII double quotes" in captured["prompt"]
         assert '"$defs"' not in captured["prompt"]
-        assert len(captured["prompt"]) < 5000
+        # Complete attributed-report guidance is authorized; never truncate it.
+        assert len(captured["prompt"]) < 6500
         assert result.input_sha256 == hashlib.sha256(
             captured["prompt"].encode("utf-8")
         ).hexdigest()

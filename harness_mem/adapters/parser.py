@@ -71,6 +71,7 @@ def parse_claude_jsonl_session(
     session_path: Path,
     *,
     on_error: str = "silent",
+    content: str | None = None,
 ) -> list[Turn]:
     """Parse a Claude Code ``.jsonl`` session file into a list of turns.
 
@@ -96,7 +97,8 @@ def parse_claude_jsonl_session(
     current_turn: Turn | None = None
 
     try:
-        content = session_path.read_text(encoding="utf-8-sig", errors="replace")
+        if content is None:
+            content = session_path.read_text(encoding="utf-8-sig", errors="replace")
         for record in scan_jsonl(content).records:
             record_type = record.get("type")
 
@@ -139,6 +141,20 @@ def parse_claude_jsonl_session(
             print(f"Warning: Error parsing session {session_path}: {exc}", file=sys.stderr)
 
     return turns
+
+
+def render_claude_conversation(turns: list[Turn], session_id: str) -> str:
+    """Render the same Claude turns for capture and immutable evidence replay."""
+    lines = [f"# Session: {session_id}"]
+    for index, turn in enumerate(turns, 1):
+        lines.append(f"\n## Turn {index}")
+        if turn.get("user"):
+            lines.append(f"\nUser: {turn['user']}")
+        for response in turn.get("assistant") or []:
+            lines.append(f"\nAssistant: {response}")
+        if turn.get("tools"):
+            lines.append(f"\nTools: {', '.join(tool['name'] for tool in turn['tools'])}")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------

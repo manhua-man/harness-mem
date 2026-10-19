@@ -129,8 +129,6 @@ def _source_label(
     """
     if _get_dotted(project_dict, key)[0]:
         return "project"
-    if key == "distill.autonomous.enabled":
-        return "default"
     if _get_dotted(user_dict, key)[0]:
         return "user"
     return "default"
@@ -173,12 +171,6 @@ def cmd_config_set(
     (see design.md "Error Handling" table).
     """
     resolved_root = _resolve_project_root(project_root)
-    if key in {"distill.autonomous.enabled"} and scope != "project":
-        print(
-            f"invalid scope: {key} may only be set at project scope",
-            file=sys.stderr,
-        )
-        return 1
     if key in INTERNAL_CONFIG_KEY_PATHS:
         print(
             f"invalid value: {key} is an internal compatibility key and is not "

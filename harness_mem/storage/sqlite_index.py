@@ -332,6 +332,10 @@ _PORTER_STEMMER_LOADED = False
 class SQLiteIndex:
     """Thread-safe SQLite wrapper with FTS5 full-text search.
 
+    Single-operation writes own their connection context under the index lock,
+    so a failed statement or commit cannot leave a transaction on the shared
+    connection after the lock is released.
+
     Data layout per table:
     - Main table: all columns as TEXT (JSON-serialized)
     - FTS5 virtual table: content column for full-text search
@@ -1140,12 +1144,11 @@ class SQLiteIndex:
                 row[key] = ""
         cols = list(row.keys())
         placeholders = ",".join(["?"] * len(cols))
-        with self._lock:
+        with self._lock, conn:
             conn.execute(
                 f"INSERT INTO {table} ({','.join(cols)}) VALUES ({placeholders})",
                 [row[c] for c in cols],
             )
-            conn.commit()
         return data["id"]
 
     def upsert(self, table: str, data: dict[str, Any]) -> str:
@@ -1165,13 +1168,12 @@ class SQLiteIndex:
         updates = ",".join(
             f"{column}=excluded.{column}" for column in cols if column != "id"
         )
-        with self._lock:
+        with self._lock, conn:
             conn.execute(
                 f"INSERT INTO {table} ({','.join(cols)}) VALUES ({placeholders}) "
                 f"ON CONFLICT(id) DO UPDATE SET {updates}",
                 [row[column] for column in cols],
             )
-            conn.commit()
         return str(data["id"])
 
     def get(self, table: str, id: str) -> dict | None:
@@ -1209,13 +1211,12 @@ class SQLiteIndex:
             f"{column}=excluded.{column}" for column in columns if column != "id"
         )
         conn = self._conn_write()
-        with self._lock:
+        with self._lock, conn:
             conn.executemany(
                 f"INSERT INTO {table} ({','.join(columns)}) VALUES ({placeholders}) "
                 f"ON CONFLICT(id) DO UPDATE SET {updates}",
                 [[row[column] for column in columns] for row in normalized],
             )
-            conn.commit()
         return len(normalized)
 
     def list(
@@ -1358,18 +1359,17 @@ class SQLiteIndex:
             elif hasattr(value, "isoformat"):
                 row[key] = value.isoformat()
         set_clause = ",".join([f"{k}=?" for k in row.keys()])
-        with self._lock:
+        with self._lock, conn:
             cursor = conn.execute(
                 f"UPDATE {table} SET {set_clause} WHERE id=?",
                 [*row.values(), id],
             )
-            conn.commit()
             return cursor.rowcount > 0
 
     def delete(self, table: str, id: str) -> bool:
         """Delete a row and every embedding read-model row for its id."""
         conn = self._conn_write()
-        with self._lock:
+        with self._lock, conn:
             cursor = conn.execute(f"DELETE FROM {table} WHERE id=?", (id,))
             conn.execute("DELETE FROM vec_embeddings WHERE entry_id = ?", (id,))
             try:
@@ -1377,14 +1377,13 @@ class SQLiteIndex:
             except sqlite3.Error:
                 # sqlite-vec is optional and the virtual table may not exist.
                 pass
-            conn.commit()
             return cursor.rowcount > 0
 
     def replace_observation_trigrams(self, observation_id: str, text: str) -> int:
         """Replace trigram postings for one observation raw_content blob."""
         trigrams = sorted(_trigrams(text))
         conn = self._conn_write()
-        with self._lock:
+        with self._lock, conn:
             conn.execute(
                 "DELETE FROM observation_trigrams WHERE observation_id = ?",
                 (observation_id,),
@@ -1396,7 +1395,6 @@ class SQLiteIndex:
                 """,
                 [(ngram, observation_id) for ngram in trigrams],
             )
-            conn.commit()
         return len(trigrams)
 
     def rebuild_observation_trigrams(
@@ -1560,12 +1558,11 @@ class SQLiteIndex:
     def delete_observation_trigrams(self, observation_id: str) -> None:
         """Delete exact-search postings for one observation."""
         conn = self._conn_write()
-        with self._lock:
+        with self._lock, conn:
             conn.execute(
                 "DELETE FROM observation_trigrams WHERE observation_id = ?",
                 (observation_id,),
             )
-            conn.commit()
 
     def candidate_observation_ids_for_trigrams(
         self,

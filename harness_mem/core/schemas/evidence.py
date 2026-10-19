@@ -8,14 +8,14 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-EvidenceBasis = Literal["repository", "user_statement", "transcript"]
+EvidenceBasis = Literal["repository", "user_statement", "transcript", "source_report"]
 VerificationOutcome = Literal[
     "verified",
     "unverified",
     "contradicted",
     "not_applicable",
 ]
-EvidenceRefKind = Literal["repository", "user_statement", "transcript"]
+EvidenceRefKind = Literal["repository", "user_statement", "transcript", "source_report"]
 
 
 class EvidenceRef(BaseModel):

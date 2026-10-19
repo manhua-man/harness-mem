@@ -1,17 +1,16 @@
-"""Real local Codex-shaped processes distinguish parent exit from pipe EOF.
+"""Local Codex-shaped stdio peers prove RPC and process-owner cleanup.
 
 Minimal reproduction (no model or Hook):
     python -m pytest -q code/tests/test_host_cli_pipe_completion.py
 
-Only command routing is replaced. Popen, communicate, timeout handling, leases,
-return-code classification and decision validation all use the real runtime.
+Only _spawn command routing is replaced. RPC, Popen, Windows containment,
+deadlines, leases, failure classification and validation use the real runtime.
 """
 
 from __future__ import annotations
 
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
-from dataclasses import replace
 import hashlib
 import json
 import os
@@ -25,6 +24,7 @@ from typing import Iterator
 import pytest
 
 from harness_mem.autonomous.executors import host_structured_cli
+from harness_mem.autonomous.executors.codex_app_server import CodexAppServer
 from harness_mem.autonomous.executors.host_structured_cli import HostStructuredCliProvider
 from harness_mem.autonomous.models import AssimilationDecision
 from harness_mem.autonomous.provider import ProviderError, ProviderResult
@@ -38,6 +38,11 @@ import stat
 import subprocess
 import sys
 import time
+
+def deny_network(event, _args):
+    if event.startswith("socket."):
+        raise AssertionError("local stdio fixture must not use a network")
+sys.addaudithook(deny_network)
 
 mode, directory, *args = sys.argv[1:]
 signals = Path(directory)
@@ -75,6 +80,87 @@ def spawn_child():
 
 if mode.startswith("startup"):
     spawn_child()  # Intentionally before reading stdin: containment must precede startup.
+if "app-server" in args:
+    import tomllib
+
+    def merge(target, values):
+        for key, value in values.items():
+            if isinstance(value, dict):
+                merge(target.setdefault(key, {}), value)
+            else:
+                target[key] = value
+
+    config = {"model": "fictional-operator-model", "model_provider": "fictional-provider",
+              "model_reasoning_effort": "high", "service_tier": "priority"}
+    settings = args[args.index("app-server") + 3:]
+    for index in range(0, len(settings), 2):
+        assert settings[index] == "-c"
+        merge(config, tomllib.loads(settings[index + 1]))
+
+    def send(message):
+        print(json.dumps(message, ensure_ascii=False), flush=True)
+
+    def reply(request, result):
+        send({"id": request["id"], "result": result})
+
+    def notify(method, **params):
+        send({"method": method, "params": params})
+
+    for line in sys.stdin:
+        request = json.loads(line)
+        method, params = request["method"], request["params"]
+        if method == "initialize":
+            reply(request, {"userAgent": "offline-pipe-fixture"})
+        elif method == "initialized":
+            pass
+        elif method == "config/read":
+            reply(request, {"config": config})
+        elif method == "thread/start":
+            reply(request, {
+                "thread": {"id": "thread-1", "ephemeral": True, "path": None, "turns": []},
+                "instructionSources": [], "approvalPolicy": "never", "sandbox": {"type": "readOnly"},
+                "model": config["model"], "modelProvider": config["model_provider"],
+                "reasoningEffort": config["model_reasoning_effort"], "serviceTier": config["service_tier"],
+            })
+        elif method == "mcpServerStatus/list":
+            reply(request, {"data": [], "nextCursor": None})
+        elif method == "turn/start":
+            if not mode.startswith("startup"):
+                spawn_child()
+            prompt = params["input"][0]["text"]
+            (signals / "stdin.txt").write_text(prompt, encoding="utf-8")
+            payload = {"points": []} if mode != "invalid" else {"points": "invalid"}
+            raw = json.dumps(payload)
+            (signals / "decision.json").write_text(raw, encoding="utf-8")
+            ids = {"threadId": params["threadId"], "turnId": "turn-1"}
+            reply(request, {"turn": {"id": "turn-1", "status": "inProgress", "items": []}})
+            notify("rawResponse/completed", **ids, responseId="response-1", usage={
+                "inputTokens": 100, "cachedInputTokens": 0, "outputTokens": 25,
+                "reasoningOutputTokens": 0, "totalTokens": 125,
+            })
+            item = {"type": "agentMessage", "id": "answer-1", "phase": "final_answer", "text": raw}
+            notify("item/completed", **ids, item=item)
+            print("local CLI diagnostic", file=sys.stderr, flush=True)
+            if mode.endswith("timeout"):
+                (signals / "parent-running").touch()
+                (signals / "parent-ready.json").write_text(json.dumps({"pid": os.getpid()}))
+                time.sleep(30)
+            if mode == "nonzero":
+                (signals / "parent-exiting").touch()
+                print("authentication denied by local fixture", file=sys.stderr, flush=True)
+                sys.exit(7)
+            notify("turn/completed", threadId=params["threadId"], turn={
+                "id": "turn-1", "status": "completed", "error": None, "items": [item],
+            })
+            (signals / "turn-sent").touch()
+        elif method == "thread/unsubscribe":
+            reply(request, {"status": "unsubscribed"})
+            notify("thread/closed", threadId=params["threadId"])
+        elif method == "turn/interrupt":
+            reply(request, {})
+        else:
+            raise AssertionError(f"unexpected RPC method: {method}")
+    sys.exit(0)
 prompt = sys.stdin.read()
 (signals / "stdin.txt").write_text(prompt, encoding="utf-8")
 payload = {"points": []} if mode != "invalid" else {"points": "invalid"}
@@ -163,25 +249,24 @@ def _local_provider(
 ) -> HostStructuredCliProvider:
     script, signals = local_cli
     monkeypatch.setenv("CODEX_HOME", str(signals.parent / "fictional-codex-home"))
-    build_invocation = host_structured_cli._build_host_invocation
-
-    def build_local_invocation(**kwargs):
-        invocation = build_invocation(**kwargs)
-        return replace(
-            invocation,
-            command=[
-                sys.executable, "-I", "-u", str(script), mode, str(signals),
-                *invocation.command[1:],
-            ],
-        )
-
-    monkeypatch.setattr(
-        host_structured_cli, "_build_host_invocation", build_local_invocation,
-    )
     provider = HostStructuredCliProvider(
         host_client="codex", executable=sys.executable, poll_seconds=0.2,
     )
-    # Shorten only the test's deadline; the real communicate/kill logic remains.
+    server = CodexAppServer(
+        sys.executable, scope_factory=host_structured_cli._invocation_process_scope,
+        remove_directory=host_structured_cli._remove_runtime_directory, poll_seconds=0.2,
+    )
+    spawn = server._spawn
+
+    def spawn_local(command, cwd, env):
+        return spawn([
+            sys.executable, "-I", "-u", "-X", "utf8", str(script), mode, str(signals),
+            *command[1:],
+        ], cwd, env)
+
+    monkeypatch.setattr(server, "_spawn", spawn_local)
+    provider._codex_server = server
+    # Shorten only the test's deadline; real RPC/reader/kill logic remains.
     provider.timeout_seconds = 10
     return provider
 
@@ -189,6 +274,7 @@ def _local_provider(
 @contextmanager
 def _held_child_invocation(
     provider: HostStructuredCliProvider, signals: Path, runtime_dir: Path,
+    *, terminal_witness: str = "turn-sent",
 ) -> Iterator[Future[ProviderResult]]:
     with ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(
@@ -197,11 +283,16 @@ def _held_child_invocation(
         )
         try:
             _wait_for(signals / "child-ready.json")
-            _wait_for(signals / "parent-exiting")
+            _wait_for(signals / terminal_witness)
             yield future
         finally:
             # Release even on a regression; never leave readers/children hanging.
             (signals / "release-child").touch()
+            try:
+                future.result(timeout=12)
+            except Exception:
+                pass  # The test consumes and asserts the actual result/error.
+            provider.close()
 
 
 def test_minimal_reproduction_parent_exits_before_inherited_pipes_reach_eof(
@@ -255,10 +346,22 @@ def test_provider_completes_and_removes_child_held_invocation_directory(
         assert result.response_sha256 == hashlib.sha256(raw.encode()).hexdigest()
         assert (signals / "stdin.txt").read_text("utf-8")
         assert result.total_tokens == 125
-        if os.name == "nt":
-            _wait_for_windows_child_exit(signals)
+        native, = result.native_attempts
+        assert native["terminal"] == "completed" and native["thread_closed"] is True
+        process = provider._codex_server._process
+        readers = list(provider._codex_server._readers)
+        assert process.poll() is None  # Daemon lifetime belongs to the caller.
         assert not list((tmp_path / "runtime").glob("assimilation-*"))
         witness = json.loads((signals / "child-ready.json").read_text("utf-8"))
+        assert Path(witness["cwd"]).exists()
+        assert provider.close()["closed"] is True
+        if os.name == "nt":
+            _wait_for_windows_child_exit(signals)
+        assert process.poll() is not None
+        assert all(not reader.is_alive() for reader in readers)
+        assert not list((tmp_path / "runtime").glob("assimilation-*"))
+        assert not list((tmp_path / "runtime").glob("codex-app-server-*"))
+        assert not list((tmp_path / "runtime").rglob("hook_guard/active/*.json"))
         assert not Path(witness["cwd"]).exists()
 
 
@@ -267,7 +370,10 @@ def test_nonzero_exit_with_valid_decision_file_is_not_success(
 ) -> None:
     _, signals = local_cli
     provider = _local_provider(monkeypatch, local_cli, mode="nonzero")
-    with _held_child_invocation(provider, signals, tmp_path / "runtime") as future:
+    provider.timeout_seconds = 2
+    with _held_child_invocation(
+        provider, signals, tmp_path / "runtime", terminal_witness="parent-exiting",
+    ) as future:
         with pytest.raises(ProviderError, match="authentication denied") as raised:
             future.result(timeout=3)
         assert raised.value.exit_code == 7
@@ -287,7 +393,15 @@ def test_zero_exit_still_requires_valid_decision_schema(
         with pytest.raises(ProviderError, match="invalid assimilation JSON") as raised:
             future.result(timeout=3)
         assert raised.value.kind == "unrecoverable"
-        assert raised.value.exit_code == 0
+        # The daemon is caller-owned: a completed turn takes the place of exec's
+        # zero exit code, and schema failure must retain its completed usage.
+        native, = raised.value.native_attempts
+        assert native["terminal"] == "completed" and native["thread_closed"] is True
+        attempt, = raised.value.attempt_results
+        assert attempt.schema_valid is False
+        assert (attempt.input_tokens, attempt.output_tokens, attempt.total_tokens) == (100, 25, 125)
+        raw = (signals / "decision.json").read_text("utf-8")
+        assert attempt.response_sha256 == hashlib.sha256(raw.encode()).hexdigest()
         assert not (signals / "child-finished").exists()
 
 
@@ -298,7 +412,7 @@ def test_running_parent_with_valid_decision_file_really_times_out(
     provider = _local_provider(monkeypatch, local_cli, mode="timeout")
     provider.timeout_seconds = 2
     heartbeats: list[float] = []
-    with pytest.raises(ProviderError, match="provider exceeded 2s") as raised:
+    with pytest.raises(ProviderError, match="deadline exceeded") as raised:
         provider.assimilate(
             {"verified_candidates": []}, runtime_dir=tmp_path / "runtime",
             heartbeat=lambda: heartbeats.append(time.monotonic()),
@@ -310,6 +424,20 @@ def test_running_parent_with_valid_decision_file_really_times_out(
     assert json.loads((signals / "decision.json").read_text("utf-8")) == {
         "points": [],
     }
+    attempt, = raised.value.attempt_results
+    assert (attempt.input_tokens, attempt.output_tokens, attempt.total_tokens) == (None, None, None)
+    native, = raised.value.native_attempts
+    assert native["known_usage_subtotal"] == {
+        "input_tokens": 100, "output_tokens": 25, "total_tokens": 125,
+    }
+    assert native["known_usage_response_count"] == 1
+    assert native["model_dispatched"] is True and native["terminal"] is None
+    provider.close()
+    if os.name == "nt":
+        _wait_for_windows_child_exit(signals, "parent-ready.json")
+        _wait_for_windows_child_exit(signals)
+    assert not list((tmp_path / "runtime").glob("codex-app-server-*"))
+    assert not list((tmp_path / "runtime").rglob("hook_guard/active/*.json"))
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows process containment")
@@ -353,20 +481,19 @@ def test_worker_crash_closes_job_and_stops_cli_and_early_child(
     script, signals = local_cli
     worker = tmp_path / "worker.py"
     worker.write_text('''
-from dataclasses import replace
 import os
 from pathlib import Path
 import sys
 sys.path.insert(0, sys.argv[1])
 from harness_mem.autonomous.executors import host_structured_cli as cli
+from harness_mem.autonomous.executors.codex_app_server import CodexAppServer
 script, signals, runtime = sys.argv[2:]
 os.environ["CODEX_HOME"] = str(Path(runtime) / "fictional-codex-home")
-build = cli._build_host_invocation
-def local(**kwargs):
-    invocation = build(**kwargs)
-    return replace(invocation, command=[sys.executable, "-I", "-u", script,
-        "startup-timeout", signals, *invocation.command[1:]])
-cli._build_host_invocation = local
+spawn = CodexAppServer._spawn
+def local(self, command, cwd, env):
+    return spawn(self, [sys.executable, "-I", "-u", "-X", "utf8", script,
+        "startup-timeout", signals, *command[1:]], cwd, env)
+CodexAppServer._spawn = local
 provider = cli.HostStructuredCliProvider(host_client="codex", executable=sys.executable,
     poll_seconds=0.2)
 def crash():

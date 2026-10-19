@@ -5,8 +5,7 @@
     "type": "object",
     "properties": {
       "project_name": {
-        "type": "string",
-        "description": "Project name"
+        "type": "string"
       },
       "session_id": {
         "type": "string",

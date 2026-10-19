@@ -122,7 +122,7 @@ def main(argv: list[str] | None = None):
     quickstart = sub.add_parser(
         "quickstart",
         aliases=["qs"],
-        help="Install the current app's global memory entry",
+        help="Prepare the current app's automatic memory and review entry",
     )
     quickstart.add_argument(
         "-c",
@@ -130,6 +130,7 @@ def main(argv: list[str] | None = None):
         choices=["auto", *SUPPORTED_HOOK_CLIENTS],
         default="auto",
     )
+    quickstart.add_argument("--confirm", action="store_true", help="Authorize background model processing for future task endings")
     quickstart.set_defaults(command_name="quickstart")
 
     doctor = sub.add_parser("doctor", help="Inspect local setup and suggest repairs")
@@ -366,6 +367,7 @@ def main(argv: list[str] | None = None):
     hooks_sync.add_argument(
         "--project-root", help="Project directory (default: cwd)"
     )
+    hooks_sync.add_argument("--scope", choices=["user", "project"], default="project", help="Repair global host integration or an explicit project suite")
     hooks_sync.add_argument(
         "--force", action="store_true", help="Overwrite existing harness-mem hooks"
     )
@@ -420,7 +422,7 @@ def main(argv: list[str] | None = None):
         return 0
 
     if command == "quickstart":
-        return cmd_quickstart(args.client)
+        return cmd_quickstart(args.client, confirm=args.confirm)
 
     if command == "doctor":
         return asyncio.run(cmd_doctor(args.project))
@@ -564,6 +566,7 @@ def main(argv: list[str] | None = None):
                     args.client,
                     args.project_root,
                     args.force,
+                    scope=args.scope,
                 )
             hooks.error(f"Unknown hooks action: {args.hooks_action}")
         if args.integration_action == "transcript-evidence":

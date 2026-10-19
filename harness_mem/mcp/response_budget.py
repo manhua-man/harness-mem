@@ -17,7 +17,9 @@ RESPONSE_BUDGET_CONTRACT_VERSION = "serialized-response-budget-v1"
 def serialize_mcp_result(result: Any) -> str:
     """Serialize exactly as the MCP executor sends ``content.text``."""
 
-    return json.dumps(result, indent=2, ensure_ascii=False, default=str)
+    # Whitespace inside source strings is data and remains byte-for-byte intact.
+    # Pretty-printing the envelope only increases every later model input.
+    return json.dumps(result, separators=(",", ":"), ensure_ascii=False, default=str)
 
 
 def count_response_tokens(value: str) -> tuple[int, str]:

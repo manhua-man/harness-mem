@@ -12,13 +12,14 @@ import logging
 import os
 from pathlib import Path
 import re
-from typing import Any, Callable, Iterator, Literal, Protocol, Sequence
+from typing import Any, Callable, Iterator, Literal, Mapping, Protocol, Sequence
 from uuid import uuid4
 
 from harness_mem.autonomous.models import (
     AssimilationDecision,
     CandidateVerificationDecision,
     DistillCandidate,
+    verification_scope_status,
     validate_atomic_knowledge_statement,
 )
 from harness_mem.autonomous.provider import (
@@ -33,6 +34,8 @@ from harness_mem.commands.distill_lifecycle import pending_distill_jobs
 from harness_mem.commands.separated_assimilation import (
     SeparatedPreparedAssimilation,
     create_separated_candidates,
+    final_scope_payload,
+    final_scope_proof,
     normalize_identical_replacements,
     prepare_separated_assimilation,
     validate_separated_assimilation_decision,
@@ -54,7 +57,7 @@ from harness_mem.storage.local_memory_backend import DEFAULT_DATA_DIR, LocalMemo
 
 logger = logging.getLogger("harness_mem.autonomous")
 _REVIEW_LEASE_SECONDS = 300
-_MAX_ASSIMILATION_CANDIDATES_PER_CALL = 1
+_MAX_ASSIMILATION_CANDIDATES_PER_CALL = 16
 _RUNTIME_SOURCE_FILES = (
     Path(__file__),
     Path(__file__).with_name("models.py"),
@@ -64,9 +67,13 @@ _RUNTIME_SOURCE_FILES = (
     Path(__file__).with_name("executors") / "registry.py",
     Path(__file__).with_name("executors") / "host_cli.py",
     Path(__file__).with_name("executors") / "host_structured_cli.py",
+    Path(__file__).with_name("executors") / "codex_app_server.py",
     Path(__file__).parents[1] / "host_entry" / "__main__.py",
     Path(__file__).parents[1] / "hook_background.py",
+    Path(__file__).parents[1] / "diagnostic_events.py",
     Path(__file__).parents[1] / "commands" / "maintenance.py",
+    Path(__file__).parents[1] / "commands" / "ingest.py",
+    Path(__file__).parents[1] / "mcp" / "tool_handlers.py",
     Path(__file__).parents[1] / "commands" / "distill_lifecycle.py",
     Path(__file__).parents[1] / "commands" / "separated_assimilation.py",
     Path(__file__).parents[1] / "commands" / "knowledge_assimilation.py",
@@ -101,12 +108,19 @@ _RUNTIME_SOURCE_FILES = (
     Path(__file__).parents[1] / "mcp" / "read_projection.py",
     Path(__file__).parents[1] / "read_knowledge.py",
     Path(__file__).parents[1] / "storage" / "knowledge_store.py",
+    Path(__file__).parents[1] / "storage" / "canonical_store.py",
+    Path(__file__).parents[1] / "storage" / "sqlite_index.py",
+    Path(__file__).parents[1] / "commands" / "dream.py",
+    Path(__file__).parents[1] / "commands" / "dream_assimilation.py",
     Path(__file__).parents[1] / "storage" / "session_distill_store.py",
     Path(__file__).parents[1] / "storage" / "transcript_store.py",
     Path(__file__).parents[1] / "core" / "schemas" / "session_distill.py",
+    Path(__file__).parents[1] / "core" / "schemas" / "dream_run.py",
     Path(__file__).parents[1] / "commands" / "archive_distill.py",
     Path(__file__).parents[1] / "storage" / "manual_batch_store.py",
     Path(__file__).parents[1] / "core" / "schemas" / "knowledge.py",
+    Path(__file__).parents[1] / "core" / "schemas" / "source_report.py",
+    Path(__file__).parents[1] / "core" / "schemas" / "evidence.py",
     Path(__file__).parents[1] / "session_notes.py",
     Path(__file__).parents[2] / "code" / "plugins" / "harness-mem" / "commands" / "hm" / "hm.md",
     Path(__file__).parents[2] / "code" / "tools" / "hm-distill" / "SKILL.md",
@@ -223,6 +237,33 @@ def read_autonomous_receipt(
     return payload if isinstance(payload, dict) else None
 
 
+def record_post_turn_maintenance_outcome(
+    data_dir: Path, *, project_name: str, project_root: str | Path,
+    trigger_id: str | None, dispatch_generation: str | None, dream: Mapping[str, Any],
+) -> None:
+    """Close the same natural request after Dream without losing source usage."""
+    root = Path(project_root).resolve()
+    previous = read_autonomous_receipt(data_dir, project_name=project_name, project_root=root)
+    if (previous is None or previous.get("trigger_id") != trigger_id
+            or previous.get("dispatch_generation") != dispatch_generation):
+        return
+    status = str(dream.get("status") or "failed")
+    state = ("failed" if status == "failed" else "deferred" if status == "continuing"
+             else str(previous.get("state") or "idle"))
+    error = previous.get("error")
+    if error is None and status in {"failed", "continuing"}:
+        error = {"kind": "dream_failed" if status == "failed" else "dream_continuation_pending",
+                 "message": str(dream.get("error") or dream.get("reason") or status)[:512]}
+    _write_receipt(data_dir, project_name=project_name, project_root=root, update={
+        "source_state": previous.get("source_state") or previous.get("state"),
+        "source_finished_at": previous.get("source_finished_at") or previous.get("finished_at"),
+        "state": state, "finished_at": _now(), "error": error,
+        "maintenance_status": "paused" if status == "continuing" else status,
+        "maintenance_dream": {key: dream.get(key) for key in
+                              ("run_id", "status", "summary", "continuation", "reason")},
+    })
+
+
 def _record_post_turn_nonsemantic_terminal_receipt(
     data_dir: Path,
     *,
@@ -256,6 +297,7 @@ def _record_post_turn_nonsemantic_terminal_receipt(
         project_root=root,
         update={
             "state": state,
+            "maintenance_status": "failed" if state == "failed" else "paused",
             "started_at": finished_at,
             "finished_at": finished_at,
             "trigger_id": trigger_id,
@@ -495,6 +537,104 @@ def run_autonomous_distill_batch(
     launch_source: str | None = None,
     dispatch_generation: str | None = None,
 ) -> dict[str, Any]:
+    """Own only executors created by this batch, including every early exit."""
+    owned: list[Any] = []
+    try:
+        # Optional accounting must not invoke a provider's dynamic operation
+        # fallback before manual-only jobs have been excluded.
+        borrowed_journal = object.__getattribute__(provider, "_native_results")
+    except AttributeError:
+        borrowed_journal = None
+    borrowed_start = len(borrowed_journal) if isinstance(borrowed_journal, list) else 0
+
+    def create_executor(selected_config: MergedConfig, selected_client: str) -> Any:
+        executor = build_semantic_executor(selected_config, selected_client)
+        owned.append(executor)
+        return executor
+
+    result: dict[str, Any] | None = None
+    active_error: BaseException | None = None
+    try:
+        result = _run_autonomous_distill_batch(
+            backend, project_name=project_name, project_root=project_root,
+            config=config, trigger_id=trigger_id, client=client, provider=provider,
+            notes_dir=notes_dir, max_jobs=max_jobs, preferred_job_id=preferred_job_id,
+            launch_source=launch_source, dispatch_generation=dispatch_generation,
+            _create_executor=create_executor,
+        )
+        return result
+    except BaseException as exc:
+        active_error = exc
+        if isinstance(exc, Exception):
+            observed = []
+            for executor in owned:
+                journal = getattr(executor, "_native_results", None)
+                if isinstance(journal, list):
+                    observed.extend(journal)
+            if isinstance(borrowed_journal, list):
+                observed.extend(borrowed_journal[borrowed_start:])
+            accounting = _native_provider_receipt(observed, exc if isinstance(exc, ProviderError) else None)
+            if accounting is not None:
+                if isinstance(exc, ProviderError):
+                    exc.native_attempts = tuple(accounting["native_attempts"])
+                else:
+                    error = ProviderError(
+                        f"Local worker failure: {type(exc).__name__}: {exc}", kind="transient",
+                        attempt_results=tuple(observed), native_attempts=tuple(accounting["native_attempts"]),
+                    )
+                    active_error = error
+                    raise error from exc
+        raise
+    finally:
+        for executor in owned:
+            close = getattr(executor, "close", None)
+            if not callable(close):
+                continue
+            try:
+                lifecycle = close()
+                if lifecycle:
+                    receipt = _write_receipt(
+                        backend.data_dir, project_name=project_name,
+                        project_root=Path(project_root).expanduser().resolve(),
+                        update={"provider_lifecycle": lifecycle},
+                    )
+                    if result is not None:
+                        result["provider_lifecycle"] = lifecycle
+                        result["receipt"] = receipt
+            except Exception as exc:
+                error = exc if isinstance(exc, ProviderError) else ProviderError(str(exc), kind="transient")
+                update: dict[str, Any] = {"state": "partial", "error": {
+                    "kind": error.kind, "message": str(error), "phase": "provider_close"}}
+                if error.native_attempts:
+                    update["provider_lifecycle"] = {"closed": False, "native_attempts": list(error.native_attempts)}
+                receipt = _write_receipt(
+                    backend.data_dir, project_name=project_name,
+                    project_root=Path(project_root).expanduser().resolve(), update=update,
+                )
+                if result is not None:
+                    result.update(success=False, state="partial", error=update["error"], receipt=receipt)
+                elif active_error is None:
+                    raise error
+                elif isinstance(active_error, ProviderError):
+                    active_error.native_attempts += error.native_attempts
+
+
+def _run_autonomous_distill_batch(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+    project_root: str | Path,
+    config: MergedConfig,
+    trigger_id: str | None,
+    client: str,
+    provider: DistillProvider | None = None,
+    notes_dir: Path | None = None,
+    max_jobs: int | None = None,
+    preferred_job_id: str | None = None,
+    launch_source: str | None = None,
+    dispatch_generation: str | None = None,
+    _create_executor: Any = None,
+) -> dict[str, Any]:
     """Process a bounded offered batch and materialize user-visible notes."""
 
     from harness_mem.maintenance_lock import maintenance_is_locked
@@ -526,7 +666,7 @@ def run_autonomous_distill_batch(
         chosen_provider = (
             provider
             if provider is not None
-            else build_semantic_executor(config, client)
+            else (_create_executor or build_semantic_executor)(config, client)
             if background_on(config)
             else None
         )
@@ -611,6 +751,13 @@ def run_autonomous_distill_batch(
         project_root=root,
         update={
             "state": "running",
+            "maintenance_status": (
+                "running" if launch_source == "ide_hook"
+                and os.environ.get("HARNESS_MEM_HOOK_BACKGROUND_WORKER") == "1" else None
+            ),
+            "source_state": None,
+            "source_finished_at": None,
+            "maintenance_dream": None,
             "started_at": started_at,
             "trigger_id": trigger_id,
             "dispatch_generation": dispatch_generation,
@@ -805,18 +952,7 @@ def run_autonomous_distill_batch(
                 "busy": len(busy),
                 "job_ids": [item["job_id"] for item in outcomes],
                 "jobs": outcomes,
-                "input_tokens": sum(
-                    int((item.get("provider") or {}).get("input_tokens") or 0)
-                    for item in outcomes
-                ),
-                "output_tokens": sum(
-                    int((item.get("provider") or {}).get("output_tokens") or 0)
-                    for item in outcomes
-                ),
-                "total_tokens": sum(
-                    int((item.get("provider") or {}).get("total_tokens") or 0)
-                    for item in outcomes
-                ),
+                **_batch_provider_usage(outcomes),
                 "provider_seconds": round(
                     sum(
                         float(
@@ -1059,6 +1195,8 @@ def _run_one_core(
     notes_dir: Path,
 ) -> dict[str, Any]:
     lease_owner = f"autonomous:{os.getpid()}:{uuid4()}"
+    native_journal = getattr(provider, "_native_results", None)
+    native_start = len(native_journal) if isinstance(native_journal, list) else 0
     from harness_mem.commands.manual_distill import is_manual_distill_job
 
     current_job = backend.transcript_store.get_distill_job(job_id)
@@ -1082,6 +1220,20 @@ def _run_one_core(
             raise ProviderError(
                 str(packet.get("error") or "semantic prepare failed"),
                 kind="transient",
+            )
+        # Internal preparation used to leave only signal-selected compact
+        # excerpts in this packet. Reuse the same complete-source projection
+        # as manual MCP reading, without putting duplicate outlines in prompts.
+        from harness_mem.mcp.distill_handlers import _compact_prepare_result
+
+        internal = {key: packet[key] for key in (
+            "zero_candidate_exchange_refs", "zero_candidate_challenge_template",
+        ) if key in packet}
+        packet = {**_compact_prepare_result(packet), **internal}
+        if not packet.get("success"):
+            raise ProviderError(
+                str(packet.get("error") or "complete source projection failed"),
+                kind="unrecoverable",
             )
         job = backend.transcript_store.get_distill_job(job_id)
         if job is None:
@@ -1173,6 +1325,8 @@ def _run_one_core(
                     packet=packet,
                     validated_candidates=validated_candidates,
                     project_root=project_root,
+                    backend=backend,
+                    distill_job_id=job.id,
                 ),
                 validated_candidates=validated_candidates,
                 runtime_dir=runtime_dir,
@@ -1207,6 +1361,7 @@ def _run_one_core(
             mode="json", exclude_none=True
         )
         assimilation_result: ProviderResult | None = None
+        final_verification_result: ProviderResult | None = None
         if governed_candidate_ids:
             prepared = asyncio.run(
                 prepare_separated_assimilation(
@@ -1243,6 +1398,19 @@ def _run_one_core(
                     prepared,
                     AssimilationDecision(points=[]),
                 )
+            final_verification_result, assimilation = _verify_final_knowledge_scope(
+                provider,
+                backend=backend,
+                prepared=prepared,
+                plan=assimilation,
+                original_manifest=_build_candidate_verification_manifest(
+                    packet=packet, validated_candidates=validated_candidates,
+                    project_root=project_root, backend=backend, distill_job_id=job.id,
+                ),
+                governed_candidate_ids=governed_candidate_ids,
+                runtime_dir=runtime_dir,
+                heartbeat=heartbeat,
+            )
             review_payload["assimilation"] = assimilation
         finalized = tools.tool_finalize_session_distill(
             project_name=project_name,
@@ -1320,6 +1488,22 @@ def _run_one_core(
                     3,
                 ),
             }
+        if final_verification_result is not None:
+            provider_receipt["final_verification"] = final_verification_result.receipt()
+            combined = provider_receipt.get("combined")
+            if isinstance(combined, dict):
+                for metric in ("input_tokens", "output_tokens", "total_tokens"):
+                    combined[metric] = _sum_provider_metric(
+                        combined[metric], getattr(final_verification_result, metric),
+                    )
+                combined["duration_seconds"] = round(
+                    combined["duration_seconds"] + final_verification_result.duration_seconds, 3,
+                )
+        native_receipt = _native_provider_receipt(
+            native_journal[native_start:] if isinstance(native_journal, list) else [],
+        )
+        if native_receipt is not None:
+            provider_receipt.update(native_receipt)
         completion = _record_success_receipt(
             backend,
             project_name=project_name,
@@ -1342,6 +1526,9 @@ def _run_one_core(
             **completion,
         }
     except ProviderError as exc:
+        failure_provider = _native_provider_receipt(
+            native_journal[native_start:] if isinstance(native_journal, list) else [], exc,
+        )
         job = backend.transcript_store.get_distill_job(job_id)
         if job is not None and job.review_lease_owner == lease_owner:
             job = backend.transcript_store.defer_distill_job(
@@ -1361,6 +1548,7 @@ def _run_one_core(
                     "message": str(exc)[:1000],
                     "exit_code": exc.exit_code,
                 },
+                **({"provider": failure_provider} if failure_provider is not None else {}),
             },
         )
         return {
@@ -1368,8 +1556,12 @@ def _run_one_core(
             "session_id": job.session_id if job else None,
             "status": "deferred",
             "error": {"kind": exc.kind, "message": str(exc)[:1000]},
+            **({"provider": failure_provider} if failure_provider is not None else {}),
         }
     except Exception as exc:  # noqa: BLE001 - one broken job must not block the batch.
+        failure_provider = _native_provider_receipt(
+            native_journal[native_start:] if isinstance(native_journal, list) else [],
+        )
         job = backend.transcript_store.get_distill_job(job_id)
         if job is not None and job.review_lease_owner == lease_owner:
             backend.transcript_store.defer_distill_job(
@@ -1377,7 +1569,7 @@ def _run_one_core(
                 error=f"unrecoverable: {type(exc).__name__}: {exc}"[:512],
             )
         logger.exception("autonomous distill job failed: %s", job_id)
-        return {
+        outcome = {
             "job_id": job_id,
             "session_id": job.session_id if job else None,
             "status": "deferred",
@@ -1385,7 +1577,19 @@ def _run_one_core(
                 "kind": "unrecoverable",
                 "message": f"{type(exc).__name__}: {exc}"[:1000],
             },
+            **({"provider": failure_provider} if failure_provider is not None else {}),
         }
+        try:
+            _write_receipt(
+                backend.data_dir, project_name=project_name, project_root=project_root,
+                update={"state": "deferred", **outcome},
+            )
+        except Exception as receipt_error:
+            # The batch can retry its final receipt; paid history must remain
+            # on the returned outcome even if this local write fails too.
+            outcome["receipt_error"] = {"kind": "receipt_write_failed",
+                                        "exception_type": type(receipt_error).__name__}
+        return outcome
 
 
 def _govern_unfinished_handoff(
@@ -1437,11 +1641,20 @@ def build_provider_manifest(packet: dict[str, Any]) -> dict[str, Any]:
             "exchange_index": item.get("exchange_index"),
             "content_sha256": item.get("content_sha256"),
             "content": item.get("content"),
+            **(
+                {"preceding_assistant_messages": item["preceding_assistant_messages"]}
+                if "preceding_assistant_messages" in item
+                else {}
+            ),
         }
         for item in packet.get("semantic_decision_exchanges") or []
         if isinstance(item, dict)
     ]
-    exchange_count = int(semantic_dict.get("exchange_count") or 0)
+    exchange_count = int(
+        semantic_dict.get("exchange_count")
+        or semantic_dict.get("output_exchange_count")
+        or 0
+    )
     covered_indexes = {
         exchange_index
         for item in decision_exchanges
@@ -1707,6 +1920,19 @@ def _assimilate_with_schema_retry(
     """
 
     current_manifest = manifest
+    attempt_results: list[ProviderResult] = []
+    unknown_attempt_count = 0
+
+    def completed_result(*, decision: Any = None) -> ProviderResult:
+        combined = _combine_provider_results(attempt_results, decision=decision)
+        if unknown_attempt_count:
+            combined = replace(
+                combined,
+                attempt_count=combined.attempt_count + unknown_attempt_count,
+                input_tokens=None, output_tokens=None, total_tokens=None,
+            )
+        return combined
+
     for attempt in range(3):
         try:
             result = _invoke_provider(
@@ -1717,7 +1943,11 @@ def _assimilate_with_schema_retry(
                 heartbeat=heartbeat,
             )
         except ProviderError as exc:
-            invalid_shape = "invalid assimilation json" in str(exc).lower()
+            attempt_results.extend(exc.attempt_results)
+            unknown_attempt_count += exc.unknown_attempt_count
+            if not exc.attempt_results and not exc.unknown_attempt_count:
+                unknown_attempt_count += 1
+            invalid_shape = exc.failure_reason == "decision_schema"
             if attempt < 2 and exc.kind == "unrecoverable" and invalid_shape:
                 current_manifest = {
                     **manifest,
@@ -1750,7 +1980,14 @@ def _assimilate_with_schema_retry(
                     },
                 }
                 continue
-            raise
+            raise ProviderError(
+                str(exc), kind=exc.kind, exit_code=exc.exit_code,
+                attempt_results=tuple(attempt_results),
+                unknown_attempt_count=unknown_attempt_count,
+                native_attempts=exc.native_attempts,
+                failure_reason=exc.failure_reason,
+            ) from exc
+        attempt_results.append(result)
         if isinstance(result.decision, AssimilationDecision):
             if validate_decision is not None:
                 try:
@@ -1801,18 +2038,24 @@ def _assimilate_with_schema_retry(
                             pass
                         else:
                             return replace(
-                                result,
+                                completed_result(decision=repaired),
                                 decision=repaired,
                                 provider=f"{result.provider}->runtime_source_clause",
                             )
                     raise ProviderError(
                         f"invalid assimilation decision: {exc}",
                         kind="unrecoverable",
+                        attempt_results=tuple(attempt_results),
+                        unknown_attempt_count=unknown_attempt_count,
+                        failure_reason="decision_validation",
                     ) from exc
-            return result
+            return completed_result()
         raise ProviderError(
             "assimilation provider returned an unexpected decision type",
             kind="unrecoverable",
+            attempt_results=tuple(attempt_results),
+            unknown_attempt_count=unknown_attempt_count,
+            failure_reason="decision_validation",
         )
     raise AssertionError("assimilation retry loop did not return")
 
@@ -1903,7 +2146,10 @@ def _repair_invalid_writing_with_source_clauses(
     point = decision.points[0]
     if point.candidate_id != str(projection.get("candidate_id") or ""):
         return None
-    if point.disposition not in {"add", "refine", "replace"}:
+    # The candidate is not the complete successor contract of matched truth.
+    # Copying it must never discard existing settings or scope during repair.
+    # Mutating actions stay on the ordinary model retry/defer path instead.
+    if point.disposition != "add" or point.matched_truth_handles:
         return None
     source = str(projection.get("statement") or "").strip()
     if not source or re.search(r"(?:；|;)\s*(?:如果|否则|if\b|otherwise\b)", source, re.I):
@@ -2057,17 +2303,35 @@ def _source_clause_title(source_clause: str) -> str:
     return title[:80] or "Verified source constraint"
 
 
+def _provider_error_after_attempts(
+    error: ProviderError,
+    prior_results: Sequence[ProviderResult],
+    *,
+    prior_unknown_count: int = 0,
+) -> ProviderError:
+    """Carry non-overlapping completed prefixes through a failed recovery."""
+
+    return ProviderError(
+        str(error), kind=error.kind, exit_code=error.exit_code,
+        attempt_results=(*prior_results, *error.attempt_results),
+        unknown_attempt_count=prior_unknown_count + error.unknown_attempt_count,
+        native_attempts=error.native_attempts,
+        failure_reason=error.failure_reason,
+    )
+
+
 def _assimilate_prepared_in_bounded_batches(
     provider: DistillProvider,
     *,
     prepared: SeparatedPreparedAssimilation,
     runtime_dir: Path,
     heartbeat: Any,
+    _batch_size: int | None = None,
 ) -> ProviderResult:
-    """Process verified points with isolated provider calls and full coverage.
+    """Batch verified points without weakening per-point checks or isolation.
 
-    The internal split keeps one bad point from blocking the others. It does
-    not limit how many knowledge items or result points one candidate returns.
+    Complete decisions share current truth once per batch. Invalid batches
+    fall back to individual points; no candidate or knowledge item is dropped.
     """
 
     eligible = list(prepared.eligible_candidate_ids)
@@ -2089,11 +2353,15 @@ def _assimilate_prepared_in_bounded_batches(
 
     results: list[ProviderResult] = []
     combined_points = []
-    prior_batch_knowledge: list[dict[str, Any]] = []
+    prior_batch_knowledge: list[dict[str, Any]] = [
+        dict(item) for item in prepared.manifest.get("prior_batch_knowledge") or []
+        if isinstance(item, dict)
+    ]
     retired_truth_handles: set[str] = set()
-    for offset in range(0, len(eligible), _MAX_ASSIMILATION_CANDIDATES_PER_CALL):
+    batch_size = _batch_size or _MAX_ASSIMILATION_CANDIDATES_PER_CALL
+    for offset in range(0, len(eligible), batch_size):
         batch_ids = tuple(
-            eligible[offset : offset + _MAX_ASSIMILATION_CANDIDATES_PER_CALL]
+            eligible[offset : offset + batch_size]
         )
         available_truth_by_handle = {
             handle: truth_id
@@ -2136,14 +2404,41 @@ def _assimilate_prepared_in_bounded_batches(
                 validate_decision=validate_batch,
             )
         except ProviderError as exc:
-            if exc.kind != "unrecoverable":
-                raise
-            result = _deferred_assimilation_result(
-                provider,
-                candidate_ids=batch_ids,
-                error=exc,
-                manifest=batch_prepared.manifest,
-            )
+            if exc.kind != "unrecoverable" or exc.failure_reason not in {
+                "decision_schema", "decision_validation",
+            }:
+                raise _provider_error_after_attempts(exc, results) from exc
+            if len(batch_ids) > 1:
+                try:
+                    result = _assimilate_prepared_in_bounded_batches(
+                        provider,
+                        prepared=batch_prepared,
+                        runtime_dir=runtime_dir,
+                        heartbeat=heartbeat,
+                        _batch_size=1,
+                    )
+                except ProviderError as recovery_error:
+                    raise _provider_error_after_attempts(
+                        recovery_error, [*results, *exc.attempt_results],
+                        prior_unknown_count=exc.unknown_attempt_count,
+                    ) from recovery_error
+                if exc.attempt_results:
+                    result = _combine_provider_results(
+                        [*exc.attempt_results, result], decision=result.decision,
+                    )
+                if exc.unknown_attempt_count:
+                    result = replace(
+                        result,
+                        attempt_count=result.attempt_count + exc.unknown_attempt_count,
+                        input_tokens=None, output_tokens=None, total_tokens=None,
+                    )
+            else:
+                result = _deferred_assimilation_result(
+                    provider,
+                    candidate_ids=batch_ids,
+                    error=exc,
+                    manifest=batch_prepared.manifest,
+                )
         if not isinstance(result.decision, AssimilationDecision):
             raise ProviderError(
                 "assimilation provider returned an unexpected decision type",
@@ -2221,13 +2516,16 @@ def _assimilate_prepared_in_bounded_batches(
             )
             return normalized
 
-        resolution = _assimilate_with_schema_retry(
-            provider,
-            manifest=resolution_prepared.manifest,
-            runtime_dir=runtime_dir,
-            heartbeat=heartbeat,
-            validate_decision=validate_resolution,
-        )
+        try:
+            resolution = _assimilate_with_schema_retry(
+                provider,
+                manifest=resolution_prepared.manifest,
+                runtime_dir=runtime_dir,
+                heartbeat=heartbeat,
+                validate_decision=validate_resolution,
+            )
+        except ProviderError as exc:
+            raise _provider_error_after_attempts(exc, results) from exc
         if not isinstance(resolution.decision, AssimilationDecision):
             raise ProviderError(
                 "truth-target resolution returned an unexpected decision type",
@@ -2422,20 +2720,31 @@ def _deferred_assimilation_result(
         or ""
     ).strip() or None
     payload = json.dumps(manifest, ensure_ascii=False, sort_keys=True)
-    return ProviderResult(
+    result = ProviderResult(
         decision=decision,
         provider=f"{getattr(provider, 'name', 'provider')}->runtime_defer",
         model=model,
         duration_seconds=0.0,
         input_sha256=hashlib.sha256(payload.encode("utf-8")).hexdigest(),
         response_sha256=hashlib.sha256(str(error).encode("utf-8")).hexdigest(),
-        input_tokens=None,
-        output_tokens=None,
-        total_tokens=None,
+        input_tokens=0,
+        output_tokens=0,
+        total_tokens=0,
         event_count=0,
-        attempt_count=3,
+        attempt_count=0,
         schema_valid=False,
     )
+    if error.attempt_results:
+        result = _combine_provider_results(
+            [*error.attempt_results, result], decision=decision,
+        )
+    if error.unknown_attempt_count:
+        result = replace(
+            result,
+            attempt_count=result.attempt_count + error.unknown_attempt_count,
+            input_tokens=None, output_tokens=None, total_tokens=None,
+        )
+    return result
 
 
 def _build_candidate_verification_manifest(
@@ -2443,8 +2752,12 @@ def _build_candidate_verification_manifest(
     packet: dict[str, Any],
     validated_candidates: list[tuple[Any, dict[str, Any]]],
     project_root: Path,
+    backend: LocalMemoryBackend | None = None,
+    distill_job_id: str | None = None,
 ) -> dict[str, Any]:
     """Bind each extracted claim to the exact current text it cites."""
+
+    from harness_mem.autonomous.provider import _complete_exchange_content
 
     windows = {
         int(item["exchange_index"]): item
@@ -2462,7 +2775,7 @@ def _build_candidate_verification_manifest(
                         "kind": "user_statement",
                         "exchange_index": ref.exchange_index,
                         "content_sha256": ref.content_sha256,
-                        "content": window.get("content"),
+                        "content": _complete_exchange_content(window),
                     }
                 )
             elif ref.kind == "repository" and ref.locator:
@@ -2496,14 +2809,29 @@ def _build_candidate_verification_manifest(
                             "content": current_content[:16000],
                         }
                     )
+            elif ref.kind == "source_report" and ref.exchange_index in windows:
+                from harness_mem.commands.evidence_admission import source_report_speaker_excerpt
+
+                if backend is None or distill_job_id is None:
+                    raise ProviderError("source-report verification requires its native source owner", kind="unrecoverable")
+                sources.append({
+                    "kind": "source_report", "role": ref.role,
+                    "exchange_index": ref.exchange_index, "content_sha256": ref.content_sha256,
+                    "content": source_report_speaker_excerpt(
+                        backend, project_name=str(packet.get("project_name") or ""),
+                        job_id=distill_job_id, ref=ref,
+                    ),
+                    "content_scope": "native_speaker_only; full exchange digest binds the source, not this excerpt",
+                })
             elif ref.kind == "transcript" and ref.exchange_index in windows:
                 window = windows[int(ref.exchange_index)]
                 sources.append(
                     {
-                        "kind": "transcript",
+                        "kind": ref.kind,
+                        "role": ref.role,
                         "exchange_index": ref.exchange_index,
                         "content_sha256": ref.content_sha256,
-                        "content": window.get("content"),
+                        "content": _complete_exchange_content(window),
                     }
                 )
             elif ref.kind == "transcript" and ref.chunk_index is not None:
@@ -2533,8 +2861,21 @@ def _build_candidate_verification_manifest(
             }
         )
     return {
-        "contract_version": "candidate-semantic-verification-v1",
+        "contract_version": "candidate-semantic-verification-v2",
+        "scope_partition_required": True,
         "project_name": packet.get("project_name"),
+        # A decision excerpt may omit the subject established earlier. Keep
+        # complete session context available independently of model-picked refs.
+        # The provider wire projection shares identical text instead of
+        # retransmitting each excerpt once per candidate.
+        "session_context": [
+            {
+                "exchange_index": index,
+                "content_sha256": window.get("content_sha256"),
+                "content": _complete_exchange_content(window),
+            }
+            for index, window in windows.items()
+        ],
         "candidates": rows,
     }
 
@@ -2559,6 +2900,132 @@ def _path_is_within(path: Path, root: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _verify_final_knowledge_scope(
+    provider: DistillProvider,
+    *,
+    backend: LocalMemoryBackend,
+    prepared: SeparatedPreparedAssimilation,
+    plan: dict[str, Any],
+    original_manifest: dict[str, Any],
+    governed_candidate_ids: list[str],
+    runtime_dir: Path,
+    heartbeat: Any,
+) -> tuple[ProviderResult | None, dict[str, Any]]:
+    """Recheck actual write/confirmation payloads, never old truth as evidence."""
+    from harness_mem.commands.evidence_admission import reopen_knowledge_sources
+
+    store = backend.structured_store.knowledge_store
+    original_rows = list(original_manifest.get("candidates") or [])
+    if len(original_rows) != len(governed_candidate_ids):
+        raise ProviderError("final verification lost candidate/source coverage", kind="unrecoverable")
+    sources_by_candidate = {
+        candidate_id: list(row.get("sources") or [])
+        for candidate_id, row in zip(governed_candidate_ids, original_rows)
+    }
+    points = [dict(point) for point in plan["points"]]
+    payloads: dict[str, dict[str, Any]] = {}
+    blocked: dict[str, str] = {}
+    rows: list[dict[str, Any]] = []
+    owner_by_index: dict[int, str] = {}
+    reopened_by_target: dict[str, list[dict[str, Any]] | None] = {}
+
+    async def target_sources(target_id: str) -> list[dict[str, Any]] | None:
+        if target_id in reopened_by_target:
+            return reopened_by_target[target_id]
+        sources = await store.list_sources(target_id)
+        validation, reopened = await reopen_knowledge_sources(
+            backend, project_name=prepared.project_name, sources=sources,
+            project_root=prepared.project_root,
+        )
+        value = None
+        if (validation.verification_outcome == "verified" and sources
+                and len(reopened) == len(sources)
+                and all(item.content and not item.truncated for item in reopened)):
+            value = [{
+                "kind": source.source_kind, "content_sha256": source.content_sha256,
+                "content": item.content,
+                "content_scope": "reopened native/repository source, not current knowledge prose",
+            } for source, item in zip(sources, reopened)]
+        reopened_by_target[target_id] = value
+        return value
+
+    for point in points:
+        if point["disposition"] not in {"add", "refine", "replace", "confirm"}:
+            continue
+        candidate_id = str(point["candidate_id"])
+        payload = final_scope_payload(prepared, point)
+        payloads[candidate_id] = payload
+        sources = list(sources_by_candidate[candidate_id])
+        for target in payload["targets"]:
+            complete = asyncio.run(target_sources(target["id"]))
+            if complete is None:
+                blocked[candidate_id] = "final_scope_target_source_incomplete"
+                break
+            sources.extend(complete)
+        if candidate_id in blocked:
+            continue
+        final_items = payload["targets"] if point["disposition"] == "confirm" else payload["knowledge_items"]
+        if not final_items or not sources or any(not source.get("content") for source in sources):
+            blocked[candidate_id] = "final_scope_source_incomplete"
+            continue
+        for item in final_items:
+            index = len(rows)
+            owner_by_index[index] = candidate_id
+            rows.append({"candidate_index": index, "kind": "memory", "statement": str(item["statement"]),
+                         "title": str(item["title"]),
+                         "scope_text": str(item["title"]) + "\n" + str(item["statement"]),
+                         "sources": sources})
+
+    result = None
+    if rows:
+        result = _invoke_provider(
+            provider, "verify", {
+                "contract_version": "final-knowledge-scope-v1",
+                "scope_partition_required": True,
+                "project_name": prepared.project_name,
+                "session_context": original_manifest.get("session_context") or [],
+                "candidates": rows,
+            }, runtime_dir=runtime_dir, heartbeat=heartbeat,
+        )
+        if not isinstance(result.decision, CandidateVerificationDecision):
+            raise ProviderError("final scope verification returned an invalid decision", kind="unrecoverable")
+        checked = list(result.decision.points)
+        if (len(checked) != len(rows)
+                or {point.candidate_index for point in checked} != set(range(len(rows)))):
+            raise ProviderError("final scope verification must cover every item once", kind="unrecoverable")
+        for verdict in checked:
+            candidate_id = owner_by_index[verdict.candidate_index]
+            scope = verification_scope_status(verdict, rows[verdict.candidate_index]["scope_text"])
+            if (verdict.semantic_support != "supported" or scope != "source_scope_durable"
+                    or verdict.future_scope != "durable"
+                    or verdict.source_use not in {"standing_decision", "reusable_knowledge"}):
+                blocked[candidate_id] = "final_" + (
+                    scope if scope != "source_scope_durable" else "semantic_support_incomplete")
+
+    async def retain_scope_verdicts() -> None:
+        for candidate_id, payload in payloads.items():
+            evidence_items = await store.list_evidence(candidate_id)
+            if len(evidence_items) != 1:
+                raise ProviderError("final scope evidence binding is incomplete", kind="unrecoverable")
+            evidence = evidence_items[0]
+            reason = blocked.get(candidate_id)
+            code = reason or final_scope_proof(payload)
+            evidence.verification_reason_codes = list(dict.fromkeys([
+                *evidence.verification_reason_codes, code,
+            ]))
+            await store.save_evidence(evidence)
+
+    asyncio.run(retain_scope_verdicts())
+    for point in points:
+        reason = blocked.get(str(point["candidate_id"]))
+        if reason is not None:
+            # Keep all predecessor rows if any item of a replacement failed.
+            point.update(disposition="defer", matched_truth_ids=[], matched_truth_kinds=[],
+                         canonical_title=None, canonical_statement=None, topic_path=[], knowledge_items=[],
+                         reason=f"Final knowledge scope verification deferred this complete point: {reason}.")
+    return result, {**plan, "points": points}
 
 
 def _verify_candidates(
@@ -2595,7 +3062,21 @@ def _verify_candidates(
         point = by_index[index]
         updated = dict(arguments)
         codes = list(updated.get("verification_reason_codes") or [])
-        if _is_historical_current_version_without_repository(
+        codes.extend([f"source_use_{point.source_use}", f"future_scope_{point.future_scope}"])
+        scope_status = verification_scope_status(point, _candidate_statement_from_arguments(arguments))
+        codes.extend(["autonomous_final_scope_required", scope_status])
+        if scope_status not in {"source_scope_durable", "source_scope_session_only"}:
+            updated["verification_outcome"] = "unverified"
+        elif point.semantic_support == "contradicted":
+            updated["verification_outcome"] = "contradicted"
+            codes.append("semantic_support_contradicted")
+        elif scope_status == "source_scope_session_only" and point.semantic_support == "supported":
+            updated["verification_outcome"] = "not_applicable"
+            codes.extend(["session_only_not_durable", "source_use_task_context"])
+        elif scope_status == "source_scope_session_only":
+            updated["verification_outcome"] = "unverified"
+            codes.append("semantic_support_incomplete")
+        elif _is_historical_current_version_without_repository(
             manifest,
             candidate_index=index,
             arguments=updated,
@@ -2670,7 +3151,7 @@ def _is_historical_current_version_without_repository(
     teaching the runtime a project name or a particular release number.
     """
 
-    if arguments.get("kind") != "memory":
+    if arguments.get("kind") != "memory" or arguments.get("evidence_basis") == "source_report":
         return False
     statement = _candidate_statement_from_arguments(arguments)
     if not (
@@ -2821,6 +3302,89 @@ def _rebind_current_repository_refs(
     return rebound if changed else None
 
 
+def _native_provider_receipt(
+    results: Sequence[ProviderResult], error: ProviderError | None = None,
+) -> dict[str, Any] | None:
+    """Keep every native call, including validated prefixes of a deferred job."""
+    attempts: dict[str, dict[str, Any]] = {}
+    selected: list[ProviderResult] = []
+    for result in [*results, *(error.attempt_results if error else ())]:
+        ids = {str(item.get("call_id")) for item in result.native_attempts}
+        if not ids or ids <= attempts.keys():
+            continue
+        if ids & attempts.keys():
+            # The per-call journal is authoritative over an overlapping
+            # semantic-stage aggregate; its counters must not be paid twice.
+            continue
+        selected.append(result)
+        for item in result.native_attempts:
+            attempts[str(item.get("call_id"))] = item
+    if error:
+        for item in error.native_attempts:
+            attempts[str(item.get("call_id"))] = item
+    if not attempts:
+        return None
+    receipt = _combine_provider_results(selected).receipt() if selected else {}
+    receipt["native_attempts"] = list(attempts.values())
+    # Canonical leaf call identities also include errors that occurred before
+    # a ProviderResult could be returned. Never let a known prefix hide that
+    # unknown suffix, or count overlapping stage aggregates twice.
+    metrics = ("input_tokens", "output_tokens", "total_tokens")
+    leaves = list(attempts.values())
+    for metric in metrics:
+        values = [(item.get("usage") or {}).get(metric) for item in leaves]
+        receipt[metric] = (
+            sum(values) if all(type(value) is int and value >= 0 for value in values) else None
+        )
+    receipt["known_usage_subtotal"] = {
+        metric: sum(
+            value for item in leaves
+            if type(value := (item.get("known_usage_subtotal") or item.get("usage") or {}).get(metric)) is int
+            and value >= 0
+        ) for metric in metrics
+    }
+    receipt["attempt_count"] = len(leaves)
+    receipt["unknown_native_call_usage_count"] = sum(
+        any((item.get("usage") or {}).get(metric) is None for metric in metrics) for item in leaves
+    )
+    if error is not None:
+        receipt["schema_valid"] = False
+        receipt["unknown_attempt_count"] = error.unknown_attempt_count
+        if error.unknown_attempt_count:
+            receipt.update(input_tokens=None, output_tokens=None, total_tokens=None)
+            receipt["attempt_count"] = int(receipt.get("attempt_count", 0)) + error.unknown_attempt_count
+    return receipt
+
+
+def _batch_provider_usage(outcomes: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """Complete totals and observed subtotals are different accounting claims."""
+    metrics = ("input_tokens", "output_tokens", "total_tokens")
+    reports = [item.get("provider") for item in outcomes if item.get("status") != "busy"]
+    result: dict[str, Any] = {}
+    for metric in metrics:
+        values = [report.get(metric) if isinstance(report, dict) else None for report in reports]
+        result[metric] = (
+            sum(values) if all(type(value) is int and value >= 0 for value in values) else None
+        )
+    result["known_usage_subtotal"] = {
+        metric: sum(
+            value for report in reports if isinstance(report, dict)
+            if type(value := (report.get("known_usage_subtotal") or report).get(metric)) is int
+            and value >= 0
+        ) for metric in metrics
+    }
+    result["unknown_usage_job_count"] = sum(
+        not isinstance(report, dict)
+        or any(type(report.get(metric)) is not int or report[metric] < 0 for metric in metrics)
+        for report in reports
+    )
+    result["unknown_native_call_usage_count"] = sum(
+        value for report in reports if isinstance(report, dict)
+        if type(value := report.get("unknown_native_call_usage_count")) is int and value >= 0
+    )
+    return result
+
+
 def _combine_provider_results(
     results: list[ProviderResult],
     *,
@@ -2836,7 +3400,7 @@ def _combine_provider_results(
         values = [getattr(item, name) for item in results]
         return (
             None
-            if all(value is None for value in values)
+            if any(value is None for value in values)
             else sum(value or 0 for value in values)
         )
 
@@ -2858,6 +3422,7 @@ def _combine_provider_results(
         attempt_count=sum(item.attempt_count for item in results),
         schema_valid=all(item.schema_valid for item in results),
         host_client=last.host_client,
+        native_attempts=tuple(attempt for result in results for attempt in result.native_attempts),
     )
 
 
@@ -3020,7 +3585,7 @@ def _governed_candidate_id(result: dict[str, Any]) -> str | None:
 
 
 def _sum_provider_metric(left: int | None, right: int | None) -> int | None:
-    if left is None and right is None:
+    if left is None or right is None:
         return None
     return int(left or 0) + int(right or 0)
 
@@ -3030,16 +3595,7 @@ def provider_candidate_control_reason(
     *,
     decision: Any,
 ) -> str | None:
-    """Reject provider rows that belong to summary or handoff control state."""
-
-    fields = (
-        getattr(candidate, "category", None),
-        getattr(candidate, "content", None),
-        getattr(candidate, "pattern", None),
-        getattr(candidate, "evidence", None),
-        " ".join(getattr(candidate, "tags", None) or []),
-    )
-    text = " ".join(str(value or "") for value in fields).lower()
+    """Route explicit task handoffs without deciding a point's semantic value."""
     review = decision.semantic_review
     category = str(getattr(candidate, "category", None) or "").lower()
     candidate_statement = str(
@@ -3065,26 +3621,9 @@ def provider_candidate_control_reason(
         or normalized_statement in normalized_unfinished
     ):
         return "unfinished work belongs to the job-bound handoff"
-    historical_markers = (
-        "replaced",
-        "was replaced",
-        "superseded",
-        "outdated",
-        "已取代",
-        "被替代",
-    )
-    replacement_markers = (
-        "current replacement",
-        "replace with",
-        "now use",
-        "new default",
-        "改为",
-        "当前采用",
-    )
-    if any(marker in text for marker in historical_markers) and not any(
-        marker in text for marker in replacement_markers
-    ):
-        return "bare replaced history belongs to summary or final outcome"
+    # Replacement wording may contain both an obsolete value and its valid
+    # successor. Only evidence verification and assimilation can decide which
+    # parts are useful; a lexical veto here silently discards the entire point.
     return None
 
 

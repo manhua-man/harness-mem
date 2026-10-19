@@ -47,9 +47,8 @@ def test_candidate_projection_exposes_exact_technical_terms() -> None:
     ) == ["identity", "mtime", "revision", "session_id", "size"]
 
 
-def test_split_knowledge_drops_enumerative_umbrella_beside_successors() -> None:
-    normalized = _normalize_split_knowledge_items(
-        [
+def test_split_knowledge_does_not_infer_subsumption_from_shared_words() -> None:
+    items = [
             {
                 "title": "Platform capability declaration",
                 "statement": (
@@ -61,15 +60,10 @@ def test_split_knowledge_drops_enumerative_umbrella_beside_successors() -> None:
                 "title": "Path qualification",
                 "statement": "Adapters must verify real paths and samples.",
             },
-        ]
-    )
-
-    assert normalized == [
-        {
-            "title": "Path qualification",
-            "statement": "Adapters must verify real paths and samples.",
-        }
     ]
+    # Declaration and verification are different obligations. Discarding the
+    # former would also lose growth and lossless reconstruction requirements.
+    assert _normalize_split_knowledge_items(items) == items
 
 
 def test_assimilation_specificity_rejects_dropped_technical_identifiers() -> None:

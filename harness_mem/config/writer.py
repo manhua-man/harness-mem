@@ -246,15 +246,6 @@ def set_value(
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(tomli_w.dumps(data), encoding="utf-8")
         return target.resolve()
-    if key_path in {
-        "distill.autonomous.enabled",
-        "distill.autonomous.cli",
-    } and scope != "project":
-        raise ConfigValidationError(
-            key_path=key_path,
-            value="project scope required",
-            source_path=str(target),
-        )
     data = _read_existing(target)
     parsed_value = _validate(key_path, value, target)
     _set_dotted(data, key_path, parsed_value)

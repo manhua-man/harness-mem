@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 import time
 from typing import Any, Callable, Iterator, Mapping
+from uuid import uuid4
 
 from pydantic import ValidationError
 
@@ -39,10 +40,18 @@ from harness_mem.autonomous.hook_guard import (
 from harness_mem.autonomous.executors.constants import host_cli_provider_name
 from harness_mem.autonomous.executors.host_cli import _codex_background_overrides
 
+_CODEX_MEMORY_INSTRUCTIONS = (
+    "You are the harness-mem memory decision worker. Use only the supplied "
+    "task and evidence. Do not call tools, inspect the host, or execute actions. "
+    "Return only the requested JSON decision; the runtime verifies evidence "
+    "and owns all memory writes."
+)
+
 _HOOK_GUARD_CHECKS: dict[str, tuple[str, ...]] = {
     "codex": (".codex", "hooks.json"),
     "claude-code": (".claude", "hooks"),
     "opencode": (".opencode", "plugins", "harness-mem.ts"),
+    "antigravity": (".agents", "hooks.json"),
 }
 
 
@@ -52,6 +61,7 @@ class _CliInvocation:
     env: Mapping[str, str]
     output_path: Path | None
     output_from_stdout: bool = False
+    stdin_text: str | None = None
 
 
 @contextmanager
@@ -62,16 +72,21 @@ def _temporary_runtime_directory(*, prefix: str, parent: Path) -> Iterator[Path]
     try:
         yield path
     finally:
-        for attempt in range(40):
-            try:
-                shutil.rmtree(path)
-                break
-            except FileNotFoundError:
-                break
-            except PermissionError:
-                if attempt == 39:
-                    raise
-                time.sleep(0.25)
+        _remove_runtime_directory(path)
+
+
+def _remove_runtime_directory(path: Path) -> None:
+    """Delete only the exact directory returned by this owner's mkdtemp."""
+    for attempt in range(40):
+        try:
+            shutil.rmtree(path)
+            return
+        except FileNotFoundError:
+            return
+        except PermissionError:
+            if attempt == 39:
+                raise
+            time.sleep(0.25)
 
 
 def _assert_runtime_isolated(runtime_dir: Path, host_client: str) -> None:
@@ -175,7 +190,7 @@ def _invocation_process_scope(
     job = kernel.CreateJobObjectW(None, None)
     if not job:
         _terminate_process_tree(process)
-        raise ProviderError("Cannot create Codex process scope", kind="setup_required")
+        raise ProviderError("Cannot create CLI process scope", kind="setup_required")
     try:
         limits = ExtendedLimits()
         limits.BasicLimitInformation.LimitFlags = 0x00002000  # KILL_ON_JOB_CLOSE.
@@ -184,26 +199,26 @@ def _invocation_process_scope(
         ):
             _terminate_process_tree(process)
             raise ProviderError(
-                "Cannot configure Codex process cleanup", kind="setup_required"
+                "Cannot configure CLI process cleanup", kind="setup_required"
             )
         # Popen owns this Windows process handle until its object is released.
         if not kernel.AssignProcessToJobObject(job, int(getattr(process, "_handle"))):
             _terminate_process_tree(process)
             raise ProviderError(
-                "Cannot contain Codex child processes", kind="setup_required"
+                "Cannot contain CLI child processes", kind="setup_required"
             )
         try:
             # Popen closed the primary thread handle. Resume the suspended
             # process only after assignment, so startup children cannot escape.
             if native.NtResumeProcess(int(getattr(process, "_handle"))) < 0:
                 raise ProviderError(
-                    "Cannot start contained Codex process", kind="setup_required"
+                    "Cannot start contained CLI process", kind="setup_required"
                 )
             yield
         finally:
             if not kernel.TerminateJobObject(job, 1):
                 raise ProviderError(
-                    "Cannot stop Codex child processes", kind="transient"
+                    "Cannot stop CLI child processes", kind="transient"
                 )
     finally:
         kernel.CloseHandle(job)
@@ -273,6 +288,25 @@ def _build_hermes_command(
         "-z",
         prompt,
     ]
+    if os.name == "nt":
+        # Hermes' -z entry takes its complete prompt in argv and has no
+        # query-file support; Windows rejects long source packets before the
+        # process starts. Enter the same installed CLI with its own Python,
+        # restoring the original argv from UTF-8 stdin inside that process.
+        # Keep -z (including its usage-file reporting), provider and model.
+        python_executable = Path(executable).resolve().with_name("python.exe")
+        if not python_executable.is_file():
+            raise ProviderError(
+                "Hermes background input on Windows requires python.exe "
+                "beside the selected Hermes executable",
+                kind="setup_required",
+            )
+        bootstrap = (
+            "import sys; "
+            "sys.argv = sys.argv[1:] + [sys.stdin.buffer.read().decode('utf-8')]; "
+            "from hermes_cli.main import main; main()"
+        )
+        command = [str(python_executable), "-c", bootstrap, *command[:-1]]
     return _CliInvocation(
         command=command,
         env={},
@@ -299,6 +333,37 @@ def _build_opencode_command(
     ]
     command.append("-")
     return _CliInvocation(command=command, env={}, output_path=output_path)
+
+
+def _build_antigravity_command(
+    *, executable: str, schema_path: Path, prompt: str,
+) -> _CliInvocation:
+    """Send one complete turn through agy's native stdin/schema protocol."""
+    return _CliInvocation(
+        command=[
+            executable, "--input-format", "stream-json",
+            "--output-format", "stream-json", "--json-schema", str(schema_path),
+            "--agent", "harness-mem-worker", "--disable-slash-commands",
+            "--mode", "plan",
+        ],
+        env={}, output_path=None, output_from_stdout=True,
+        stdin_text=json.dumps(
+            {"event": "user", "message": {"content": prompt}}, ensure_ascii=False,
+        ) + "\n",
+    )
+
+
+def _write_antigravity_worker(execution_cwd: Path) -> None:
+    agent = execution_cwd / ".agents" / "agents" / "harness-mem-worker.md"
+    agent.parent.mkdir(parents=True, exist_ok=True)
+    agent.write_text(
+        "---\nname: harness-mem-worker\n"
+        "description: Return a memory decision from supplied evidence only.\n"
+        "mainAgent: true\nsubagent: false\nmodel: inherit\n"
+        "tools: []\nmcpServers: []\nskills: []\nplugins: []\n"
+        "commandExecutionPolicy: 'off'\n---\n" + _CODEX_MEMORY_INSTRUCTIONS + "\n",
+        encoding="utf-8",
+    )
 
 
 def _build_host_invocation(
@@ -332,6 +397,10 @@ def _build_host_invocation(
             executable=executable,
             schema_path=schema_path,
             output_path=output_path,
+        )
+    if host_client == "antigravity":
+        return _build_antigravity_command(
+            executable=executable, schema_path=schema_path, prompt=prompt,
         )
     raise ProviderError(
         f"unsupported host client for structured CLI: {host_client}",
@@ -405,6 +474,72 @@ def _reported_cli_failure(raw: str) -> bool:
     )
 
 
+def _reject_codex_tool_activity(stdout: str) -> None:
+    """Do not accept a JSON decision produced by an interactive tool workflow."""
+    forbidden = {
+        "command_execution", "mcp_tool_call", "file_change", "web_search",
+        "collab_tool_call", "image_generation", "image_view", "dynamic_tool_call",
+    }
+    for line in stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        item = event.get("item")
+        if isinstance(item, dict) and item.get("type") in forbidden:
+            raise ProviderError(
+                "Codex memory decision attempted unexpected tool activity",
+                kind="unrecoverable",
+            )
+
+
+def _extract_antigravity_result(stdout: str) -> tuple[str, str]:
+    """Accept only one complete native stream; never mistake init for a decision."""
+    initialized = False
+    result: dict[str, Any] | None = None
+    for line in stdout.splitlines():
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except ValueError as exc:
+            raise ProviderError("Antigravity returned invalid NDJSON", kind="unrecoverable") from exc
+        if not isinstance(event, dict) or result is not None:
+            raise ProviderError("Antigravity returned an invalid event order", kind="unrecoverable")
+        kind = event.get("event")
+        if kind == "init" and not initialized:
+            init = event.get("init")
+            if not isinstance(init, dict) or init.get("tools") != []:
+                raise ProviderError("Antigravity worker tools are not disabled", kind="setup_required")
+            if init.get("agent") != "harness-mem-worker":
+                raise ProviderError("Antigravity did not select the memory worker", kind="setup_required")
+            initialized = True
+        elif kind == "step_update" and initialized:
+            step = event.get("step_update")
+            if (
+                not isinstance(step, dict)
+                or step.get("step_type") not in {"user_input", "agent_response", "checkpoint"}
+                or any(step.get(key) for key in ("tool_name", "tool_info", "subagent_info"))
+            ):
+                raise ProviderError("Antigravity memory worker attempted tool activity", kind="unrecoverable")
+        elif kind == "result" and initialized and isinstance(event.get("result"), dict):
+            result = event["result"]
+        else:
+            raise ProviderError("Antigravity returned an unexpected event", kind="unrecoverable")
+    if result is None:
+        raise ProviderError("Antigravity returned no terminal result", kind="unrecoverable")
+    if result.get("status") != "SUCCESS":
+        raise _classify_failure(str(result.get("error") or result.get("status")), 1)
+    if result.get("num_turns") != 1 or not isinstance(result.get("structured_output"), dict):
+        raise ProviderError("Antigravity returned no single-turn structured decision", kind="unrecoverable")
+    return (
+        json.dumps(result["structured_output"], ensure_ascii=False),
+        json.dumps(result.get("usage") or {}),
+    )
+
+
 def _extract_decision_text(
     *,
     stdout: str,
@@ -469,13 +604,14 @@ def _hermes_output_contract(decision_model: Any) -> str:
             '"actual_result":"...","contradictions":[],"unfinished":[],'
             '"no_candidate_reason":null,"not_durable_signals":[]},"points":'
             '[{"kind":"memory","statement":"...","condition":null,'
-            '"evidence_basis":"user_statement","exchange_indexes":[1]}]}. Allowed '
+            '"evidence_basis":"user_statement","report_role":null,"exchange_indexes":[1]}]}. Allowed '
             "kinds are memory, rule, relation. Use kind=memory unless you can provide "
             "a non-empty condition. Never output kind=rule without condition. "
             "A rule MUST include a non-empty condition field, for example "
             '{"kind":"rule","statement":"Do X","condition":"When Y",'
             '"evidence_basis":"user_statement","exchange_indexes":[1]}. A relation adds '
-            "source_entity, target_entity, relation_type. Repository evidence uses "
+            "source_entity, target_entity, relation_type. A source_report uses kind=memory "
+            "and report_role=user or assistant; other points use report_role=null. Repository evidence uses "
             "repository_locator and repository_sha256. With zero points, replace "
             "no_candidate_reason with an explanation. The only allowed "
             "not_durable_signals are exactly: user_correction, explicit_decision, "
@@ -487,8 +623,14 @@ def _hermes_output_contract(decision_model: Any) -> str:
         return common + (
             'Use this shape: {"points":[{"candidate_index":0,'
             '"semantic_support":"supported","future_scope":"durable",'
+            '"source_use":"standing_decision","scope_segments":[{"text":"exact complete claim",'
+            '"source_use":"standing_decision","future_scope":"durable","standalone":true,"content_role":"claim"}],'
             '"reason":"source-based reason"}]}. Allowed semantic_support values: supported, '
             "partial, contradicted. Allowed future_scope values: durable, session_only, unclear."
+            " When scope_partition_required is true, use the actual candidate's text and split "
+            "claims by future use; segment texts must concatenate to scope_text when supplied, "
+            "otherwise to the complete statement, exactly. Every segment includes content_role "
+            "claim, qualifier, temporary_context or unclear."
         )
     if decision_model is AssimilationDecision:
         return common + (
@@ -498,7 +640,7 @@ def _hermes_output_contract(decision_model: Any) -> str:
             '["natural module"],"claim_kind":"design_requirement"}],'
             '"reason":"source-based reason"}]}. For a non-writing action, omit '
             "knowledge_items. Allowed claim_kind values: design_requirement, implementation_fact, "
-            "durable_preference, procedure. Use only dispositions allowed by the task prompt."
+            "durable_preference, procedure, source_report. Use only dispositions allowed by the task prompt."
         )
     raise TypeError(f"unsupported Hermes decision model: {decision_model!r}")
 
@@ -519,6 +661,90 @@ class HostStructuredCliProvider:
         self.timeout_seconds = max(30, min(int(timeout_seconds), 900))
         self.poll_seconds = max(0.2, min(float(poll_seconds), 15.0))
         self.name = host_cli_provider_name(host_client)
+        self._codex_server: Any = None
+        self._native_results: list[ProviderResult] = []
+
+    def close(self) -> dict[str, Any] | None:
+        """The caller owns this executor; borrowed executors require caller close."""
+        if self._codex_server is not None:
+            return self._codex_server.close()
+        return None
+
+    def _run_codex(
+        self, *, runtime_dir: Path, heartbeat: Any, decision_model: Any,
+        prompt: str, temporary_prefix: str, error_label: str,
+    ) -> ProviderResult:
+        from harness_mem.autonomous.executors.codex_app_server import CodexAppServer
+
+        started = time.monotonic()
+        deadline = started + self.timeout_seconds
+        record: dict[str, Any] = {}
+        raw = ""
+        data_dir = runtime_dir.parent.parent if runtime_dir.parent.name == "autonomous" else runtime_dir
+        if self._codex_server is None:
+            self._codex_server = CodexAppServer(
+                self.executable, scope_factory=_invocation_process_scope,
+                remove_directory=_remove_runtime_directory, poll_seconds=self.poll_seconds,
+            )
+
+        def result(decision: Any, *, valid: bool) -> ProviderResult:
+            metrics = record.get("usage") or {}
+            return ProviderResult(
+                decision=decision, provider=self.name,
+                model=(record.get("effective_profile") or {}).get("model"),
+                duration_seconds=time.monotonic() - started,
+                input_sha256=hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+                response_sha256=hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+                input_tokens=metrics.get("input_tokens"), output_tokens=metrics.get("output_tokens"),
+                total_tokens=metrics.get("total_tokens"), event_count=int(record.get("event_count") or 0),
+                schema_valid=valid, host_client="codex", native_attempts=(record,) if record else (),
+            )
+
+        try:
+            with _temporary_runtime_directory(prefix=temporary_prefix, parent=runtime_dir) as cwd:
+                _assert_runtime_isolated(cwd, "codex")
+                env = os.environ.copy()
+                env.update(HARNESS_MEM_AUTONOMOUS_PROVIDER="1", NO_COLOR="1")
+                raw, record = self._codex_server.run(
+                    runtime_dir=runtime_dir, data_dir=data_dir, cwd=cwd, env=env,
+                    overrides=_codex_background_overrides(cwd), instructions=_CODEX_MEMORY_INSTRUCTIONS,
+                    prompt=prompt, schema=_strict_output_schema(decision_model.model_json_schema()),
+                    deadline=deadline, heartbeat=heartbeat,
+                )
+                try:
+                    decision = decision_model.model_validate_json(raw)
+                except (ValidationError, ValueError) as exc:
+                    record["status"] = "invalid_output"
+                    raise ProviderError(
+                        f"codex provider returned invalid {error_label} JSON: {exc}", kind="unrecoverable",
+                        failure_reason="decision_schema",
+                    ) from exc
+            if time.monotonic() > deadline:
+                raise ProviderError("Codex call deadline exceeded during validation/cleanup", kind="transient")
+            record["duration_seconds"] = time.monotonic() - started
+            completed = result(decision, valid=True)
+            self._native_results.append(replace(completed, decision=None))
+            return completed
+        except Exception as exc:
+            error = exc if isinstance(exc, ProviderError) else ProviderError(str(exc), kind="transient")
+            if not record and error.native_attempts:
+                record = error.native_attempts[-1]
+            if not record:
+                record = {"call_id": uuid4().hex, "phase": "preflight", "status": "failed",
+                          "model_dispatched": False, "usage": {"input_tokens": None,
+                          "output_tokens": None, "total_tokens": None}}
+            if record:
+                record["status"] = "failed"
+                record["duration_seconds"] = time.monotonic() - started
+            failed = result(None, valid=False)
+            self._native_results.append(failed)
+            raise ProviderError(
+                str(error), kind=error.kind, exit_code=error.exit_code,
+                attempt_results=(*error.attempt_results, failed),
+                unknown_attempt_count=error.unknown_attempt_count,
+                native_attempts=(record,) if record else error.native_attempts,
+                failure_reason=error.failure_reason,
+            ) from exc
 
     def decide(
         self,
@@ -545,6 +771,8 @@ class HostStructuredCliProvider:
             raise ProviderError(
                 f"{self.host_client} provider decision could not be bound to local evidence: {exc}",
                 kind="unrecoverable",
+                attempt_results=(replace(result, schema_valid=False),) if result.native_attempts else (),
+                native_attempts=result.native_attempts,
             ) from exc
         return replace(result, decision=decision)
 
@@ -600,6 +828,11 @@ class HostStructuredCliProvider:
                 kind="setup_required",
             )
         runtime_dir.mkdir(parents=True, exist_ok=True)
+        if self.host_client == "codex":
+            return self._run_codex(
+                runtime_dir=runtime_dir, heartbeat=heartbeat, decision_model=decision_model,
+                prompt=prompt, temporary_prefix=temporary_prefix, error_label=error_label,
+            )
         started = time.monotonic()
         with _temporary_runtime_directory(
             prefix=temporary_prefix,
@@ -610,6 +843,8 @@ class HostStructuredCliProvider:
                 execution_cwd = runtime_dir / "hermes-cwd"
                 execution_cwd.mkdir(parents=True, exist_ok=True)
             _assert_runtime_isolated(execution_cwd, self.host_client)
+            if self.host_client == "antigravity":
+                _write_antigravity_worker(execution_cwd)
             schema_path = invocation_dir / "decision.schema.json"
             output_path = invocation_dir / "decision.json"
             usage_path = invocation_dir / "usage.json"
@@ -633,11 +868,19 @@ class HostStructuredCliProvider:
                 usage_path=usage_path,
             )
             if self.host_client == "codex":
+                instructions_path = invocation_dir / "instructions.md"
+                instructions_path.write_text(
+                    "You are the harness-mem memory decision worker. Use only the supplied "
+                    "task and evidence. Do not call tools, inspect the host, or execute actions. "
+                    "Return only the requested JSON decision; the runtime verifies evidence "
+                    "and owns all memory writes.", encoding="utf-8",
+                )
                 invocation = replace(
                     invocation,
                     command=[
                         *invocation.command[:-1],
                         *_codex_background_overrides(execution_cwd),
+                        "-c", "model_instructions_file=" + json.dumps(str(instructions_path)),
                         "-",
                     ],
                 )
@@ -657,7 +900,7 @@ class HostStructuredCliProvider:
                 # A completed Windows CLI can leave children holding pipe handles.
                 # Wait for the CLI's exit, not EOF from those unrelated children.
                 captured_stdout = captured_stderr = None
-                if self.host_client == "codex":
+                if self.host_client in {"codex", "antigravity"}:
                     captured_stdout = streams.enter_context(
                         tempfile.TemporaryFile(
                             mode="w+", encoding="utf-8", errors="replace"
@@ -695,12 +938,19 @@ class HostStructuredCliProvider:
             if process_returncode != 0:
                 raise _classify_failure(stderr or stdout, process_returncode)
 
+            if self.host_client == "codex":
+                _reject_codex_tool_activity(stdout)
+
+            usage_text = ""
             try:
-                raw = _extract_decision_text(
-                    stdout=stdout,
-                    output_path=invocation.output_path,
-                    output_from_stdout=invocation.output_from_stdout,
-                )
+                if self.host_client == "antigravity":
+                    raw, usage_text = _extract_antigravity_result(stdout)
+                else:
+                    raw = _extract_decision_text(
+                        stdout=stdout,
+                        output_path=invocation.output_path,
+                        output_from_stdout=invocation.output_from_stdout,
+                    )
             except ProviderError as exc:
                 detail = (stderr or stdout or "").strip()
                 if detail:
@@ -711,6 +961,7 @@ class HostStructuredCliProvider:
                     raise ProviderError(
                         f"{exc}; stderr/stdout sample: {detail[:500]}",
                         kind=exc.kind,
+                        failure_reason="decision_schema",
                     ) from exc
                 raise
             try:
@@ -720,9 +971,9 @@ class HostStructuredCliProvider:
                     f"{self.host_client} provider returned invalid {error_label} JSON: {exc}",
                     kind="unrecoverable",
                     exit_code=process_returncode,
+                    failure_reason="decision_schema",
                 ) from exc
 
-            usage_text = ""
             if self.host_client == "hermes":
                 try:
                     usage_text = usage_path.read_text(encoding="utf-8")
@@ -773,7 +1024,7 @@ class HostStructuredCliProvider:
                 errors="replace",
                 creationflags=creationflags | (
                     0x00000004  # CREATE_SUSPENDED; join the scope before startup.
-                    if self.host_client == "codex" and os.name == "nt"
+                    if self.host_client in {"codex", "antigravity"} and os.name == "nt"
                     else 0
                 ),
             )
@@ -781,14 +1032,23 @@ class HostStructuredCliProvider:
             raise ProviderError(str(exc), kind="setup_required") from exc
 
         try:
-            with _invocation_process_scope(process, enabled=self.host_client == "codex"):
+            if self.host_client in {"hermes", "antigravity"} and os.name == "nt" and process.stdin is not None:
+                # Keep the source packet byte-for-byte UTF-8 on the pipe;
+                # Windows text-mode newline expansion would change its hashes.
+                process.stdin.reconfigure(newline="\n")
+            with _invocation_process_scope(
+                process, enabled=self.host_client in {"codex", "antigravity"},
+            ):
                 return self._wait_for_cli(
-                    process, cli_prompt, started, heartbeat
+                    process,
+                    invocation.stdin_text if invocation.stdin_text is not None else cli_prompt,
+                    started, heartbeat,
                 )
         except (OSError, AttributeError) as exc:
             _terminate_process_tree(process)
             raise ProviderError(
-                "Cannot initialize Codex process containment", kind="setup_required"
+                f"Cannot initialize {self.host_client} stdin/process containment",
+                kind="setup_required",
             ) from exc
 
     def _wait_for_cli(
@@ -812,7 +1072,9 @@ class HostStructuredCliProvider:
                 stdout, stderr = process.communicate(
                     input=(
                         cli_prompt
-                        if first_communicate and self.host_client != "hermes"
+                        if first_communicate and (
+                            self.host_client != "hermes" or os.name == "nt"
+                        )
                         else None
                     ),
                     timeout=min(self.poll_seconds, remaining),

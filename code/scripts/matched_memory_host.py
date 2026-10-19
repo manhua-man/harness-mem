@@ -17,6 +17,7 @@ for this trusted development fixture runner, not an OS sandbox for hostile code.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
@@ -54,6 +55,29 @@ def absolute(value: Any) -> Path:
     return Path(value).resolve()
 
 
+def validate_external_scope(artifact_root: Path, run: Path, upstream: Path, *, repo: Path = REPO) -> None:
+    """Validate new task outputs and read-only mirrors before creating any files."""
+    supplied = tuple(Path(value) for value in (artifact_root, run, upstream, repo))
+    for root in supplied[:3]:
+        if not root.is_absolute():
+            raise ScopeError("absolute task paths are required")
+        for path in (root, *root.parents):
+            if path.is_symlink() or (hasattr(path, "is_junction") and path.is_junction()):
+                raise ScopeError(f"linked path is not allowed: {path}")
+    artifact_root, run, upstream, repo = map(absolute, supplied)
+    if not artifact_root.is_dir():
+        raise ScopeError("artifact_root must be an existing task directory")
+    if within(artifact_root, repo) or within(repo, artifact_root):
+        raise ScopeError("artifact_root must be outside and disjoint from the repository")
+    if run == artifact_root or not within(run, artifact_root):
+        raise ScopeError("run_root must be a child of artifact_root")
+    mirrors = repo.parent / "upstreams" / "harness-mem"
+    if not (within(upstream, artifact_root) or (upstream != mirrors and within(upstream, mirrors))):
+        raise ScopeError("upstream_root must be task-owned or an existing upstream mirror")
+    if within(upstream, run) or within(run, upstream):
+        raise ScopeError("run_root overlaps a read-only upstream")
+
+
 def fixed_uuid(value: Any) -> str:
     try:
         if not isinstance(value, str) or str(UUID(value)) != value:
@@ -70,13 +94,21 @@ class Manifest:
         self.device_scope = self.raw.get("device_scope", False)
         if type(self.device_scope) is not bool:
             raise ScopeError("device_scope must be boolean")
-        if type(self.raw.get("schema_version")) is not int or self.raw["schema_version"] != 1:
-            raise ScopeError("schema_version must be 1")
+        if type(self.raw.get("schema_version")) is not int or self.raw["schema_version"] not in (1, 2):
+            raise ScopeError("schema_version must be 1 or 2")
         self.paths = {key: absolute(self.raw.get(key)) for key in PATH_FIELDS}
         run = self.paths["run_root"]
-        if run == REPO / ".tmp" or not within(run, REPO / ".tmp"):
-            raise ScopeError("run_root must be a child of REPO/.tmp")
+        if not within(self.path, run) or self.path == run:
+            raise ScopeError("manifest must be below run_root")
+        if self.raw["schema_version"] == 2:
+            validate_external_scope(Path(self.raw.get("artifact_root", "")),
+                                    Path(self.raw["run_root"]), Path(self.raw["upstream_root"]))
+        elif run == REPO / ".tmp" or not within(run, REPO / ".tmp"):
+            # Read old receipts/fixtures without making .tmp the default for new runs.
+            raise ScopeError("legacy run_root must be a child of REPO/.tmp")
         for key, target in self.paths.items():
+            if key == "upstream_root" and self.raw["schema_version"] == 2:
+                continue  # Independently checked, always protected from writes below.
             parent = REPO / ".tmp" if key == "upstream_root" else run
             if not within(target, parent) or (key != "run_root" and target == parent):
                 raise ScopeError(f"{key} must be below {parent}")
@@ -84,8 +116,6 @@ class Manifest:
         if (not isinstance(self.project_name, str) or not self.project_name.strip()
                 or any(c in self.project_name for c in "/\\")):
             raise ScopeError("project_name must be a nonempty project name")
-        if self.device_scope and self.project_name != "global":
-            raise ScopeError("device fixture uses the existing global memory context")
         ids = self.raw.get("session_ids")
         if not isinstance(ids, list) or not ids or len(set(ids)) != len(ids):
             raise ScopeError("session_ids must be a nonempty unique UUID array")
@@ -101,7 +131,42 @@ class Manifest:
         self.check_config()
         self.check_tree(run)
         self.check_tree(self.paths["upstream_root"])
-        self.check_native()
+        self._source_hashes = self._source_snapshot(self.check_native())
+
+    def refresh(self) -> dict[str, Any]:
+        """Admit only an append to this same task's fully hashed source list."""
+        incoming = json.loads(self.path.read_text(encoding="utf-8"))
+        if not isinstance(incoming, dict):
+            raise ScopeError("manifest must remain an object")
+        mutable = {"sources", "session_ids"}
+        if ({key: value for key, value in incoming.items() if key not in mutable}
+                != {key: value for key, value in self.raw.items() if key not in mutable}):
+            raise ScopeError("manifest paths, model/profile and task settings are frozen")
+        if incoming == self.raw:
+            if self._source_snapshot(self.check_native()) != self._source_hashes:
+                raise ScopeError("previous complete source bytes changed")
+            return {"appended_session_ids": [], "source_count": len(self.session_ids)}
+        ids = incoming.get("session_ids")
+        previous_specs, specs = self.raw.get("sources"), incoming.get("sources")
+        if (not isinstance(ids, list) or ids[:len(self.session_ids)] != list(self.session_ids)
+                or len(ids) <= len(self.session_ids)
+                or not isinstance(previous_specs, list) or not isinstance(specs, list)
+                or specs[:len(previous_specs)] != previous_specs
+                or len(specs) != len(ids)):
+            raise ScopeError("manifest refresh requires append-only sessions and unchanged source specifications")
+        # Full constructor checks run once at the append boundary, not once per
+        # unchanged request. It also checks every new file and native identity.
+        candidate = Manifest(self.path)
+        if candidate.raw != incoming:
+            raise ScopeError("manifest changed during append validation")
+        if any(candidate._source_hashes.get(path) != expected
+               for path, expected in self._source_hashes.items()):
+            raise ScopeError("previous complete source bytes changed")
+        appended = list(candidate.session_ids[len(self.session_ids):])
+        self.raw, self.session_ids = candidate.raw, candidate.session_ids
+        self._source_hashes = candidate._source_hashes
+        # Existing paths and policy closures stay bound to their original values.
+        return {"appended_session_ids": appended, "source_count": len(self.session_ids)}
 
     def check_config(self) -> None:
         config = self.paths["project_root"] / ".harness-mem.toml"
@@ -127,12 +192,14 @@ class Manifest:
                 raise ScopeError(f"linked path is not allowed: {path}")
             self.check_path(path, root)
 
-    def check_native(self) -> None:
+    def check_native(self) -> dict[str, str]:
         found = set()
+        hashes: dict[str, str] = {}
         for name in ("sessions", "archived_sessions"):
             root = self.paths["native_root"] / name
             self.check_path(root, self.paths["native_root"])
             for path in root.rglob("*.jsonl"):
+                self.check_path(path, self.paths["native_root"])
                 match = ID_SUFFIX.search(path.name)
                 sid = fixed_uuid(match[1] if match else "")
                 self.require_session(sid)
@@ -143,8 +210,45 @@ class Manifest:
                 if (header.get("type") != "session_meta" or meta.get("id") != sid or not valid_context):
                     raise ScopeError(f"native metadata does not match fixed scope: {path}")
                 found.add(sid)
+                hashes[str(path.resolve())] = self._file_hash(path)
         if found != set(self.session_ids):
             raise ScopeError("native fixture must contain every fixed session UUID")
+        return hashes
+
+    @staticmethod
+    def _file_hash(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for block in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(block)
+        return digest.hexdigest()
+
+    def _source_snapshot(self, native_hashes: dict[str, str]) -> dict[str, str]:
+        """Keep legacy fixed fixtures valid; append requires explicit full specs."""
+        sources = self.raw.get("sources")
+        hashes = dict(native_hashes)
+        if sources is None:
+            return hashes
+        if (not isinstance(sources, list) or any(not isinstance(item, dict) for item in sources)
+                or [item.get("session_id") for item in sources] != list(self.session_ids)):
+            raise ScopeError("source specifications must match the complete ordered session list")
+        for item in sources:
+            native = self.check_path(absolute(item.get("native_path")), self.paths["native_root"])
+            match = ID_SUFFIX.search(native.name)
+            if not match or match[1] != item["session_id"]:
+                raise ScopeError("source specification has a different native session identity")
+            expected = item.get("native_sha256")
+            if (not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected)
+                    or native_hashes.get(str(native)) != expected):
+                raise ScopeError("complete native source hash does not match its fixed specification")
+            if "text_path" in item or "text_sha256" in item:
+                text = self.check_path(absolute(item.get("text_path")), self.paths["run_root"])
+                expected = item.get("text_sha256")
+                if (not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected)
+                        or self._file_hash(text) != expected):
+                    raise ScopeError("complete text source hash does not match its fixed specification")
+                hashes[str(text)] = expected
+        return hashes
 
     def require_session(self, sid: Any) -> None:
         if fixed_uuid(sid) not in self.session_ids:
@@ -159,9 +263,9 @@ class Manifest:
             for key, item in value.items():
                 if item is None:
                     continue
-                if key in {"project", "project_name"} and item != self.project_name:
+                if not self.device_scope and key in {"project", "project_name"} and item != self.project_name:
                     raise ScopeError("project must match manifest")
-                if key == "project_names" and item != [self.project_name]:
+                if not self.device_scope and key == "project_names" and item != [self.project_name]:
                     raise ScopeError("cross-project selection is not allowed")
                 if key in {"root", "project_root", "cwd", "workspace", "project_path"}:
                     if self.device_scope and key == "project_root" and item == "":
@@ -173,7 +277,7 @@ class Manifest:
                     raise ScopeError("only codex is allowed")
                 if key == "clients" and item != ["codex"]:
                     raise ScopeError("only codex is allowed")
-                if key == "scope" and item != ("all" if self.device_scope else "project"):
+                if key == "scope" and not self.device_scope and item != "project":
                     raise ScopeError("only project scope is allowed")
                 if key == "session_id":
                     self.require_session(item)
@@ -201,7 +305,10 @@ def append_audit(manifest: Manifest, record: dict) -> None:
     path = manifest.check_path(manifest.paths["audit_path"], manifest.paths["run_root"])
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+        handle.write(json.dumps({**record, "mcp_process_pid": os.getpid(),
+                                 "manifest_session_ids": list(manifest.session_ids),
+                                 "validated_source_file_count": len(manifest._source_hashes)},
+                                ensure_ascii=False) + "\n")
 
 
 def install_io_guard(manifest: Manifest) -> None:
@@ -295,7 +402,7 @@ def run_hm(manifest: Manifest) -> int:
     old_resolver = support.find_project_root
 
     def find_root(name):
-        if name != manifest.project_name:
+        if not manifest.device_scope and name != manifest.project_name:
             raise ScopeError("unknown project")
         return manifest.paths["project_root"]
 
@@ -309,10 +416,11 @@ def run_hm(manifest: Manifest) -> int:
             return dispatch(request)
         started = time.perf_counter()
         params = request.get("params", {})
+        refresh = None
         try:
             manifest.check_config()
             manifest.check_tree(manifest.paths["run_root"])
-            manifest.check_native()
+            refresh = manifest.refresh()
             arguments = params.get("arguments", {})
             manifest.validate_arguments(arguments)
             if (params.get("name") == "prepare_session_distill" and arguments.get("client") != "codex"
@@ -327,7 +435,8 @@ def run_hm(manifest: Manifest) -> int:
             response = {"jsonrpc": "2.0", "id": request.get("id"),
                         "error": {"code": -32603, "message": str(exc)}}
         append_audit(manifest, {"mode": "hm", "method": "tools/call", "params": params,
-                                "response": response, "elapsed_seconds": time.perf_counter() - started})
+                                "response": response, "manifest_refresh": refresh,
+                                "elapsed_seconds": time.perf_counter() - started})
         return response
 
     server.handle_request = audited_request
