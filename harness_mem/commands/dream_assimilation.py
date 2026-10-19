@@ -18,7 +18,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal, Mapping, Sequence, cast
+from typing import Any, Literal, Mapping, Sequence, cast, get_args
 from uuid import NAMESPACE_URL, uuid5
 
 from harness_mem.autonomous.models import (
@@ -39,6 +39,7 @@ from harness_mem.core.schemas import (
     ProjectKnowledgeSourceRef,
 )
 from harness_mem.knowledge_validation import validate_atomic_knowledge_statement
+from harness_mem.core.schemas.knowledge import ClaimKind
 from harness_mem.storage.canonical_store import CanonicalTransactionPreconditionError
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
@@ -444,6 +445,9 @@ def validate_dream_assimilation_decision(
                 topic_path=point.topic_path,
                 disposition=disposition,
             )
+            if any((item["claim_kind"] == "source_report")
+                   != (candidate.entry.source_report is not None) for item in knowledge_items):
+                raise ValueError("Dream writing items must retain the candidate's report or fact authority")
         else:
             # These actions never write text. Ignore redundant proposals rather
             # than interpreting them or rejecting an otherwise safe outcome.
@@ -776,12 +780,10 @@ def _validate_writing_items(
             raise ValueError("Dream writing decision requires title and statement")
         validate_atomic_knowledge_statement(statement)
         validate_knowledge_module_path(item.get("topic_path") or [])
-        if claim_kind not in {
-            "design_requirement",
-            "implementation_fact",
-            "durable_preference",
-            "procedure",
-        }:
+        # Share the canonical writing kinds; a local pre-report whitelist used
+        # to silently discard every otherwise valid literal report refinement.
+        # Candidate authority and exact retained items are checked by the plan.
+        if claim_kind not in get_args(ClaimKind):
             raise ValueError("Dream writing decision has an invalid claim kind")
 
 

@@ -38,6 +38,26 @@
 
 ## 当前版本与目标架构边界
 
+Dream scheduling boundary repair (2026-10-20, unreleased): a verified natural
+main-session source job completed under v6, then its nonempty 64-target Dream
+failed on the first request after 104.261 seconds, before any target completed.
+The slice heartbeat had truncated the native executor's longer request bound;
+the dispatched call has unknown usage, not zero cost. Scheduling now yields
+only after persisted progress, retaining one new verification batch per slice
+and the original native request timeout (normally 300 seconds). The finite
+watchdog allows the slice budget plus one native request; cancellation reaping
+and provider close have separate cleanup waits. No new model test or manual
+trigger is dispatched. The repaired natural continuation and literal refinement
+still require direct runtime acceptance. See `docs/background-memory.md`.
+
+Report refinement kind correction (2026-10-20, unreleased): the 60-target
+read-only audit found that literal report refinement produced `source_report`
+items but the Dream writer's private kind whitelist rejected them. It now uses
+the canonical `ClaimKind` enum; writing items must retain the original
+candidate's report/fact authority. Exact literal derivation, original report
+speaker/source/period, source reopening and CAS gates remain. This removes a
+confirmed structural blocker, not a native refinement acceptance result.
+
 Dream claim-unit repair (2026-10-20, unreleased): the v6 source recheck
 records explicit source support per segment and complete contiguous claim
 units, including their necessary qualifiers. Existing mixed rows may retain

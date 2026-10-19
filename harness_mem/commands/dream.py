@@ -45,6 +45,16 @@ from harness_mem.storage.local_structured_store import LocalStructuredStore
 DreamSource = Literal["user", "agent", "ide_hook", "scheduler"]
 
 
+class _DreamSliceYield(Exception):
+    """A persisted scheduling boundary, not a failed verification."""
+
+
+def _verification_runtime_seconds(provider: Any | None) -> int:
+    # The native executor already bounds one complete decision (including its
+    # protocol and retries). Scheduling slices must not truncate that decision.
+    return max(30, min(int(getattr(provider, "timeout_seconds", 300)), 900))
+
+
 @dataclass(frozen=True)
 class DreamSchedulerDecision:
     eligible: bool
@@ -753,6 +763,11 @@ async def dream_once(
             _resume=resumed,
         )
         return completed_run
+    except _DreamSliceYield:
+        completed_run = await store.get_dream_run(run_id)
+        if completed_run is None or completed_run.status != "continuing":
+            raise RuntimeError("Dream scheduling yield has no persisted continuation") from None
+        return completed_run
     except Exception as exc:
         store = cast(LocalStructuredStore, backend.structured_store)
         run = await store.get_dream_run(run_id)
@@ -856,16 +871,15 @@ async def _dream_once(
         run_stub.handling_summary = {}
         run_stub.model_post_init(None)
         if check_deadline and deadline is not None and _now() >= deadline:
-            completed_at = _now()
-            run_stub.status = "failed"
-            run_stub.completed_at = completed_at
+            run_stub.status = "continuing"
+            run_stub.completed_at = None
             run_stub.duration_ms = int(
-                (completed_at - started_at).total_seconds() * 1000
+                (_now() - started_at).total_seconds() * 1000
             )
             run_stub.notes = list(run_stub.notes or [])
-            run_stub.notes.append("dream runtime exceeded max_runtime_seconds")
+            run_stub.notes.append("dream scheduling slice elapsed; source-bound progress retained for continuation")
             await store.save_dream_run(run_stub)
-            raise TimeoutError("dream runtime exceeded max_runtime_seconds")
+            raise _DreamSliceYield
         await store.save_dream_run(run_stub)
 
     recheck_cache: list[tuple[KnowledgeEntry, Any, tuple[Any, ...], tuple[Any, ...]]] | None = None
@@ -899,10 +913,6 @@ async def _dream_once(
     checkpoint["verification_contract"] = DREAM_SOURCE_RECHECK_CONTRACT
     saved_verification: dict[str, Any] = dict(checkpoint.get("verification", {}))
     new_verification_batches = 0
-    verification_deadline = deadline
-    if deadline is not None:
-        available = max(0.0, (deadline - _now()).total_seconds())
-        verification_deadline = deadline - timedelta(seconds=min(15, available * 0.15))
 
     def source_binding(row: Any) -> str:
         entry, validation, reopened, sources = row
@@ -1171,7 +1181,10 @@ async def _dream_once(
                     verification_cache.update(await _verify_source_backed_rechecks(
                         backend, project_name=project_name,
                         rechecked=batch_rows, provider=selected_provider,
-                        deadline=verification_deadline, receipts=notes,
+                        # One atomic native request keeps its existing executor
+                        # bound. The slice yields at the persisted checkpoints
+                        # before/after it instead of discarding an in-flight call.
+                        receipts=notes,
                     ))
                 finally:
                     notes.append("dream verified targets: " + json.dumps(list(verification_cache)))
@@ -2029,6 +2042,11 @@ async def _run_dream_with_progress_timeout(
 ) -> DreamRun:
     seconds = max(1, timeout_seconds)
     deadline = _now() + timedelta(seconds=seconds)
+    # A slice starts at most one native decision. Allow that already-started
+    # request to reach its existing executor deadline, then checkpoint/yield.
+    # This watchdog remains finite; cancellation reaping (45s) and provider
+    # close (20s) retain their separate bounded cleanup waits.
+    watchdog_seconds = seconds + _verification_runtime_seconds(semantic_provider)
     try:
         return await asyncio.wait_for(
             dream_once(
@@ -2043,7 +2061,7 @@ async def _run_dream_with_progress_timeout(
                 host_client=host_client,
                 resume_run_id=resume_run_id,
             ),
-            timeout=seconds,
+            timeout=watchdog_seconds,
         )
     except TimeoutError:
         store = cast(LocalStructuredStore, backend.structured_store)
@@ -2065,9 +2083,9 @@ async def _run_dream_with_progress_timeout(
                 (completed_at - run.started_at).total_seconds() * 1000
             )
             run.notes = list(run.notes or [])
-            run.notes.append("dream runtime exceeded max_runtime_seconds")
+            run.notes.append("dream slice watchdog exceeded scheduling plus native decision runtime")
             await store.save_dream_run(run)
-        raise TimeoutError("dream runtime exceeded max_runtime_seconds") from None
+        raise TimeoutError("dream slice watchdog exceeded scheduling plus native decision runtime") from None
 
 
 def _dream_session_receipt(
