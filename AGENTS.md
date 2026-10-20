@@ -38,6 +38,24 @@
 
 ## 当前版本与目标架构边界
 
+Natural Dream and explicit literal editing (2026-10-20, unreleased): the
+post-fix natural main-session run processed all 64 targets across 17 slices.
+Four native requests exceeded 120 seconds and completed (maximum 204.763
+seconds); two literal refinements are persisted and independently readable
+through fresh installed MCP stdio search. One report retains its original
+attribution and complete causation limits. Five missing-source entries remain
+unchanged and recallable. The run still failed with 44 unresolved outcomes;
+execution traversal is not complete cleanup acceptance. Source processing plus
+Dream reports 22 completed calls / 780,603 tokens, with no unknown call usage.
+The v7 maintenance proof now explicitly checks the exact final text after
+indexed literal exclusions, and joint title/text support when needed. Selected
+outputs are distinct from the complete claim inventory. Unknown or independent
+substantive content cannot be discarded. Ordinary admission rejects edit-only
+proofs; source reports retain one account, original metadata and rendered title.
+Proof v3 binds original and resulting hashes, selections, exclusions and title
+offsets without storing prose. Static checks and independent code review pass;
+v7 natural acceptance remains pending. See `docs/background-memory.md`.
+
 Dream scheduling boundary repair (2026-10-20, unreleased): a verified natural
 main-session source job completed under v6, then its nonempty 64-target Dream
 failed on the first request after 104.261 seconds, before any target completed.

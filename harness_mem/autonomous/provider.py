@@ -14,6 +14,7 @@ from harness_mem.autonomous.models import (
     AgentExtractionDecision,
     AutonomousDecision,
     CandidateVerificationDecision,
+    DREAM_LITERAL_RECHECK_CONTRACT,
 )
 from harness_mem.core.schemas.source_report import SourceReport
 
@@ -82,6 +83,7 @@ def verification_point_receipts(decision: CandidateVerificationDecision) -> list
                 "".join(segment.text for segment in point.scope_segments).encode("utf-8")
             ).hexdigest(),
             "scope_segments": segments,
+            "literal_edit_contract": point.literal_edit_contract,
             "claim_units": [{
                 "first_segment": unit.first_segment,
                 "end_segment_exclusive": unit.end_segment_exclusive,
@@ -89,6 +91,16 @@ def verification_point_receipts(decision: CandidateVerificationDecision) -> list
                 "char_end": segments[unit.end_segment_exclusive - 1]["char_end"],
                 "text_sha256": hashlib.sha256("".join(segment.text for segment in
                     point.scope_segments[unit.first_segment:unit.end_segment_exclusive]).encode("utf-8")).hexdigest(),
+                "original_range_sha256": hashlib.sha256("".join(segment.text for segment in
+                    point.scope_segments[unit.first_segment:unit.end_segment_exclusive]).encode("utf-8")).hexdigest(),
+                "excluded_segments": list(unit.excluded_segments),
+                "selected_for_retention": unit.selected_for_retention,
+                "retained_text_sha256": hashlib.sha256(unit.retained_text.encode("utf-8")).hexdigest(),
+                "title_start": unit.title_start, "title_end": unit.title_end,
+                "title_and_text_support": unit.title_and_text_support,
+                "title_sha256": (hashlib.sha256(unit.retained_text[
+                    unit.title_start:unit.title_end].encode("utf-8")).hexdigest()
+                    if unit.title_start is not None and unit.title_end is not None else None),
                 "standalone": unit.standalone, "source_support": unit.source_support,
                 "source_use": unit.source_use, "future_scope": unit.future_scope,
             } for unit in point.claim_units],
@@ -626,7 +638,7 @@ def _build_verification_prompt(manifest: dict[str, Any]) -> str:
     }
     packet = json.dumps(projected, ensure_ascii=False, separators=(",", ":"))
     canonical_dream_units = (
-        manifest.get("contract_version") == "dream-source-recheck-v6"
+        manifest.get("contract_version") == DREAM_LITERAL_RECHECK_CONTRACT
         and manifest.get("scope_partition_required") is True
         and bool(manifest.get("project_name")) and bool(manifest.get("candidates"))
         and all(isinstance(candidate, dict)
@@ -635,7 +647,7 @@ def _build_verification_prompt(manifest: dict[str, Any]) -> str:
             for candidate in manifest["candidates"])
     )
     claim_unit_contract = (
-        "For dream-source-recheck-v6 canonical existing-knowledge maintenance only, independently "
+        "For dream-source-recheck-v7 canonical existing-knowledge maintenance only, independently "
         "judge source_support for every scope segment: supported when its complete wording is "
         "entailed by its bound source and speaker; unsupported when not established there; "
         "contradicted when the source says the opposite; unclear when undecidable. Do not copy "
@@ -648,22 +660,64 @@ def _build_verification_prompt(manifest: dict[str, Any]) -> str:
         "Do not invent units for pure one-time authorization, progress or particular-run "
         "numbers that establish no substantive claim. Each unit names first_segment and "
         "end_segment_exclusive, selecting one original contiguous half-open segment range. "
-        "It cannot bridge a temporary_context segment or join separated prose. Include every "
-        "necessary qualifier in that range. Its standalone is a new explicit joint judgment "
-        "about that complete range, not permission to flip any segment's standalone false "
+        "For plain complete verification with no literal exclusion or title replacement, "
+        "literal_edit_contract MUST be null; do not label every v7 point as an edit. "
+        "For a proposed literal exclusion or title replacement, set point.literal_edit_contract to "
+        "dream-existing-literal-edit-v1. Unit excluded_segments lists unique original absolute "
+        "segment indexes inside this range. Unit retained_text MUST equal the remaining "
+        "original segment texts concatenated in order and stripped once. No rewriting, "
+        "reordered spans, repaired punctuation, inserted spaces or other invented text. "
+        "Without exclusions retained_text is the entire selected range stripped once. "
+        "Exclusion is allowed ONLY for source-supported pure temporary_context/task_context/"
+        "session_only segments, or a partial point's explicitly unsupported/contradicted "
+        "claim or qualifier fragment. Never exclude unclear support or an unclear role. "
+        "A temporary receipt may be removed between a claim and a necessary qualifier, "
+        "but you MUST explicitly judge the exact final projected retained_text together; "
+        "independent support of its fragments is insufficient. Include every necessary "
+        "subject, period, authority and evidence qualifier in that final text. Its standalone "
+        "is a new explicit joint judgment about that full projection, not permission to "
+        "flip any segment's standalone false "
         "to true. A claim and adjacent qualifier can jointly form a standalone unit even "
         "when neither segment alone is standalone. Judge the unit's source_support, source_use "
-        "and future_scope independently; durable requires a continuing reusable use. "
+        "and future_scope against that exact retained_text independently; durable requires "
+        "a continuing reusable use. Keep the original point.partial judgment when any "
+        "original wording lacks support: a supported edited projection does not upgrade it. "
+        "Do not remove source-supported or unclear substantive units or their necessary "
+        "qualifiers merely because they have session_only/unclear future scope. Keep a complete "
+        "unit inventory, including all such original units. Overlapping units grant no edit "
+        "authority. Set selected_for_retention=true ONLY on units explicitly proposed as "
+        "final retained outputs; its default false grants no writing authority. Preserve "
+        "nested/subordinate units in the complete inventory with selected_for_retention=false, "
+        "even when they are independently supported, durable and standalone. That false bit "
+        "does not authorize deleting their supported text or necessary qualifiers. Selected "
+        "units must not overlap. For an edited report select exactly ONE complete account "
+        "unit spanning all retained substantive material, with any permitted exclusions "
+        "explicit; its nested inventory units remain unselected. "
         "Use the declared current_knowledge_project scope under the same v5 limits, and retain "
-        "the original title for ordinary entries or the fixed speaker/source/period account "
-        "for source reports. Do not invent missing subject, condition, approval or state. "
-        "Only a source-supported, durable, standalone continuous unit can be retained by "
+        "the fixed speaker/source/period account and original rendered title for source reports; "
+        "source reports must have null title_start/title_end. For an ordinary entry judge "
+        "title_and_text_support explicitly for the FINAL title PLUS exact retained_text "
+        "together. With null title_start/title_end the final title is the original title. "
+        "Only explicit supported joint judgment authorizes retaining that title with the "
+        "edited body. To replace an unsupported/contradicted original title, title_start and "
+        "title_end must both be zero-based half-open offsets selecting a nonempty exact "
+        "substring of stripped retained_text, with no leading or trailing whitespace in "
+        "that title substring. Its exact bytes must be the final title, without further "
+        "stripping or punctuation changes. Judge that substring plus full retained_text "
+        "together, not the title alone. Replace only when EVERY nonblank original title "
+        "prefix segment is unsupported/contradicted. Mixed, independently supported or "
+        "unknown original title material must not be silently discarded; keep the original "
+        "entry unchanged when this proof is insufficient. Do not invent a new title. "
+        "Default unclear joint support grants no editing authority. Do not invent missing "
+        "subject, condition, approval or state. "
+        "Only a source-supported, durable, standalone exactly projected unit can be retained by "
         "Dream maintenance. Unsupported, unclear, incomplete or missing unit proof cannot "
         "authorize retaining new knowledge or deleting neighboring qualifications. The "
         "ordinary extraction admission rule is unchanged: a partial point is still partial "
         "and cannot become a new accepted ordinary candidate through a supported unit. "
     ) if canonical_dream_units else (
-        "For contracts other than canonical dream-source-recheck-v6, claim_units remains empty. "
+        "For contracts other than canonical dream-source-recheck-v7, claim_units MUST remain "
+        "empty and literal_edit_contract MUST be null. "
         "Still judge source_support for every requested scope segment; no unit grants the "
         "canonical Dream maintenance exception or upgrades a partial ordinary candidate. "
     )
@@ -694,7 +748,8 @@ def _build_verification_prompt(manifest: dict[str, Any]) -> str:
         "is not a direct standing instruction; it belongs in a scoped source_report. "
         "Check the supplied contextual exchange as well as the decision excerpt; a named "
         "project's requirement must retain that project in the candidate wording. "
-        "For dream-source-recheck-v5 and dream-source-recheck-v6 only, current_knowledge_project is the already persisted "
+        "For dream-source-recheck-v5, dream-source-recheck-v6 and dream-source-recheck-v7 only, "
+        "current_knowledge_project is the already persisted "
         "entry's project scope also displayed by ordinary memory consumers, not a proposed "
         "routing choice. That field may supply an omitted project name when the bound sources "
         "support the same project's requirement; do not mark an otherwise fully supported "

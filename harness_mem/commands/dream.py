@@ -25,6 +25,7 @@ from harness_mem.commands.dream_assimilation import (
 from harness_mem.autonomous.models import (
     CandidateVerificationDecision,
     CandidateVerificationPoint,
+    DREAM_LITERAL_RECHECK_CONTRACT,
     verification_scope_status,
 )
 from harness_mem.autonomous.authorization import background_on, background_status
@@ -92,7 +93,7 @@ def _scope_fingerprint(entry: KnowledgeEntry) -> str:
 
 
 SOURCE_REVIEW_INTERVAL_DAYS = 30
-DREAM_SOURCE_RECHECK_CONTRACT = "dream-source-recheck-v6"
+DREAM_SOURCE_RECHECK_CONTRACT = DREAM_LITERAL_RECHECK_CONTRACT
 _MISSING_SOURCE_REASONS = frozenset({
     "knowledge_source_missing", "knowledge_source_revision_missing",
     "knowledge_source_observation_missing", "knowledge_source_exchange_missing",
@@ -622,6 +623,7 @@ async def _run_source_backed_recheck_group(
                 future_scope=verification_by_id[entry.id].future_scope,
                 verification_reason=verification_by_id[entry.id].reason,
                 scope_verification=verification_by_id[entry.id],
+                verification_contract=DREAM_SOURCE_RECHECK_CONTRACT,
                 source_excerpts=tuple(
                     {
                         "source_kind": item.source_kind,
@@ -946,16 +948,24 @@ async def _dream_once(
             })
             offset = end
         return {
-            "proof_version": "scope-offsets-v2",
+            "proof_version": "scope-offsets-v3",
             "candidate_index": point.candidate_index,
             "semantic_support": point.semantic_support, "future_scope": point.future_scope,
             "source_use": point.source_use,
+            "literal_edit_contract": point.literal_edit_contract,
             "reason_sha256": hashlib.sha256(point.reason.encode()).hexdigest(),
             "scope_text_sha256": hashlib.sha256(text.encode()).hexdigest(),
             "scope_segments": segments,
             "claim_units": [{
-                **unit.model_dump(mode="json"),
+                **unit.model_dump(mode="json", exclude={"retained_text"}),
+                "retained_text_present": bool(unit.retained_text),
+                "retained_text_sha256": hashlib.sha256(unit.retained_text.encode()).hexdigest(),
+                "title_sha256": (hashlib.sha256(unit.retained_text[unit.title_start:unit.title_end].encode()).hexdigest()
+                    if unit.title_start is not None and unit.title_end is not None else None),
                 "text_sha256": hashlib.sha256("".join(
+                    part.text for part in point.scope_segments[unit.first_segment:unit.end_segment_exclusive]
+                ).encode()).hexdigest(),
+                "original_range_sha256": hashlib.sha256("".join(
                     part.text for part in point.scope_segments[unit.first_segment:unit.end_segment_exclusive]
                 ).encode()).hexdigest(),
             } for unit in point.claim_units],
@@ -963,7 +973,7 @@ async def _dream_once(
 
     def restore_point(proof: Any, text: str) -> CandidateVerificationPoint | None:
         try:
-            if (not isinstance(proof, dict) or proof.get("proof_version") != "scope-offsets-v2"
+            if (not isinstance(proof, dict) or proof.get("proof_version") != "scope-offsets-v3"
                     or proof.get("scope_text_sha256") != hashlib.sha256(text.encode()).hexdigest()):
                 return None
             segments = []
@@ -989,12 +999,31 @@ async def _dream_once(
                 if (type(first) is not int or type(end) is not int
                         or not 0 <= first < end <= len(segments)
                         or hashlib.sha256("".join(part["text"] for part in segments[first:end]).encode()).hexdigest()
-                        != unit["text_sha256"]):
+                        != unit["text_sha256"] or unit["original_range_sha256"] != unit["text_sha256"]):
                     return None
-                units.append({key: unit[key] for key in (
+                excluded = unit["excluded_segments"]
+                if (not isinstance(excluded, list) or len(set(excluded)) != len(excluded)
+                        or any(type(index) is not int or not first <= index < end for index in excluded)
+                        or type(unit["retained_text_present"]) is not bool):
+                    return None
+                retained = ("".join(segments[index]["text"] for index in range(first, end)
+                    if index not in excluded).strip() if unit["retained_text_present"] else "")
+                if hashlib.sha256(retained.encode()).hexdigest() != unit["retained_text_sha256"]:
+                    return None
+                title_start, title_end = unit["title_start"], unit["title_end"]
+                if title_start is not None or title_end is not None:
+                    if (type(title_start) is not int or type(title_end) is not int
+                            or not 0 <= title_start < title_end <= len(retained)
+                            or hashlib.sha256(retained[title_start:title_end].encode()).hexdigest() != unit["title_sha256"]):
+                        return None
+                elif unit["title_sha256"] is not None:
+                    return None
+                units.append({"retained_text": retained, **{key: unit[key] for key in (
                     "first_segment", "end_segment_exclusive", "standalone",
-                    "source_support", "source_use", "future_scope",
-                )})
+                    "source_support", "source_use", "future_scope", "excluded_segments",
+                    "title_start", "title_end", "title_and_text_support",
+                    "selected_for_retention",
+                )}})
             return CandidateVerificationPoint.model_validate({
                 **{key: proof[key] for key in (
                     "candidate_index", "semantic_support", "future_scope", "source_use",
@@ -1002,6 +1031,7 @@ async def _dream_once(
                 "reason": "Reused this run's source-bound verification after current content and partition hash checks.",
                 "scope_segments": segments,
                 "claim_units": units,
+                "literal_edit_contract": proof["literal_edit_contract"],
             })
         except (KeyError, TypeError, ValueError):
             return None

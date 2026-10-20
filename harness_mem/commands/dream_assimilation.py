@@ -22,7 +22,8 @@ from typing import Any, Literal, Mapping, Sequence, cast, get_args
 from uuid import NAMESPACE_URL, uuid5
 
 from harness_mem.autonomous.models import (
-    AssimilationDecision, CandidateVerificationPoint, verification_scope_status,
+    AssimilationDecision, CandidateClaimUnit, CandidateVerificationPoint,
+    DREAM_LITERAL_EDIT_CONTRACT, DREAM_LITERAL_RECHECK_CONTRACT, verification_scope_status,
 )
 from harness_mem.commands.evidence_admission import validate_knowledge_sources
 from harness_mem.commands.knowledge_assimilation import (
@@ -61,6 +62,7 @@ class DreamAssimilationCandidate:
     verification_reason: str
     source_excerpts: tuple[dict[str, str], ...]
     scope_verification: CandidateVerificationPoint | None = None
+    verification_contract: str | None = None
 
 
 def dream_scope_text(entry: KnowledgeEntry) -> str:
@@ -91,53 +93,70 @@ def dream_temporary_retirement_allowed(
     )
 
 
-def _retained_report_text(point: CandidateVerificationPoint) -> str:
-    units = _standalone_durable_units(point, body_start=0)
+def _retained_report_text(point: CandidateVerificationPoint, *, allow_literal_edit: bool = False) -> str:
+    units = _standalone_durable_units(point, body_start=0, allow_literal_edit=allow_literal_edit)
     if len(units) != 1:
-        raise ValueError("Dream report refinement requires one complete continuous claim unit")
+        raise ValueError("Dream report refinement requires one complete verified account unit")
     return units[0][0]
 
 
 def _standalone_durable_units(
-    point: CandidateVerificationPoint, *, body_start: int,
-) -> list[tuple[str, str, frozenset[int]]]:
-    """Read the verifier's joint proofs; never infer standalone from fragments."""
+    point: CandidateVerificationPoint, *, body_start: int, allow_literal_edit: bool = False,
+) -> list[tuple[str, str, frozenset[int], CandidateClaimUnit]]:
+    """Read explicit joint proofs, including exact v7 literal deletions."""
     segments = point.scope_segments
     starts: list[int] = []
     offset = 0
     for segment in segments:
         starts.append(offset)
         offset += len(segment.text)
-    retained: list[tuple[str, str, frozenset[int]]] = []
+    retained: list[tuple[str, str, frozenset[int], CandidateClaimUnit]] = []
     occupied: set[int] = set()
     for unit in point.claim_units:
         first, end = unit.first_segment, unit.end_segment_exclusive
         if not (0 <= first < end <= len(segments)):
             return []
+        excluded = set(unit.excluded_segments)
+        edited = bool(excluded or unit.title_start is not None or unit.title_end is not None)
+        if edited and (not allow_literal_edit or point.literal_edit_contract != DREAM_LITERAL_EDIT_CONTRACT):
+            return []
+        if len(excluded) != len(unit.excluded_segments) or not excluded.issubset(range(first, end)):
+            return []
+        for index in excluded:
+            part = segments[index]
+            temporary = (part.source_support == "supported" and part.content_role == "temporary_context"
+                and part.source_use == "task_context" and part.future_scope == "session_only")
+            unsupported = (point.semantic_support == "partial"
+                and part.source_support in {"unsupported", "contradicted"}
+                and part.content_role in {"claim", "qualifier"})
+            if not (temporary or unsupported):
+                return []
+        if not unit.selected_for_retention:
+            continue
         if (unit.source_support != "supported" or not unit.standalone
                 or unit.future_scope != "durable"
                 or unit.source_use not in {"standing_decision", "reusable_knowledge"}):
-            continue
+            return []
         if starts[first] < body_start:
             # The original title is checked separately and cannot become body.
-            continue
-        selected = segments[first:end]
+            return []
+        indexes = frozenset(index for index in range(first, end) if index not in excluded)
+        selected = [segments[index] for index in sorted(indexes)]
         substantive = [part for part in selected if part.text.strip()]
         if (not substantive or not any(part.content_role == "claim" for part in substantive)
                 or any(part.source_support != "supported"
                        or part.content_role not in {"claim", "qualifier"}
                        for part in substantive)):
             return []
-        indexes = frozenset(range(first, end))
         if occupied.intersection(indexes):
             return []
         occupied.update(indexes)
-        # A unit is an original continuous range, never a collection assembled
-        # across a temporary or unknown clause.
         text = "".join(part.text for part in selected).strip()
-        if not text:
+        # New edit authority is for the exact proposed output, not for the
+        # original range or a runtime guess that its fragments fit together.
+        if not text or (allow_literal_edit and unit.retained_text != text):
             return []
-        retained.append((text, unit.source_use, indexes))
+        retained.append((text, unit.source_use, indexes, unit))
     return sorted(retained, key=lambda row: min(row[2]))
 
 
@@ -302,26 +321,29 @@ def _verified_durable_scope_items(candidate: DreamAssimilationCandidate) -> list
     """
     point = candidate.scope_verification
     if (point is None
+            or candidate.verification_contract != DREAM_LITERAL_RECHECK_CONTRACT
             or candidate.semantic_support not in {"supported", "partial"}
             or point.semantic_support != candidate.semantic_support
             or not point.scope_segments
             or "".join(part.text for part in point.scope_segments) != dream_scope_text(candidate.entry)):
         return []
     body_start = len(candidate.entry.title) + 1 if candidate.entry.source_report is None else 0
-    units = _standalone_durable_units(point, body_start=body_start)
+    units = _standalone_durable_units(point, body_start=body_start, allow_literal_edit=True)
     if not units or (candidate.entry.source_report is not None and len(units) != 1):
         return []
-    retained_indexes = frozenset(index for _text, _use, indexes in units for index in indexes)
+    retained_indexes = frozenset(index for _text, _use, indexes, _unit in units for index in indexes)
     removed = False
     offset = 0
+    prefix = []
+    prefix_indexes = set()
     for index, segment in enumerate(point.scope_segments):
         end = offset + len(segment.text)
         if offset < body_start:
-            if (end > body_start or segment.future_scope != "durable"
-                    or segment.source_use not in {"standing_decision", "reusable_knowledge"}
-                    or segment.content_role not in {"claim", "qualifier"}
-                    or segment.source_support != "supported"):
+            if end > body_start:
                 return []
+            if segment.text.strip():
+                prefix.append(segment)
+                prefix_indexes.add(index)
             offset = end
             continue
         offset = end
@@ -331,6 +353,7 @@ def _verified_durable_scope_items(candidate: DreamAssimilationCandidate) -> list
         # In particular, an uncertain or session-scoped constraint is not
         # silently discarded because it was also labelled temporary.
         if any(unit.first_segment <= index < unit.end_segment_exclusive
+               and index not in unit.excluded_segments
                and unit.source_support not in {"unsupported", "contradicted"}
                for unit in point.claim_units):
             return []
@@ -339,27 +362,63 @@ def _verified_durable_scope_items(candidate: DreamAssimilationCandidate) -> list
             and segment.source_use == "task_context" and segment.future_scope == "session_only")
         unsupported = (point.semantic_support == "partial"
             and segment.source_support in {"unsupported", "contradicted"}
-            and segment.content_role == "claim" and segment.standalone)
+            and segment.content_role in {"claim", "qualifier"}
+            and (segment.standalone or any(index in unit.excluded_segments
+                 for _text, _use, _indexes, unit in units)))
         if not temporary and not unsupported:
             # Unknown text and detached qualifiers stay in current knowledge.
             return []
         removed = True
-    if not removed:
-        return []
     if candidate.entry.source_report is not None:
+        if any(unit.title_start is not None or unit.title_end is not None
+               for _text, _use, _indexes, unit in units):
+            return []
         report = candidate.entry.source_report.model_copy(update={
-            "text": _retained_report_text(point),
+            "text": _retained_report_text(point, allow_literal_edit=True),
         })
         items = [{
             "title": report.render_title(), "statement": report.render_statement(),
             "topic_path": list(candidate.entry.module_path), "claim_kind": "source_report",
         }]
     else:
-        items = [{
-            "title": candidate.entry.title, "statement": text,
-            "topic_path": list(candidate.entry.module_path),
-            "claim_kind": "design_requirement" if source_use == "standing_decision" else "procedure",
-        } for text, source_use, _indexes in units]
+        keep_title = bool(prefix) and all(part.content_role in {"claim", "qualifier"}
+            and part.source_support == "supported" for part in prefix)
+        replace_title = bool(prefix) and point.semantic_support == "partial" and all(
+            part.content_role in {"claim", "qualifier"}
+            and part.source_support in {"unsupported", "contradicted"} for part in prefix)
+        if replace_title and any(
+                unit.source_support not in {"unsupported", "contradicted"}
+                and prefix_indexes.intersection(range(unit.first_segment, unit.end_segment_exclusive))
+                for unit in point.claim_units):
+            # A new heading cannot erase another substantive or unknown account
+            # of the original title; no redundancy is inferred from wording.
+            replace_title = False
+        if not keep_title and not replace_title:
+            return []
+        items = []
+        for text, source_use, _indexes, unit in units:
+            if unit.title_and_text_support != "supported":
+                return []
+            if keep_title:
+                if unit.title_start is not None or unit.title_end is not None:
+                    return []
+                title = candidate.entry.title
+            else:
+                title_start, title_end = unit.title_start, unit.title_end
+                if (title_start is None or title_end is None or not 0 <= title_start < title_end <= len(text)
+                        or point.literal_edit_contract != DREAM_LITERAL_EDIT_CONTRACT):
+                    return []
+                title = text[title_start:title_end].strip()
+                if not title:
+                    return []
+                removed = True
+            items.append({
+                "title": title, "statement": text,
+                "topic_path": list(candidate.entry.module_path),
+                "claim_kind": "design_requirement" if source_use == "standing_decision" else "procedure",
+            })
+    if not removed:
+        return []
     try:
         _validate_writing_items(knowledge_items=items, canonical_title=None,
                                 canonical_statement=None, topic_path=[], disposition="refine")
@@ -669,7 +728,8 @@ async def apply_dream_assimilation(
         retained_report = candidate.entry.source_report
         if retained_report is not None:
             retained_report = retained_report.model_copy(update={
-                "text": _retained_report_text(cast(CandidateVerificationPoint, candidate.scope_verification)),
+                "text": _retained_report_text(cast(CandidateVerificationPoint, candidate.scope_verification),
+                    allow_literal_edit=candidate.verification_contract == DREAM_LITERAL_RECHECK_CONTRACT),
             })
         workspace_candidate = KnowledgeCandidate(
             id=str(

@@ -151,6 +151,10 @@ class AssimilationDecision(_StrictModel):
     points: list[AssimilationPoint] = Field(default_factory=list)
 
 
+DREAM_LITERAL_EDIT_CONTRACT = "dream-existing-literal-edit-v1"
+DREAM_LITERAL_RECHECK_CONTRACT = "dream-source-recheck-v7"
+
+
 class CandidateScopeSegment(_StrictModel):
     """One verbatim claim segment and its independently judged future use."""
 
@@ -163,10 +167,10 @@ class CandidateScopeSegment(_StrictModel):
 
 
 class CandidateClaimUnit(_StrictModel):
-    """Joint proof for one original contiguous claim including necessary qualifiers.
+    """Joint proof for an original range and its explicit literal projection.
 
-    Segment indexes select an existing half-open range. A unit does not upgrade
-    any individual segment's standalone, support, source use or future scope.
+    Segment indexes select an existing half-open range. Only the existing-edit
+    contract permits checked exclusions. A unit never upgrades its segments.
     """
 
     first_segment: int = Field(ge=0)
@@ -177,11 +181,31 @@ class CandidateClaimUnit(_StrictModel):
         "standing_decision", "reusable_knowledge", "task_context", "unclear"
     ] = "unclear"
     future_scope: Literal["durable", "session_only", "unclear"] = "unclear"
+    excluded_segments: list[int] = Field(default_factory=list)
+    retained_text: str = ""
+    selected_for_retention: bool = False
+    title_start: int | None = Field(default=None, ge=0)
+    title_end: int | None = Field(default=None, ge=1)
+    title_and_text_support: Literal[
+        "supported", "unsupported", "contradicted", "unclear"
+    ] = "unclear"
 
     @model_validator(mode="after")
     def require_nonempty_range(self) -> "CandidateClaimUnit":
         if self.end_segment_exclusive <= self.first_segment:
             raise ValueError("claim unit must select a nonempty contiguous segment range")
+        if (len(set(self.excluded_segments)) != len(self.excluded_segments)
+                or any(index < self.first_segment or index >= self.end_segment_exclusive
+                       for index in self.excluded_segments)):
+            raise ValueError("excluded segment indexes must be unique and inside the unit range")
+        if (self.title_start is None) != (self.title_end is None):
+            raise ValueError("title substring requires both offsets or neither")
+        if self.title_start is not None and self.title_end is not None:
+            if not (self.title_start < self.title_end <= len(self.retained_text)):
+                raise ValueError("title offsets must select a nonempty retained-text substring")
+            title = self.retained_text[self.title_start:self.title_end]
+            if not title or title != title.strip():
+                raise ValueError("title substring must not contain leading or trailing whitespace")
         return self
 
 
@@ -197,6 +221,7 @@ class CandidateVerificationPoint(_StrictModel):
     reason: str = Field(min_length=8, max_length=1000)
     scope_segments: list[CandidateScopeSegment] = Field(default_factory=list)
     claim_units: list[CandidateClaimUnit] = Field(default_factory=list)
+    literal_edit_contract: Literal["dream-existing-literal-edit-v1"] | None = None
 
     @model_validator(mode="after")
     def bind_future_scope_to_source_use(self) -> "CandidateVerificationPoint":
@@ -204,8 +229,29 @@ class CandidateVerificationPoint(_StrictModel):
         for unit in self.claim_units:
             if unit.end_segment_exclusive > len(self.scope_segments):
                 raise ValueError("claim unit extends beyond the supplied scope segments")
-            if any(segment.content_role == "temporary_context" for segment in
-                    self.scope_segments[unit.first_segment:unit.end_segment_exclusive]):
+            if (unit.excluded_segments or unit.title_start is not None) and (
+                    self.literal_edit_contract != DREAM_LITERAL_EDIT_CONTRACT):
+                raise ValueError("literal exclusions and title edits require the existing-edit contract")
+            selected = self.scope_segments[unit.first_segment:unit.end_segment_exclusive]
+            projected = "".join(segment.text for index, segment in enumerate(
+                selected, start=unit.first_segment) if index not in unit.excluded_segments).strip()
+            if self.literal_edit_contract == DREAM_LITERAL_EDIT_CONTRACT or unit.retained_text:
+                if not projected or unit.retained_text != projected:
+                    raise ValueError("retained_text must exactly project the original selected segments")
+            for index in unit.excluded_segments:
+                segment = self.scope_segments[index]
+                temporary = (segment.content_role == "temporary_context"
+                    and segment.source_use == "task_context"
+                    and segment.future_scope == "session_only"
+                    and segment.source_support == "supported")
+                unsupported = (self.semantic_support == "partial"
+                    and segment.source_support in {"unsupported", "contradicted"}
+                    and segment.content_role in {"claim", "qualifier"})
+                if not temporary and not unsupported:
+                    raise ValueError("literal exclusion requires proved temporary or unsupported text")
+            if any(segment.content_role == "temporary_context" for index, segment in
+                    enumerate(selected, start=unit.first_segment)
+                    if index not in unit.excluded_segments):
                 raise ValueError("claim unit cannot bridge a temporary-context segment")
         if self.source_use == "task_context":
             self.future_scope = "session_only"
@@ -227,6 +273,12 @@ def verification_scope_status(point: CandidateVerificationPoint, statement: str)
         return "source_scope_partition_missing"
     if "".join(part.text for part in parts) != statement:
         return "source_scope_partition_mismatch"
+    if (point.literal_edit_contract is not None
+            or any(unit.excluded_segments or unit.title_start is not None
+                   for unit in point.claim_units)):
+        # Only the source-bound existing-entry maintenance owner may interpret
+        # this proof. Normal initial/final verification must not admit edits.
+        return "source_scope_existing_edit_only"
     if point.semantic_support == "supported" and (
         any(part.text.strip() and part.source_support != "supported" for part in parts)
         or any(unit.source_support != "supported" for unit in point.claim_units)
@@ -416,6 +468,8 @@ class AgentExtractionDecision(_StrictModel):
 
 
 __all__ = [
+    "DREAM_LITERAL_EDIT_CONTRACT",
+    "DREAM_LITERAL_RECHECK_CONTRACT",
     "AgentExtractionDecision",
     "AgentExtractionPoint",
     "AgentExtractionReview",
