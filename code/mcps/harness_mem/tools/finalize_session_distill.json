@@ -1,6 +1,6 @@
 {
   "name": "finalize_session_distill",
-  "description": "Finalize a fully read session and consistent semantic review, using only this job's candidates. Optionally submit all memory_points here; runtime stages them via the existing candidate owner before the same source/evidence/lease/transaction gates. readback_verified=true proves saved changes passed fresh SQLite + ordinary-search checks; reuse returned knowledge_changes instead of another readback call. Unfinished work remains partial.",
+  "description": "Finalize a fully read session and consistent semantic review, using only this job's candidates. Optionally submit all memory_points here; runtime stages them via the existing candidate owner before the same source/evidence/lease/transaction gates. readback_verified=true proves saved changes passed fresh SQLite + ordinary-search checks; reuse returned knowledge_changes instead of another readback call. Unfinished work remains partial. For ordinary manual writes, use memory_points[i].review.evidence to bind each claim and retained condition to exact original text. The runtime checks the cited versions, may flag missing conditions in the conversation and paired Codex tool records, and checks retained phrases in the saved body. Existing staged callers can use final_scope_judgment; a proof string, missing judgment or omitted markers never authorizes a new write.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -10,6 +10,892 @@
       "job_id": {
         "type": "string",
         "description": "Review-ready distill job id"
+      },
+      "final_scope_judgment": {
+        "type": "object",
+        "description": "Current Agent's final semantic judgment over actual output titles, bodies and authority. Supply a CandidateVerificationDecision with points, or a map from returned candidate_id to that decision. Never a proof string. Each output needs supported, durable scope_segments covering its exact final title + newline + statement (typed reports also bind rendered authority and native account identity); refine/replace also require update_meaning_judgment naming all exact predecessor statements/target_version values, successor statements and retained conditions/undecided state. Current-Agent manual work requires no background CLI permission or task_model_budget. Runtime source reopening and CAS still apply.",
+        "anyOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "points": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "candidate_index": {
+                      "minimum": 0,
+                      "title": "Candidate Index",
+                      "type": "integer"
+                    },
+                    "semantic_support": {
+                      "enum": [
+                        "supported",
+                        "partial",
+                        "contradicted"
+                      ],
+                      "title": "Semantic Support",
+                      "type": "string"
+                    },
+                    "future_scope": {
+                      "enum": [
+                        "durable",
+                        "session_only",
+                        "unclear"
+                      ],
+                      "title": "Future Scope",
+                      "type": "string"
+                    },
+                    "source_use": {
+                      "default": "unclear",
+                      "enum": [
+                        "standing_decision",
+                        "reusable_knowledge",
+                        "explicit_undecided",
+                        "task_context",
+                        "unclear"
+                      ],
+                      "title": "Source Use",
+                      "type": "string"
+                    },
+                    "reason": {
+                      "maxLength": 1000,
+                      "minLength": 8,
+                      "title": "Reason",
+                      "type": "string"
+                    },
+                    "scope_segments": {
+                      "items": {
+                        "additionalProperties": false,
+                        "description": "One verbatim claim segment and its independently judged future use.",
+                        "properties": {
+                          "text": {
+                            "minLength": 1,
+                            "title": "Text",
+                            "type": "string"
+                          },
+                          "source_use": {
+                            "enum": [
+                              "standing_decision",
+                              "reusable_knowledge",
+                              "explicit_undecided",
+                              "task_context",
+                              "unclear"
+                            ],
+                            "title": "Source Use",
+                            "type": "string"
+                          },
+                          "future_scope": {
+                            "enum": [
+                              "durable",
+                              "session_only",
+                              "unclear"
+                            ],
+                            "title": "Future Scope",
+                            "type": "string"
+                          },
+                          "standalone": {
+                            "default": false,
+                            "title": "Standalone",
+                            "type": "boolean"
+                          },
+                          "content_role": {
+                            "default": "unclear",
+                            "enum": [
+                              "claim",
+                              "qualifier",
+                              "temporary_context",
+                              "unclear"
+                            ],
+                            "title": "Content Role",
+                            "type": "string"
+                          },
+                          "source_support": {
+                            "default": "unclear",
+                            "enum": [
+                              "supported",
+                              "unsupported",
+                              "contradicted",
+                              "unclear"
+                            ],
+                            "title": "Source Support",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "text",
+                          "source_use",
+                          "future_scope",
+                          "standalone",
+                          "content_role",
+                          "source_support"
+                        ],
+                        "title": "CandidateScopeSegment",
+                        "type": "object"
+                      },
+                      "title": "Scope Segments",
+                      "type": "array",
+                      "minItems": 1
+                    },
+                    "update_meaning_judgment": {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "description": "Whether one whole refine or replace keeps still-applicable meaning.\n\nThe selected host executor or the current Agent supplies this judgment.\nRuntime code checks that ``successor_statements`` are exactly the output\nstatements of the whole point, in order, that ``predecessor_statements``\nand ``predecessor_versions`` name the exact replaced rows, and that every\nnamed condition and undecided state occurs in those successor statements.\nA hash only freezes those bytes. It does not judge preservation, and\nneither does keyword overlap or support for each new sentence by itself.\nOmitting the judgment is not a claim that no condition applied.",
+                          "properties": {
+                            "relationship": {
+                              "enum": [
+                                "preserves_applicable_meaning",
+                                "drops_applicable_meaning",
+                                "unclear"
+                              ],
+                              "title": "Relationship",
+                              "type": "string"
+                            },
+                            "predecessor_conditions": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "title": "Predecessor Conditions",
+                              "type": "array"
+                            },
+                            "predecessor_statements": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "title": "Predecessor Statements",
+                              "type": "array"
+                            },
+                            "predecessor_versions": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "title": "Predecessor Versions",
+                              "type": "array"
+                            },
+                            "undecided_state": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "default": null,
+                              "title": "Undecided State"
+                            },
+                            "successor_statements": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "minItems": 1,
+                              "title": "Successor Statements",
+                              "type": "array"
+                            },
+                            "basis": {
+                              "maxLength": 1000,
+                              "minLength": 8,
+                              "title": "Basis",
+                              "type": "string"
+                            },
+                            "report_preservation": {
+                              "anyOf": [
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "owner_candidate_id": {
+                                      "title": "Owner Candidate Id",
+                                      "type": "string"
+                                    },
+                                    "inventory_sha256": {
+                                      "maxLength": 64,
+                                      "minLength": 64,
+                                      "title": "Inventory Sha256",
+                                      "type": "string"
+                                    },
+                                    "inventory_complete": {
+                                      "title": "Inventory Complete",
+                                      "type": "boolean"
+                                    },
+                                    "units": {
+                                      "items": {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                          "unit_index": {
+                                            "minimum": 0,
+                                            "title": "Unit Index",
+                                            "type": "integer"
+                                          },
+                                          "unit_sha256": {
+                                            "maxLength": 64,
+                                            "minLength": 64,
+                                            "title": "Unit Sha256",
+                                            "type": "string"
+                                          },
+                                          "verdict": {
+                                            "enum": [
+                                              "preserved",
+                                              "disposable",
+                                              "lost",
+                                              "unclear"
+                                            ],
+                                            "title": "Verdict",
+                                            "type": "string"
+                                          },
+                                          "successor_spans": {
+                                            "items": {
+                                              "additionalProperties": false,
+                                              "properties": {
+                                                "successor_index": {
+                                                  "minimum": 0,
+                                                  "title": "Successor Index",
+                                                  "type": "integer"
+                                                },
+                                                "char_start": {
+                                                  "minimum": 0,
+                                                  "title": "Char Start",
+                                                  "type": "integer"
+                                                },
+                                                "char_end": {
+                                                  "minimum": 1,
+                                                  "title": "Char End",
+                                                  "type": "integer"
+                                                },
+                                                "text_sha256": {
+                                                  "maxLength": 64,
+                                                  "minLength": 64,
+                                                  "title": "Text Sha256",
+                                                  "type": "string"
+                                                }
+                                              },
+                                              "required": [
+                                                "successor_index",
+                                                "char_start",
+                                                "char_end",
+                                                "text_sha256"
+                                              ],
+                                              "title": "ReportRetainedSpan",
+                                              "type": "object"
+                                            },
+                                            "title": "Successor Spans",
+                                            "type": "array"
+                                          }
+                                        },
+                                        "required": [
+                                          "unit_index",
+                                          "unit_sha256",
+                                          "verdict",
+                                          "successor_spans"
+                                        ],
+                                        "title": "ReportUnitPreservation",
+                                        "type": "object"
+                                      },
+                                      "title": "Units",
+                                      "type": "array"
+                                    },
+                                    "omissions": {
+                                      "items": {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                          "omission_index": {
+                                            "minimum": 0,
+                                            "title": "Omission Index",
+                                            "type": "integer"
+                                          },
+                                          "omission_sha256": {
+                                            "maxLength": 64,
+                                            "minLength": 64,
+                                            "title": "Omission Sha256",
+                                            "type": "string"
+                                          },
+                                          "affected_units": {
+                                            "items": {
+                                              "type": "integer"
+                                            },
+                                            "title": "Affected Units",
+                                            "type": "array"
+                                          },
+                                          "claim": {
+                                            "enum": [
+                                              "preserved",
+                                              "not_applicable",
+                                              "lost",
+                                              "unclear"
+                                            ],
+                                            "title": "Claim",
+                                            "type": "string"
+                                          },
+                                          "evidence": {
+                                            "enum": [
+                                              "preserved",
+                                              "not_applicable",
+                                              "lost",
+                                              "unclear"
+                                            ],
+                                            "title": "Evidence",
+                                            "type": "string"
+                                          },
+                                          "causality": {
+                                            "enum": [
+                                              "preserved",
+                                              "not_applicable",
+                                              "lost",
+                                              "unclear"
+                                            ],
+                                            "title": "Causality",
+                                            "type": "string"
+                                          },
+                                          "boundary": {
+                                            "enum": [
+                                              "preserved",
+                                              "not_applicable",
+                                              "lost",
+                                              "unclear"
+                                            ],
+                                            "title": "Boundary",
+                                            "type": "string"
+                                          },
+                                          "permission": {
+                                            "enum": [
+                                              "preserved",
+                                              "not_applicable",
+                                              "lost",
+                                              "unclear"
+                                            ],
+                                            "title": "Permission",
+                                            "type": "string"
+                                          },
+                                          "scope": {
+                                            "enum": [
+                                              "preserved",
+                                              "not_applicable",
+                                              "lost",
+                                              "unclear"
+                                            ],
+                                            "title": "Scope",
+                                            "type": "string"
+                                          }
+                                        },
+                                        "required": [
+                                          "omission_index",
+                                          "omission_sha256",
+                                          "affected_units",
+                                          "claim",
+                                          "evidence",
+                                          "causality",
+                                          "boundary",
+                                          "permission",
+                                          "scope"
+                                        ],
+                                        "title": "ReportOmissionPreservation",
+                                        "type": "object"
+                                      },
+                                      "title": "Omissions",
+                                      "type": "array"
+                                    }
+                                  },
+                                  "required": [
+                                    "owner_candidate_id",
+                                    "inventory_sha256",
+                                    "inventory_complete",
+                                    "units",
+                                    "omissions"
+                                  ],
+                                  "title": "ReportPreservationJudgment",
+                                  "type": "object"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "default": null
+                            }
+                          },
+                          "required": [
+                            "relationship",
+                            "predecessor_conditions",
+                            "predecessor_statements",
+                            "predecessor_versions",
+                            "undecided_state",
+                            "successor_statements",
+                            "basis"
+                          ],
+                          "title": "UpdateMeaningJudgment",
+                          "type": "object"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null
+                    }
+                  },
+                  "required": [
+                    "candidate_index",
+                    "semantic_support",
+                    "future_scope",
+                    "source_use",
+                    "reason",
+                    "scope_segments"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "points"
+            ]
+          },
+          {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "points": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "candidate_index": {
+                        "minimum": 0,
+                        "title": "Candidate Index",
+                        "type": "integer"
+                      },
+                      "semantic_support": {
+                        "enum": [
+                          "supported",
+                          "partial",
+                          "contradicted"
+                        ],
+                        "title": "Semantic Support",
+                        "type": "string"
+                      },
+                      "future_scope": {
+                        "enum": [
+                          "durable",
+                          "session_only",
+                          "unclear"
+                        ],
+                        "title": "Future Scope",
+                        "type": "string"
+                      },
+                      "source_use": {
+                        "default": "unclear",
+                        "enum": [
+                          "standing_decision",
+                          "reusable_knowledge",
+                          "explicit_undecided",
+                          "task_context",
+                          "unclear"
+                        ],
+                        "title": "Source Use",
+                        "type": "string"
+                      },
+                      "reason": {
+                        "maxLength": 1000,
+                        "minLength": 8,
+                        "title": "Reason",
+                        "type": "string"
+                      },
+                      "scope_segments": {
+                        "items": {
+                          "additionalProperties": false,
+                          "description": "One verbatim claim segment and its independently judged future use.",
+                          "properties": {
+                            "text": {
+                              "minLength": 1,
+                              "title": "Text",
+                              "type": "string"
+                            },
+                            "source_use": {
+                              "enum": [
+                                "standing_decision",
+                                "reusable_knowledge",
+                                "explicit_undecided",
+                                "task_context",
+                                "unclear"
+                              ],
+                              "title": "Source Use",
+                              "type": "string"
+                            },
+                            "future_scope": {
+                              "enum": [
+                                "durable",
+                                "session_only",
+                                "unclear"
+                              ],
+                              "title": "Future Scope",
+                              "type": "string"
+                            },
+                            "standalone": {
+                              "default": false,
+                              "title": "Standalone",
+                              "type": "boolean"
+                            },
+                            "content_role": {
+                              "default": "unclear",
+                              "enum": [
+                                "claim",
+                                "qualifier",
+                                "temporary_context",
+                                "unclear"
+                              ],
+                              "title": "Content Role",
+                              "type": "string"
+                            },
+                            "source_support": {
+                              "default": "unclear",
+                              "enum": [
+                                "supported",
+                                "unsupported",
+                                "contradicted",
+                                "unclear"
+                              ],
+                              "title": "Source Support",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "text",
+                            "source_use",
+                            "future_scope",
+                            "standalone",
+                            "content_role",
+                            "source_support"
+                          ],
+                          "title": "CandidateScopeSegment",
+                          "type": "object"
+                        },
+                        "title": "Scope Segments",
+                        "type": "array",
+                        "minItems": 1
+                      },
+                      "update_meaning_judgment": {
+                        "anyOf": [
+                          {
+                            "additionalProperties": false,
+                            "description": "Whether one whole refine or replace keeps still-applicable meaning.\n\nThe selected host executor or the current Agent supplies this judgment.\nRuntime code checks that ``successor_statements`` are exactly the output\nstatements of the whole point, in order, that ``predecessor_statements``\nand ``predecessor_versions`` name the exact replaced rows, and that every\nnamed condition and undecided state occurs in those successor statements.\nA hash only freezes those bytes. It does not judge preservation, and\nneither does keyword overlap or support for each new sentence by itself.\nOmitting the judgment is not a claim that no condition applied.",
+                            "properties": {
+                              "relationship": {
+                                "enum": [
+                                  "preserves_applicable_meaning",
+                                  "drops_applicable_meaning",
+                                  "unclear"
+                                ],
+                                "title": "Relationship",
+                                "type": "string"
+                              },
+                              "predecessor_conditions": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "title": "Predecessor Conditions",
+                                "type": "array"
+                              },
+                              "predecessor_statements": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "title": "Predecessor Statements",
+                                "type": "array"
+                              },
+                              "predecessor_versions": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "title": "Predecessor Versions",
+                                "type": "array"
+                              },
+                              "undecided_state": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "default": null,
+                                "title": "Undecided State"
+                              },
+                              "successor_statements": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "minItems": 1,
+                                "title": "Successor Statements",
+                                "type": "array"
+                              },
+                              "basis": {
+                                "maxLength": 1000,
+                                "minLength": 8,
+                                "title": "Basis",
+                                "type": "string"
+                              },
+                              "report_preservation": {
+                                "anyOf": [
+                                  {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                      "owner_candidate_id": {
+                                        "title": "Owner Candidate Id",
+                                        "type": "string"
+                                      },
+                                      "inventory_sha256": {
+                                        "maxLength": 64,
+                                        "minLength": 64,
+                                        "title": "Inventory Sha256",
+                                        "type": "string"
+                                      },
+                                      "inventory_complete": {
+                                        "title": "Inventory Complete",
+                                        "type": "boolean"
+                                      },
+                                      "units": {
+                                        "items": {
+                                          "additionalProperties": false,
+                                          "properties": {
+                                            "unit_index": {
+                                              "minimum": 0,
+                                              "title": "Unit Index",
+                                              "type": "integer"
+                                            },
+                                            "unit_sha256": {
+                                              "maxLength": 64,
+                                              "minLength": 64,
+                                              "title": "Unit Sha256",
+                                              "type": "string"
+                                            },
+                                            "verdict": {
+                                              "enum": [
+                                                "preserved",
+                                                "disposable",
+                                                "lost",
+                                                "unclear"
+                                              ],
+                                              "title": "Verdict",
+                                              "type": "string"
+                                            },
+                                            "successor_spans": {
+                                              "items": {
+                                                "additionalProperties": false,
+                                                "properties": {
+                                                  "successor_index": {
+                                                    "minimum": 0,
+                                                    "title": "Successor Index",
+                                                    "type": "integer"
+                                                  },
+                                                  "char_start": {
+                                                    "minimum": 0,
+                                                    "title": "Char Start",
+                                                    "type": "integer"
+                                                  },
+                                                  "char_end": {
+                                                    "minimum": 1,
+                                                    "title": "Char End",
+                                                    "type": "integer"
+                                                  },
+                                                  "text_sha256": {
+                                                    "maxLength": 64,
+                                                    "minLength": 64,
+                                                    "title": "Text Sha256",
+                                                    "type": "string"
+                                                  }
+                                                },
+                                                "required": [
+                                                  "successor_index",
+                                                  "char_start",
+                                                  "char_end",
+                                                  "text_sha256"
+                                                ],
+                                                "title": "ReportRetainedSpan",
+                                                "type": "object"
+                                              },
+                                              "title": "Successor Spans",
+                                              "type": "array"
+                                            }
+                                          },
+                                          "required": [
+                                            "unit_index",
+                                            "unit_sha256",
+                                            "verdict",
+                                            "successor_spans"
+                                          ],
+                                          "title": "ReportUnitPreservation",
+                                          "type": "object"
+                                        },
+                                        "title": "Units",
+                                        "type": "array"
+                                      },
+                                      "omissions": {
+                                        "items": {
+                                          "additionalProperties": false,
+                                          "properties": {
+                                            "omission_index": {
+                                              "minimum": 0,
+                                              "title": "Omission Index",
+                                              "type": "integer"
+                                            },
+                                            "omission_sha256": {
+                                              "maxLength": 64,
+                                              "minLength": 64,
+                                              "title": "Omission Sha256",
+                                              "type": "string"
+                                            },
+                                            "affected_units": {
+                                              "items": {
+                                                "type": "integer"
+                                              },
+                                              "title": "Affected Units",
+                                              "type": "array"
+                                            },
+                                            "claim": {
+                                              "enum": [
+                                                "preserved",
+                                                "not_applicable",
+                                                "lost",
+                                                "unclear"
+                                              ],
+                                              "title": "Claim",
+                                              "type": "string"
+                                            },
+                                            "evidence": {
+                                              "enum": [
+                                                "preserved",
+                                                "not_applicable",
+                                                "lost",
+                                                "unclear"
+                                              ],
+                                              "title": "Evidence",
+                                              "type": "string"
+                                            },
+                                            "causality": {
+                                              "enum": [
+                                                "preserved",
+                                                "not_applicable",
+                                                "lost",
+                                                "unclear"
+                                              ],
+                                              "title": "Causality",
+                                              "type": "string"
+                                            },
+                                            "boundary": {
+                                              "enum": [
+                                                "preserved",
+                                                "not_applicable",
+                                                "lost",
+                                                "unclear"
+                                              ],
+                                              "title": "Boundary",
+                                              "type": "string"
+                                            },
+                                            "permission": {
+                                              "enum": [
+                                                "preserved",
+                                                "not_applicable",
+                                                "lost",
+                                                "unclear"
+                                              ],
+                                              "title": "Permission",
+                                              "type": "string"
+                                            },
+                                            "scope": {
+                                              "enum": [
+                                                "preserved",
+                                                "not_applicable",
+                                                "lost",
+                                                "unclear"
+                                              ],
+                                              "title": "Scope",
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": [
+                                            "omission_index",
+                                            "omission_sha256",
+                                            "affected_units",
+                                            "claim",
+                                            "evidence",
+                                            "causality",
+                                            "boundary",
+                                            "permission",
+                                            "scope"
+                                          ],
+                                          "title": "ReportOmissionPreservation",
+                                          "type": "object"
+                                        },
+                                        "title": "Omissions",
+                                        "type": "array"
+                                      }
+                                    },
+                                    "required": [
+                                      "owner_candidate_id",
+                                      "inventory_sha256",
+                                      "inventory_complete",
+                                      "units",
+                                      "omissions"
+                                    ],
+                                    "title": "ReportPreservationJudgment",
+                                    "type": "object"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "default": null
+                              }
+                            },
+                            "required": [
+                              "relationship",
+                              "predecessor_conditions",
+                              "predecessor_statements",
+                              "predecessor_versions",
+                              "undecided_state",
+                              "successor_statements",
+                              "basis"
+                            ],
+                            "title": "UpdateMeaningJudgment",
+                            "type": "object"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null
+                      }
+                    },
+                    "required": [
+                      "candidate_index",
+                      "semantic_support",
+                      "future_scope",
+                      "source_use",
+                      "reason",
+                      "scope_segments"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "points"
+              ]
+            }
+          }
+        ]
+      },
+      "condition_exclusions": {
+        "type": "object",
+        "description": "Only for returned source_conditions_need_review findings. Key by condition check id; explain why the clause is out of scope, obsolete, unsupported, or session-only.",
+        "additionalProperties": {
+          "type": "string",
+          "minLength": 1
+        }
       },
       "memory_points": {
         "type": "array",
@@ -75,7 +961,7 @@
                       }
                     ],
                     "default": null,
-                    "description": "Transient project-relative repository path. Source/session refs use the owning distill job instead of storing a raw locator.",
+                    "description": "Transient project-relative path, or absolute path under a user-configured evidence.repository_roots entry. Source/session refs use the owning distill job instead of storing a raw locator.",
                     "title": "Locator"
                   },
                   "locator_sha256": {
@@ -170,6 +1056,233 @@
             "assimilation_reason": {
               "type": "string"
             },
+            "review": {
+              "additionalProperties": false,
+              "description": "Current Agent's content judgment. Conditions and undecided_state are literal retained phrases. Use evidence to cite exact quotes by one-based verification_refs position. Bind claim, each condition and undecided state. Conversation quotes require the message_index within the cited role; file quotes omit it. Condition bindings also name the exact retained phrase. For observed operations, operations binds the checked native call/result pair and its observation level. For refine/replace, preserves_meaning=true affirms all still-applicable meaning; report updates also require same_topic=true.",
+              "properties": {
+                "support": {
+                  "enum": [
+                    "supported",
+                    "partial",
+                    "contradicted",
+                    "unclear"
+                  ],
+                  "title": "Support",
+                  "type": "string"
+                },
+                "use": {
+                  "enum": [
+                    "standing_decision",
+                    "reusable_knowledge",
+                    "explicit_undecided",
+                    "task_context",
+                    "unclear"
+                  ],
+                  "title": "Use",
+                  "type": "string"
+                },
+                "reason": {
+                  "maxLength": 1000,
+                  "minLength": 8,
+                  "title": "Reason",
+                  "type": "string"
+                },
+                "conditions": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Conditions",
+                  "type": "array"
+                },
+                "undecided_state": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Undecided State"
+                },
+                "preserves_meaning": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Preserves Meaning"
+                },
+                "same_topic": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Same Topic"
+                },
+                "evidence": {
+                  "anyOf": [
+                    {
+                      "items": {
+                        "additionalProperties": false,
+                        "description": "Exact quote in a point's typed reference, supplied to manual finalization.",
+                        "properties": {
+                          "ref": {
+                            "minimum": 1,
+                            "title": "Ref",
+                            "type": "integer"
+                          },
+                          "target": {
+                            "enum": [
+                              "claim",
+                              "condition",
+                              "undecided_state"
+                            ],
+                            "title": "Target",
+                            "type": "string"
+                          },
+                          "condition": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "default": null,
+                            "title": "Condition"
+                          },
+                          "quote": {
+                            "maxLength": 2000,
+                            "minLength": 1,
+                            "title": "Quote",
+                            "type": "string"
+                          },
+                          "message_index": {
+                            "anyOf": [
+                              {
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "default": null,
+                            "title": "Message Index"
+                          }
+                        },
+                        "required": [
+                          "ref",
+                          "target",
+                          "quote"
+                        ],
+                        "title": "ReviewEvidence",
+                        "type": "object"
+                      },
+                      "maxItems": 64,
+                      "minItems": 1,
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Evidence"
+                },
+                "operations": {
+                  "items": {
+                    "additionalProperties": false,
+                    "description": "Claim and exact, paired native call/result passages for an observed operation.",
+                    "properties": {
+                      "ref": {
+                        "minimum": 1,
+                        "title": "Ref",
+                        "type": "integer"
+                      },
+                      "phrase": {
+                        "maxLength": 600,
+                        "minLength": 4,
+                        "title": "Phrase",
+                        "type": "string"
+                      },
+                      "observed_as": {
+                        "enum": [
+                          "inspection",
+                          "execution",
+                          "interaction"
+                        ],
+                        "title": "Observed As",
+                        "type": "string"
+                      },
+                      "call_id": {
+                        "maxLength": 180,
+                        "minLength": 1,
+                        "title": "Call Id",
+                        "type": "string"
+                      },
+                      "call_line": {
+                        "minimum": 1,
+                        "title": "Call Line",
+                        "type": "integer"
+                      },
+                      "result_line": {
+                        "minimum": 1,
+                        "title": "Result Line",
+                        "type": "integer"
+                      },
+                      "call_quote": {
+                        "maxLength": 2000,
+                        "minLength": 1,
+                        "title": "Call Quote",
+                        "type": "string"
+                      },
+                      "result_quote": {
+                        "maxLength": 2000,
+                        "minLength": 1,
+                        "title": "Result Quote",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "ref",
+                      "phrase",
+                      "observed_as",
+                      "call_id",
+                      "call_line",
+                      "result_line",
+                      "call_quote",
+                      "result_quote"
+                    ],
+                    "title": "ReviewOperation",
+                    "type": "object"
+                  },
+                  "maxItems": 12,
+                  "title": "Operations",
+                  "type": "array"
+                }
+              },
+              "required": [
+                "support",
+                "use",
+                "reason",
+                "conditions",
+                "undecided_state"
+              ],
+              "title": "AgentKnowledgeReview",
+              "type": "object"
+            },
             "target_knowledge": {
               "type": "array",
               "items": {
@@ -188,8 +1301,19 @@
             "evidence_basis",
             "verification_outcome",
             "verification_refs",
-            "assimilation_disposition",
-            "assimilation_reason"
+            "assimilation_disposition"
+          ],
+          "anyOf": [
+            {
+              "required": [
+                "review"
+              ]
+            },
+            {
+              "required": [
+                "assimilation_reason"
+              ]
+            }
           ]
         }
       },
@@ -197,6 +1321,884 @@
         "type": "object",
         "description": "Final outcome, contradictions, unfinished work, and evidence assessment",
         "properties": {
+          "final_scope_judgment": {
+            "type": "object",
+            "description": "Current Agent's final semantic judgment over actual output titles, bodies and authority. Supply a CandidateVerificationDecision with points, or a map from returned candidate_id to that decision. Never a proof string. Each output needs supported, durable scope_segments covering its exact final title + newline + statement (typed reports also bind rendered authority and native account identity); refine/replace also require update_meaning_judgment naming all exact predecessor statements/target_version values, successor statements and retained conditions/undecided state. Current-Agent manual work requires no background CLI permission or task_model_budget. Runtime source reopening and CAS still apply.",
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "points": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "candidate_index": {
+                          "minimum": 0,
+                          "title": "Candidate Index",
+                          "type": "integer"
+                        },
+                        "semantic_support": {
+                          "enum": [
+                            "supported",
+                            "partial",
+                            "contradicted"
+                          ],
+                          "title": "Semantic Support",
+                          "type": "string"
+                        },
+                        "future_scope": {
+                          "enum": [
+                            "durable",
+                            "session_only",
+                            "unclear"
+                          ],
+                          "title": "Future Scope",
+                          "type": "string"
+                        },
+                        "source_use": {
+                          "default": "unclear",
+                          "enum": [
+                            "standing_decision",
+                            "reusable_knowledge",
+                            "explicit_undecided",
+                            "task_context",
+                            "unclear"
+                          ],
+                          "title": "Source Use",
+                          "type": "string"
+                        },
+                        "reason": {
+                          "maxLength": 1000,
+                          "minLength": 8,
+                          "title": "Reason",
+                          "type": "string"
+                        },
+                        "scope_segments": {
+                          "items": {
+                            "additionalProperties": false,
+                            "description": "One verbatim claim segment and its independently judged future use.",
+                            "properties": {
+                              "text": {
+                                "minLength": 1,
+                                "title": "Text",
+                                "type": "string"
+                              },
+                              "source_use": {
+                                "enum": [
+                                  "standing_decision",
+                                  "reusable_knowledge",
+                                  "explicit_undecided",
+                                  "task_context",
+                                  "unclear"
+                                ],
+                                "title": "Source Use",
+                                "type": "string"
+                              },
+                              "future_scope": {
+                                "enum": [
+                                  "durable",
+                                  "session_only",
+                                  "unclear"
+                                ],
+                                "title": "Future Scope",
+                                "type": "string"
+                              },
+                              "standalone": {
+                                "default": false,
+                                "title": "Standalone",
+                                "type": "boolean"
+                              },
+                              "content_role": {
+                                "default": "unclear",
+                                "enum": [
+                                  "claim",
+                                  "qualifier",
+                                  "temporary_context",
+                                  "unclear"
+                                ],
+                                "title": "Content Role",
+                                "type": "string"
+                              },
+                              "source_support": {
+                                "default": "unclear",
+                                "enum": [
+                                  "supported",
+                                  "unsupported",
+                                  "contradicted",
+                                  "unclear"
+                                ],
+                                "title": "Source Support",
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "text",
+                              "source_use",
+                              "future_scope",
+                              "standalone",
+                              "content_role",
+                              "source_support"
+                            ],
+                            "title": "CandidateScopeSegment",
+                            "type": "object"
+                          },
+                          "title": "Scope Segments",
+                          "type": "array",
+                          "minItems": 1
+                        },
+                        "update_meaning_judgment": {
+                          "anyOf": [
+                            {
+                              "additionalProperties": false,
+                              "description": "Whether one whole refine or replace keeps still-applicable meaning.\n\nThe selected host executor or the current Agent supplies this judgment.\nRuntime code checks that ``successor_statements`` are exactly the output\nstatements of the whole point, in order, that ``predecessor_statements``\nand ``predecessor_versions`` name the exact replaced rows, and that every\nnamed condition and undecided state occurs in those successor statements.\nA hash only freezes those bytes. It does not judge preservation, and\nneither does keyword overlap or support for each new sentence by itself.\nOmitting the judgment is not a claim that no condition applied.",
+                              "properties": {
+                                "relationship": {
+                                  "enum": [
+                                    "preserves_applicable_meaning",
+                                    "drops_applicable_meaning",
+                                    "unclear"
+                                  ],
+                                  "title": "Relationship",
+                                  "type": "string"
+                                },
+                                "predecessor_conditions": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "title": "Predecessor Conditions",
+                                  "type": "array"
+                                },
+                                "predecessor_statements": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "title": "Predecessor Statements",
+                                  "type": "array"
+                                },
+                                "predecessor_versions": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "title": "Predecessor Versions",
+                                  "type": "array"
+                                },
+                                "undecided_state": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "default": null,
+                                  "title": "Undecided State"
+                                },
+                                "successor_statements": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "minItems": 1,
+                                  "title": "Successor Statements",
+                                  "type": "array"
+                                },
+                                "basis": {
+                                  "maxLength": 1000,
+                                  "minLength": 8,
+                                  "title": "Basis",
+                                  "type": "string"
+                                },
+                                "report_preservation": {
+                                  "anyOf": [
+                                    {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "owner_candidate_id": {
+                                          "title": "Owner Candidate Id",
+                                          "type": "string"
+                                        },
+                                        "inventory_sha256": {
+                                          "maxLength": 64,
+                                          "minLength": 64,
+                                          "title": "Inventory Sha256",
+                                          "type": "string"
+                                        },
+                                        "inventory_complete": {
+                                          "title": "Inventory Complete",
+                                          "type": "boolean"
+                                        },
+                                        "units": {
+                                          "items": {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "unit_index": {
+                                                "minimum": 0,
+                                                "title": "Unit Index",
+                                                "type": "integer"
+                                              },
+                                              "unit_sha256": {
+                                                "maxLength": 64,
+                                                "minLength": 64,
+                                                "title": "Unit Sha256",
+                                                "type": "string"
+                                              },
+                                              "verdict": {
+                                                "enum": [
+                                                  "preserved",
+                                                  "disposable",
+                                                  "lost",
+                                                  "unclear"
+                                                ],
+                                                "title": "Verdict",
+                                                "type": "string"
+                                              },
+                                              "successor_spans": {
+                                                "items": {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "successor_index": {
+                                                      "minimum": 0,
+                                                      "title": "Successor Index",
+                                                      "type": "integer"
+                                                    },
+                                                    "char_start": {
+                                                      "minimum": 0,
+                                                      "title": "Char Start",
+                                                      "type": "integer"
+                                                    },
+                                                    "char_end": {
+                                                      "minimum": 1,
+                                                      "title": "Char End",
+                                                      "type": "integer"
+                                                    },
+                                                    "text_sha256": {
+                                                      "maxLength": 64,
+                                                      "minLength": 64,
+                                                      "title": "Text Sha256",
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "successor_index",
+                                                    "char_start",
+                                                    "char_end",
+                                                    "text_sha256"
+                                                  ],
+                                                  "title": "ReportRetainedSpan",
+                                                  "type": "object"
+                                                },
+                                                "title": "Successor Spans",
+                                                "type": "array"
+                                              }
+                                            },
+                                            "required": [
+                                              "unit_index",
+                                              "unit_sha256",
+                                              "verdict",
+                                              "successor_spans"
+                                            ],
+                                            "title": "ReportUnitPreservation",
+                                            "type": "object"
+                                          },
+                                          "title": "Units",
+                                          "type": "array"
+                                        },
+                                        "omissions": {
+                                          "items": {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "omission_index": {
+                                                "minimum": 0,
+                                                "title": "Omission Index",
+                                                "type": "integer"
+                                              },
+                                              "omission_sha256": {
+                                                "maxLength": 64,
+                                                "minLength": 64,
+                                                "title": "Omission Sha256",
+                                                "type": "string"
+                                              },
+                                              "affected_units": {
+                                                "items": {
+                                                  "type": "integer"
+                                                },
+                                                "title": "Affected Units",
+                                                "type": "array"
+                                              },
+                                              "claim": {
+                                                "enum": [
+                                                  "preserved",
+                                                  "not_applicable",
+                                                  "lost",
+                                                  "unclear"
+                                                ],
+                                                "title": "Claim",
+                                                "type": "string"
+                                              },
+                                              "evidence": {
+                                                "enum": [
+                                                  "preserved",
+                                                  "not_applicable",
+                                                  "lost",
+                                                  "unclear"
+                                                ],
+                                                "title": "Evidence",
+                                                "type": "string"
+                                              },
+                                              "causality": {
+                                                "enum": [
+                                                  "preserved",
+                                                  "not_applicable",
+                                                  "lost",
+                                                  "unclear"
+                                                ],
+                                                "title": "Causality",
+                                                "type": "string"
+                                              },
+                                              "boundary": {
+                                                "enum": [
+                                                  "preserved",
+                                                  "not_applicable",
+                                                  "lost",
+                                                  "unclear"
+                                                ],
+                                                "title": "Boundary",
+                                                "type": "string"
+                                              },
+                                              "permission": {
+                                                "enum": [
+                                                  "preserved",
+                                                  "not_applicable",
+                                                  "lost",
+                                                  "unclear"
+                                                ],
+                                                "title": "Permission",
+                                                "type": "string"
+                                              },
+                                              "scope": {
+                                                "enum": [
+                                                  "preserved",
+                                                  "not_applicable",
+                                                  "lost",
+                                                  "unclear"
+                                                ],
+                                                "title": "Scope",
+                                                "type": "string"
+                                              }
+                                            },
+                                            "required": [
+                                              "omission_index",
+                                              "omission_sha256",
+                                              "affected_units",
+                                              "claim",
+                                              "evidence",
+                                              "causality",
+                                              "boundary",
+                                              "permission",
+                                              "scope"
+                                            ],
+                                            "title": "ReportOmissionPreservation",
+                                            "type": "object"
+                                          },
+                                          "title": "Omissions",
+                                          "type": "array"
+                                        }
+                                      },
+                                      "required": [
+                                        "owner_candidate_id",
+                                        "inventory_sha256",
+                                        "inventory_complete",
+                                        "units",
+                                        "omissions"
+                                      ],
+                                      "title": "ReportPreservationJudgment",
+                                      "type": "object"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "default": null
+                                }
+                              },
+                              "required": [
+                                "relationship",
+                                "predecessor_conditions",
+                                "predecessor_statements",
+                                "predecessor_versions",
+                                "undecided_state",
+                                "successor_statements",
+                                "basis"
+                              ],
+                              "title": "UpdateMeaningJudgment",
+                              "type": "object"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null
+                        }
+                      },
+                      "required": [
+                        "candidate_index",
+                        "semantic_support",
+                        "future_scope",
+                        "source_use",
+                        "reason",
+                        "scope_segments"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "points"
+                ]
+              },
+              {
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "points": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "candidate_index": {
+                            "minimum": 0,
+                            "title": "Candidate Index",
+                            "type": "integer"
+                          },
+                          "semantic_support": {
+                            "enum": [
+                              "supported",
+                              "partial",
+                              "contradicted"
+                            ],
+                            "title": "Semantic Support",
+                            "type": "string"
+                          },
+                          "future_scope": {
+                            "enum": [
+                              "durable",
+                              "session_only",
+                              "unclear"
+                            ],
+                            "title": "Future Scope",
+                            "type": "string"
+                          },
+                          "source_use": {
+                            "default": "unclear",
+                            "enum": [
+                              "standing_decision",
+                              "reusable_knowledge",
+                              "explicit_undecided",
+                              "task_context",
+                              "unclear"
+                            ],
+                            "title": "Source Use",
+                            "type": "string"
+                          },
+                          "reason": {
+                            "maxLength": 1000,
+                            "minLength": 8,
+                            "title": "Reason",
+                            "type": "string"
+                          },
+                          "scope_segments": {
+                            "items": {
+                              "additionalProperties": false,
+                              "description": "One verbatim claim segment and its independently judged future use.",
+                              "properties": {
+                                "text": {
+                                  "minLength": 1,
+                                  "title": "Text",
+                                  "type": "string"
+                                },
+                                "source_use": {
+                                  "enum": [
+                                    "standing_decision",
+                                    "reusable_knowledge",
+                                    "explicit_undecided",
+                                    "task_context",
+                                    "unclear"
+                                  ],
+                                  "title": "Source Use",
+                                  "type": "string"
+                                },
+                                "future_scope": {
+                                  "enum": [
+                                    "durable",
+                                    "session_only",
+                                    "unclear"
+                                  ],
+                                  "title": "Future Scope",
+                                  "type": "string"
+                                },
+                                "standalone": {
+                                  "default": false,
+                                  "title": "Standalone",
+                                  "type": "boolean"
+                                },
+                                "content_role": {
+                                  "default": "unclear",
+                                  "enum": [
+                                    "claim",
+                                    "qualifier",
+                                    "temporary_context",
+                                    "unclear"
+                                  ],
+                                  "title": "Content Role",
+                                  "type": "string"
+                                },
+                                "source_support": {
+                                  "default": "unclear",
+                                  "enum": [
+                                    "supported",
+                                    "unsupported",
+                                    "contradicted",
+                                    "unclear"
+                                  ],
+                                  "title": "Source Support",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "text",
+                                "source_use",
+                                "future_scope",
+                                "standalone",
+                                "content_role",
+                                "source_support"
+                              ],
+                              "title": "CandidateScopeSegment",
+                              "type": "object"
+                            },
+                            "title": "Scope Segments",
+                            "type": "array",
+                            "minItems": 1
+                          },
+                          "update_meaning_judgment": {
+                            "anyOf": [
+                              {
+                                "additionalProperties": false,
+                                "description": "Whether one whole refine or replace keeps still-applicable meaning.\n\nThe selected host executor or the current Agent supplies this judgment.\nRuntime code checks that ``successor_statements`` are exactly the output\nstatements of the whole point, in order, that ``predecessor_statements``\nand ``predecessor_versions`` name the exact replaced rows, and that every\nnamed condition and undecided state occurs in those successor statements.\nA hash only freezes those bytes. It does not judge preservation, and\nneither does keyword overlap or support for each new sentence by itself.\nOmitting the judgment is not a claim that no condition applied.",
+                                "properties": {
+                                  "relationship": {
+                                    "enum": [
+                                      "preserves_applicable_meaning",
+                                      "drops_applicable_meaning",
+                                      "unclear"
+                                    ],
+                                    "title": "Relationship",
+                                    "type": "string"
+                                  },
+                                  "predecessor_conditions": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "title": "Predecessor Conditions",
+                                    "type": "array"
+                                  },
+                                  "predecessor_statements": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "title": "Predecessor Statements",
+                                    "type": "array"
+                                  },
+                                  "predecessor_versions": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "title": "Predecessor Versions",
+                                    "type": "array"
+                                  },
+                                  "undecided_state": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ],
+                                    "default": null,
+                                    "title": "Undecided State"
+                                  },
+                                  "successor_statements": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "minItems": 1,
+                                    "title": "Successor Statements",
+                                    "type": "array"
+                                  },
+                                  "basis": {
+                                    "maxLength": 1000,
+                                    "minLength": 8,
+                                    "title": "Basis",
+                                    "type": "string"
+                                  },
+                                  "report_preservation": {
+                                    "anyOf": [
+                                      {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                          "owner_candidate_id": {
+                                            "title": "Owner Candidate Id",
+                                            "type": "string"
+                                          },
+                                          "inventory_sha256": {
+                                            "maxLength": 64,
+                                            "minLength": 64,
+                                            "title": "Inventory Sha256",
+                                            "type": "string"
+                                          },
+                                          "inventory_complete": {
+                                            "title": "Inventory Complete",
+                                            "type": "boolean"
+                                          },
+                                          "units": {
+                                            "items": {
+                                              "additionalProperties": false,
+                                              "properties": {
+                                                "unit_index": {
+                                                  "minimum": 0,
+                                                  "title": "Unit Index",
+                                                  "type": "integer"
+                                                },
+                                                "unit_sha256": {
+                                                  "maxLength": 64,
+                                                  "minLength": 64,
+                                                  "title": "Unit Sha256",
+                                                  "type": "string"
+                                                },
+                                                "verdict": {
+                                                  "enum": [
+                                                    "preserved",
+                                                    "disposable",
+                                                    "lost",
+                                                    "unclear"
+                                                  ],
+                                                  "title": "Verdict",
+                                                  "type": "string"
+                                                },
+                                                "successor_spans": {
+                                                  "items": {
+                                                    "additionalProperties": false,
+                                                    "properties": {
+                                                      "successor_index": {
+                                                        "minimum": 0,
+                                                        "title": "Successor Index",
+                                                        "type": "integer"
+                                                      },
+                                                      "char_start": {
+                                                        "minimum": 0,
+                                                        "title": "Char Start",
+                                                        "type": "integer"
+                                                      },
+                                                      "char_end": {
+                                                        "minimum": 1,
+                                                        "title": "Char End",
+                                                        "type": "integer"
+                                                      },
+                                                      "text_sha256": {
+                                                        "maxLength": 64,
+                                                        "minLength": 64,
+                                                        "title": "Text Sha256",
+                                                        "type": "string"
+                                                      }
+                                                    },
+                                                    "required": [
+                                                      "successor_index",
+                                                      "char_start",
+                                                      "char_end",
+                                                      "text_sha256"
+                                                    ],
+                                                    "title": "ReportRetainedSpan",
+                                                    "type": "object"
+                                                  },
+                                                  "title": "Successor Spans",
+                                                  "type": "array"
+                                                }
+                                              },
+                                              "required": [
+                                                "unit_index",
+                                                "unit_sha256",
+                                                "verdict",
+                                                "successor_spans"
+                                              ],
+                                              "title": "ReportUnitPreservation",
+                                              "type": "object"
+                                            },
+                                            "title": "Units",
+                                            "type": "array"
+                                          },
+                                          "omissions": {
+                                            "items": {
+                                              "additionalProperties": false,
+                                              "properties": {
+                                                "omission_index": {
+                                                  "minimum": 0,
+                                                  "title": "Omission Index",
+                                                  "type": "integer"
+                                                },
+                                                "omission_sha256": {
+                                                  "maxLength": 64,
+                                                  "minLength": 64,
+                                                  "title": "Omission Sha256",
+                                                  "type": "string"
+                                                },
+                                                "affected_units": {
+                                                  "items": {
+                                                    "type": "integer"
+                                                  },
+                                                  "title": "Affected Units",
+                                                  "type": "array"
+                                                },
+                                                "claim": {
+                                                  "enum": [
+                                                    "preserved",
+                                                    "not_applicable",
+                                                    "lost",
+                                                    "unclear"
+                                                  ],
+                                                  "title": "Claim",
+                                                  "type": "string"
+                                                },
+                                                "evidence": {
+                                                  "enum": [
+                                                    "preserved",
+                                                    "not_applicable",
+                                                    "lost",
+                                                    "unclear"
+                                                  ],
+                                                  "title": "Evidence",
+                                                  "type": "string"
+                                                },
+                                                "causality": {
+                                                  "enum": [
+                                                    "preserved",
+                                                    "not_applicable",
+                                                    "lost",
+                                                    "unclear"
+                                                  ],
+                                                  "title": "Causality",
+                                                  "type": "string"
+                                                },
+                                                "boundary": {
+                                                  "enum": [
+                                                    "preserved",
+                                                    "not_applicable",
+                                                    "lost",
+                                                    "unclear"
+                                                  ],
+                                                  "title": "Boundary",
+                                                  "type": "string"
+                                                },
+                                                "permission": {
+                                                  "enum": [
+                                                    "preserved",
+                                                    "not_applicable",
+                                                    "lost",
+                                                    "unclear"
+                                                  ],
+                                                  "title": "Permission",
+                                                  "type": "string"
+                                                },
+                                                "scope": {
+                                                  "enum": [
+                                                    "preserved",
+                                                    "not_applicable",
+                                                    "lost",
+                                                    "unclear"
+                                                  ],
+                                                  "title": "Scope",
+                                                  "type": "string"
+                                                }
+                                              },
+                                              "required": [
+                                                "omission_index",
+                                                "omission_sha256",
+                                                "affected_units",
+                                                "claim",
+                                                "evidence",
+                                                "causality",
+                                                "boundary",
+                                                "permission",
+                                                "scope"
+                                              ],
+                                              "title": "ReportOmissionPreservation",
+                                              "type": "object"
+                                            },
+                                            "title": "Omissions",
+                                            "type": "array"
+                                          }
+                                        },
+                                        "required": [
+                                          "owner_candidate_id",
+                                          "inventory_sha256",
+                                          "inventory_complete",
+                                          "units",
+                                          "omissions"
+                                        ],
+                                        "title": "ReportPreservationJudgment",
+                                        "type": "object"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ],
+                                    "default": null
+                                  }
+                                },
+                                "required": [
+                                  "relationship",
+                                  "predecessor_conditions",
+                                  "predecessor_statements",
+                                  "predecessor_versions",
+                                  "undecided_state",
+                                  "successor_statements",
+                                  "basis"
+                                ],
+                                "title": "UpdateMeaningJudgment",
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "default": null
+                          }
+                        },
+                        "required": [
+                          "candidate_index",
+                          "semantic_support",
+                          "future_scope",
+                          "source_use",
+                          "reason",
+                          "scope_segments"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "points"
+                  ]
+                }
+              }
+            ]
+          },
           "session_summary": {
             "type": "string",
             "minLength": 12,

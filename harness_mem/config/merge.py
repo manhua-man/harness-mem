@@ -51,6 +51,7 @@ class MergedConfig:
     capture_ignore_session_ids: tuple[str, ...] = ()
     capture_ignore_source_globs: tuple[str, ...] = ()
     transcript_retention_days: int = 0
+    evidence_repository_roots: tuple[str, ...] = ()
     distill_auto_enabled: bool = True
     distill_autonomous_enabled: bool = False
     distill_auto_recent_first: bool = True
@@ -79,7 +80,20 @@ class MergedConfig:
     cost_budget_file_context_tokens: int = 900
     cost_budget_dream_tokens: int = 2000
     cost_budget_distill_tokens: int = 3000
+    # Whole-task cumulative actual usage, checked before each later invocation.
+    # A final invocation can cross a token threshold; these are not native caps.
+    # cost_budget.* above remains returned context.
+    task_model_budget_max_calls: int | None = 64
+    # Cumulative native request time for the whole task: exact
+    # duration_seconds, otherwise the reserved timeout. Not lifecycle wall
+    # time, queue gaps, or a deadline for the surrounding job.
+    task_model_budget_max_seconds: int | None = 3600
+    task_model_budget_max_input_tokens: int | None = 2_000_000
+    task_model_budget_max_output_tokens: int | None = 128_000
+    # Explicit strict per-invocation cap: unsupported hosts refuse only when set.
+    task_model_budget_host_max_output_tokens: int | None = None
     extras: dict[str, Any] = field(default_factory=dict)
+    search_budget_configured: bool = field(default=False, repr=False, compare=False)
 
     def to_reflection_config(self) -> dict[str, Any]:
         """Compatibility alias for :meth:`to_runtime_config`."""
@@ -220,12 +234,45 @@ _COST_BUDGET_KEYS: tuple[tuple[str, str, str, Any], ...] = (
     ("cost_budget.distill_tokens", "cost_budget_distill_tokens", "int:min=1", 3000),
 )
 
+# Unset defaults are intentional. A missing bound is not an unlimited budget.
+# Public task bounds configure policy; native adapter capabilities separately
+# determine whether scheduling can enforce that policy.
+_TASK_MODEL_BUDGET_KEYS: tuple[tuple[str, str, str, Any], ...] = (
+    ("task_model_budget.max_calls", "task_model_budget_max_calls", "int:min=1", 64),
+    (
+        "task_model_budget.max_seconds",
+        "task_model_budget_max_seconds",
+        "int:min=1",
+        3600,
+    ),
+    (
+        "task_model_budget.max_input_tokens",
+        "task_model_budget_max_input_tokens",
+        "int:min=1",
+        2_000_000,
+    ),
+    (
+        "task_model_budget.max_output_tokens",
+        "task_model_budget_max_output_tokens",
+        "int:min=1",
+        128_000,
+    ),
+    (
+        "task_model_budget.host_max_output_tokens",
+        "task_model_budget_host_max_output_tokens",
+        "int:min=1",
+        None,
+    ),
+)
+
 _TYPED_CONFIG_KEYS: tuple[tuple[str, str, str, Any], ...] = (
     *_CAPTURE_KEYS,
+    ("evidence.repository_roots", "evidence_repository_roots", "str_list", ()),
     *_DISTILL_KEYS,
     *_ARCHIVE_DISTILL_KEYS,
     *_DREAM_KEYS,
     *_COST_BUDGET_KEYS,
+    *_TASK_MODEL_BUDGET_KEYS,
 )
 
 # The public policy surface stays intentionally small. The remaining typed
@@ -250,6 +297,7 @@ PUBLIC_CONFIG_KEY_PATHS: tuple[str, ...] = (
     "archive_distill.require_answer_packet",
     "archive_distill.report_promotions",
     "dream.auto.enabled",
+    *(item[0] for item in _TASK_MODEL_BUDGET_KEYS),
 )
 _PUBLIC_CONFIG_KEY_SET = frozenset(PUBLIC_CONFIG_KEY_PATHS)
 _PUBLIC_TYPED_CONFIG_KEYS = tuple(
@@ -585,6 +633,9 @@ def load_merged_config(project_root: str | os.PathLike[str] | None = None) -> Me
     _remove_dotted(user_dict, "semantic.providers")
     _remove_dotted(project_dict, "semantic.execution.profile")
     _remove_dotted(project_dict, "semantic.providers")
+    # Projects may set capture policy, but cannot grant themselves read access
+    # to other local repositories or user directories.
+    _remove_dotted(project_dict, "evidence.repository_roots")
 
     # ---- 3. deep-merge (project overrides user) (Req 3.3) ---------------
     merged = deep_merge(user_dict, project_dict)
@@ -626,4 +677,5 @@ def load_merged_config(project_root: str | os.PathLike[str] | None = None) -> Me
     return MergedConfig(
         **typed_values,
         extras=extras,
+        search_budget_configured=_get_dotted(merged, "cost_budget.search_tokens")[0],
     )

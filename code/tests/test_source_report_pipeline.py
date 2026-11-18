@@ -3,6 +3,7 @@ import asyncio
 import json
 
 import pytest
+from test_report_account_identity import report_judgment
 
 from harness_mem.adapters.codex.adapter import CodexAdapter
 from harness_mem.autonomous.models import AssimilationDecision, DistillCandidate
@@ -70,6 +71,7 @@ def test_native_source_report_survives_write_reopen_and_ordinary_search(tmp_path
                 result = await resolve_separated_review(
                     backend, candidate_id=candidate.id, disposition="add", reason="Retain only the scoped source account.",
                     knowledge_items=[item], project_root=root, expected_project_name="demo",
+                        final_scope_judgment=report_judgment(candidate.source_report, item["title"]),
                 )
                 ids = result["canonical_truth_ids"]
             else:
@@ -80,6 +82,7 @@ def test_native_source_report_survives_write_reopen_and_ordinary_search(tmp_path
                     "reason": "Retain only the verified bounded source report.",
                 }]})
                 plan = validate_separated_assimilation_decision(prepared, decision)
+                plan["points"][0]["final_scope_judgment"] = report_judgment(candidate.source_report, item["title"])
                 assert plan["points"][0]["knowledge_items"][0]["claim_kind"] == "source_report"
                 await apply_separated_assimilation(backend, project_name="demo", project_root=str(root), candidate_ids=[candidate.id], plan=plan)
                 ids = [row.id for row in await backend.structured_store.knowledge_store.list_entries("demo")]

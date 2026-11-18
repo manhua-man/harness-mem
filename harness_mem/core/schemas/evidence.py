@@ -7,6 +7,7 @@ from hashlib import sha256
 from typing import Literal
 
 from pydantic import BaseModel, Field
+from pydantic.json_schema import SkipJsonSchema
 
 EvidenceBasis = Literal["repository", "user_statement", "transcript", "source_report"]
 VerificationOutcome = Literal[
@@ -18,6 +19,23 @@ VerificationOutcome = Literal[
 EvidenceRefKind = Literal["repository", "user_statement", "transcript", "source_report"]
 
 
+class EvidenceBinding(BaseModel):
+    """A checked span and its destination in one submitted knowledge body."""
+
+    target: Literal["claim", "condition", "undecided_state", "operation"]
+    target_sha256: str
+    quote_sha256: str
+    message_index: int | None = None
+    start: int
+    end: int
+    native_trace: dict | None = None
+
+    model_config = {"extra": "forbid", "frozen": True}
+
+    def to_dict(self) -> dict:
+        return self.model_dump(exclude={"native_trace"} if self.native_trace is None else None)
+
+
 class EvidenceRef(BaseModel):
     """Integrity reference used by Dream admission, never evidence content."""
 
@@ -25,7 +43,8 @@ class EvidenceRef(BaseModel):
     locator: str | None = Field(
         default=None,
         description=(
-            "Transient project-relative repository path. Source/session refs use "
+            "Transient project-relative path, or absolute path under a user-configured "
+            "evidence.repository_roots entry. Source/session refs use "
             "the owning distill job instead of storing a raw locator."
         ),
     )
@@ -34,6 +53,7 @@ class EvidenceRef(BaseModel):
     exchange_index: int | None = Field(default=None, ge=1)
     chunk_index: int | None = Field(default=None, ge=0)
     role: Literal["user", "assistant", "tool"] | None = None
+    bindings: SkipJsonSchema[list[EvidenceBinding]] = Field(default_factory=list)
 
     model_config = {"extra": "forbid"}
 
@@ -47,7 +67,7 @@ class EvidenceRef(BaseModel):
         return self.model_copy(update={"locator": None})
 
     def to_dict(self) -> dict:
-        return {
+        result: dict = {
             "kind": self.kind,
             "locator": self.locator,
             "locator_sha256": self.locator_sha256,
@@ -56,6 +76,9 @@ class EvidenceRef(BaseModel):
             "chunk_index": self.chunk_index,
             "role": self.role,
         }
+        if self.bindings:
+            result["bindings"] = [binding.to_dict() for binding in self.bindings]
+        return result
 
     @classmethod
     def from_dict(cls, data: dict) -> "EvidenceRef":

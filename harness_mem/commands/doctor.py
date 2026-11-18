@@ -229,6 +229,9 @@ async def cmd_doctor(project_name: str | None = None) -> int:
 
             print()
             dream_config = _load_project_dream_config(resolved_project)
+            from harness_mem.commands.doctor_rendering import _doctor_background_status_block
+
+            _doctor_background_status_block(dream_config)
             dream_report = await dream_status_snapshot(
                 backend,
                 project_name=resolved_project,

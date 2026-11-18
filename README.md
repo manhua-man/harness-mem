@@ -19,6 +19,21 @@ mattered in earlier conversations or what still needs attention. `harness-mem`
 keeps useful knowledge locally so Agents can recall and correct it, without
 asking you to manage projects or directories.
 
+The current development priority is **finished conversations → verified,
+organized knowledge → processed-history cleanup → useful recall**. The current
+Agent performs historical organization through the existing MCP tools; lifecycle
+Hooks, a background model and Dream are not prerequisites. Use the native `hm`
+command with fixed actions: `distill --project <name>`, `continue`, and
+`clean --apply`; `distill --cleanup` authorizes cleanup after successful review.
+Cleanup previews the frozen selection before explicit execution and keeps
+active, changed or unresolved sources. This workflow is being implemented and
+evaluated against [session-distill-skills](https://github.com/manhua-man/session-distill-skills);
+it is not yet fully accepted or included in release 0.9.28. See the
+[current plan and evidence](docs/roadmap.md#current-iteration-plan). Automatic
+per-turn recording and host injection are deferred during this work; the local
+runtime remains uninstalled. The release setup below does not enable or validate
+the unreleased workflow.
+
 The unreleased working tree supports one selected-device batch across sessions
 with different, missing or absent workspace directories. Directories are optional
 context, not intake prerequisites. Per-point verification, SQLite writes and
@@ -30,16 +45,36 @@ by isolated fixtures; this does not establish support for every live database
 format. Blank sources, unreadable files and completed organization are distinct.
 
 In the unreleased working tree, an organization result includes the saved
-knowledge itself, not only its count. Ask `hm` to show what it remembers
-to read current knowledge; ordinary searches stay compact. You can optionally
+knowledge itself, not only its count. Use `hm review` to read current knowledge;
+ordinary searches stay compact. You can optionally
 ask for one project's knowledge grouped by module.
 
-The unreleased reading update returns short facts directly and provides a
-continuation call for larger results. The Agent follows it as needed, or reads
-every page when asked to show all memory. Long entries remain available in full.
-Taskless startup shows memory availability; task-aware recall selects relevant
-facts. Response size uses the existing wake/search settings and counts the
-complete output, including automatic-recall feedback fields.
+The current source provides on-demand, version-checked Codex tool records from
+the prepared conversation. These records supplement the conversation and cannot
+be used as user-authored evidence. Source reports display a concise attribution,
+their native session time and complete conditions; ordinary search results can
+still be used directly to select a memory for correction.
+
+The unreleased reading update supports continuation; the Agent reads all pages
+when asked to show all memory, and long entries remain available in full.
+Without a task, the automatic startup Hook suggests a focused search instead of
+opening the whole library; explicit MCP `wake` can still show availability.
+Task-aware automatic recall returns incomplete keyword candidates for the current
+Agent to assess and open. Long Chinese requests and some named-subject compound
+searches also show candidates; other short searches may return whole facts
+directly, or `detail="candidates"`
+can be used to review them first. For missing context the Agent can search each
+unanswered aspect with focused terms and consider applicable cross-project or
+global rules. Candidate previews can still distract or miss useful memory and
+are not verified relevance. Identical wording in different projects retains
+each project identity; check the complete fact for its actual scope.
+Response size uses the existing wake/search settings and counts the complete
+output, including automatic-recall feedback.
+
+Manual searches with explicit task context use cost-aware `auto` output: a
+complete entry is returned directly when it costs less than its preview link.
+The Agent reuses complete statements and opens only previews, keeping the same
+page budget and all stored conditions. Explicit candidate-only mode is retained.
 
 The approved unreleased default is recall across **all projects**: ordinary
 search, session-start `wake`, and automatic task-aware search use current
@@ -49,7 +84,11 @@ job material and legacy rows remain excluded. Current source and live MCP
 inventory/search/wake checks passed on 2026-10-12. Published `0.9.28` does
 not include this default change.
 
-## Start here
+The unreleased source restores explicit historical organization through `hm distill`, `hm status`, and `hm continue`. The Agent discovers existing batches and follows returned references; users do not manage IDs. A pause requires explicit continuation. Manual work in the current Agent needs no background CLI authorization. Shared writing checks actual final titles, bodies, report attribution and conditions retained by corrections.
+
+Background task budgets cover native executor invocations dispatched by this runtime across source processing, Dream slices and retries under one maintenance task identity. Defaults are 64 invocations, 3,600 cumulative native seconds, 2,000,000 input tokens and 128,000 output tokens. Actual terminal usage is accumulated and checked before subsequent dispatch; the final invocation may cross a token threshold and may contain multiple model responses. Unknown usage blocks later invocations. These thresholds do not cap returned context, total user wait or the current Agent conversation. An explicit `task_model_budget.host_max_output_tokens` requests strict native bounds; unsupported or unproved bounds refuse before transport. Ordinary background execution does not require this optional hard cap. Local installation and readiness have fresh receipts; natural semantic acceptance remains pending. See [convergence status](docs/memory-write-convergence-20261020.md).
+
+## Released setup and optional automation
 
 Install the release with this single-line command in PowerShell, Command Prompt, or Bash:
 
@@ -95,7 +134,7 @@ For optional local vector or hybrid search, install `"harness-mem[hybrid]==0.9.2
 from the same release index. For the complete setup and host-specific exception,
 see [Quickstart](docs/quickstart.md).
 
-## Automatic memory and human review
+## Optional automatic memory and human review
 
 After automatic integration is enabled, keep using your Agent normally. New
 conversations are captured and useful knowledge is organized in the background;
@@ -109,23 +148,35 @@ Use the native entry when you want to inspect or review memory:
 | Codex | `$hm` |
 | Claude Code, Cursor, Grok, Hermes, OpenCode, Antigravity | `/hm` |
 
-For example:
+Use fixed subcommands. Codex examples (replace `$hm` with `/hm` in other hosts):
 
 ```text
-Show what has been remembered.
-Correct this memory: ...
-Delete the memory about ...
+$hm help
+$hm distill --project oiioii-studio --cleanup
+$hm search "Oii upstream models and local alternatives"
+$hm clean --project oiioii-studio --apply
+$hm review --replace "<old title or text>" --with "<new text>"
+$hm review --delete "<old title or text>"
 ```
 
-The unified entry replies in your language with the stored content or the
-result of your review. You do not have to choose a storage system,
-model connection, or internal workflow.
+Bare `hm` or `help` displays command help only. `distill` requires a named project
+or explicit `--all`. `--cleanup` authorizes cleanup of that successfully reviewed
+selection; standalone `clean` previews and `clean --apply` executes. `search`
+defaults to all projects; only `--project-only <name>` restricts it. Missing or
+unknown arguments show usage before work starts. These are Agent command
+instructions, not new terminal CLI subcommands; native dispatch remains to be
+verified after the user restores the currently uninstalled integration.
 
-Use ordinary language: you do not need to understand internal components or
-supply, copy, or manage memory IDs. Describe a correction or deletion
-by title or content. The Agent finds the target across current memory, then
+Manual review can bind each knowledge claim and its retained conditions to
+exact passages in the reviewed source. Cleanup accounts for each selected
+revision with retained output checks, planned native targets or record sets,
+and available execution results. A completed review with zero knowledge writes
+can qualify when its Note, source version and the existing cleanup checks pass.
+
+Pass readable titles, topics or text as command arguments; you do not supply,
+copy or manage memory IDs. The Agent finds the target across current memory, then
 verifies its stored context and tool-returned references before changing it;
-it must not guess IDs. If your words
+it must not guess IDs. If the supplied title or text
 do not identify one target uniquely, it keeps the existing memory and explains
 what it cannot determine using readable titles or content.
 
@@ -159,6 +210,14 @@ Codex and Antigravity wait about 30 seconds after a completed reply before
 starting a background memory round. A new user turn cancels that pending wait;
 the next completed reply starts a new window. A round already started may
 finish. This uses the existing worker and the current host's CLI.
+Unreleased recovery lets a later native wake resume an interrupted round after
+checking its original source, cumulative budget and remaining finite slices.
+Retained-source checks compare relevant current memories without granting new write targets; condition-bearing additions require an independent final meaning judgment.
+Empty extraction also receives an independent complete-source check; report body changes require a separate audit of the original meaning and actual changed ranges.
+Unfinished source checks and report cleanup can continue within a failed
+round's original remaining budget; its failure record and limits stay in place.
+Known exhausted report attempts can close without another model call; their original progress, failures and costs remain.
+When a wake reading link exceeds its budget, wake returns a bounded no-content notice; the complete task query still drives retrieval.
 Recall shows a short notice: Codex uses a native conversation message;
 Antigravity asks the current Agent to include it in its first reply through
 temporary context, so display there depends on the Agent following that request.
@@ -186,10 +245,11 @@ frozen batches remain separate for file and source validation. Users do not
 manage directory moves, retirement or name reservations. Discovery neither
 imports old sessions nor enables background processing.
 
-The automatic worker retains complete sources and resumable jobs. Existing
-manual batches remain readable for recovery and review; creating a manual
-remembering batch is no longer a user-facing path. Source retention and
-verification are shared by automatic processing and review corrections.
+The automatic worker retains complete sources and resumable jobs. Explicitly
+requested historical organization uses frozen manual batches, readable progress,
+pause and continuation through the same source verification and commit owners.
+Ordinary daily use requires no manual selection. Current-Agent review does not
+require background execution to be enabled.
 
 When the native session is already known, the Agent prepares it directly without
 printing a whole-device inventory. Explicit non-writing decisions can close

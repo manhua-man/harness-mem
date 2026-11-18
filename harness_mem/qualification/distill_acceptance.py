@@ -353,6 +353,30 @@ def run_model_samples(
         ).hexdigest()
         started = time.monotonic()
         try:
+            from harness_mem.autonomous.executors.task_budget import (
+                TaskBudgetRefusal,
+                arm_provider_maintenance_task,
+            )
+            from harness_mem.config.merge import MergedConfig
+
+            # The temporary directory is the call runtime, never the task scope.
+            # Unset bounds and unproven host caps then refuse before transport.
+            try:
+                arm_provider_maintenance_task(
+                    provider,
+                    data_dir=output_path.parent,
+                    config=MergedConfig(),
+                    trigger_id=f"qualification-{fixture_id}",
+                    dispatch_generation=manifest_sha[:32],
+                    phase="source",
+                    slice_id=f"sample-{fixture_id}",
+                )
+            except TaskBudgetRefusal as exc:
+                raise ProviderError(
+                    str(exc),
+                    kind="setup_required" if exc.kind == "setup" else "unrecoverable",
+                    failure_reason=exc.code,
+                ) from exc
             with tempfile.TemporaryDirectory(
                 prefix="hm-distill-model-",
                 dir=output_path.parent,

@@ -3,6 +3,7 @@
 Minimal reproduction (no model or Hook):
     python -m pytest -q code/tests/test_host_cli_pipe_completion.py
 
+These are below-dispatch protocol tests; no production budget cap is claimed.
 Only _spawn command routing is replaced. RPC, Popen, Windows containment,
 deadlines, leases, failure classification and validation use the real runtime.
 """
@@ -28,6 +29,17 @@ from harness_mem.autonomous.executors.codex_app_server import CodexAppServer
 from harness_mem.autonomous.executors.host_structured_cli import HostStructuredCliProvider
 from harness_mem.autonomous.models import AssimilationDecision
 from harness_mem.autonomous.provider import ProviderError, ProviderResult
+
+
+
+def run_local_assimilation_protocol(provider, manifest, *, runtime_dir, heartbeat=None):
+    """Direct protocol body; _local_provider routes only to network-denied Python peers."""
+    return provider._run_native_body(
+        manifest, runtime_dir=runtime_dir, heartbeat=heartbeat,
+        decision_model=AssimilationDecision,
+        prompt=host_structured_cli._build_assimilation_prompt(manifest),
+        temporary_prefix="assimilation-", error_label="assimilation",
+    )
 
 
 _LOCAL_CLI = r'''
@@ -278,7 +290,7 @@ def _held_child_invocation(
 ) -> Iterator[Future[ProviderResult]]:
     with ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(
-            provider.assimilate, {"verified_candidates": []},
+            run_local_assimilation_protocol, provider, {"verified_candidates": []},
             runtime_dir=runtime_dir,
         )
         try:
@@ -413,7 +425,7 @@ def test_running_parent_with_valid_decision_file_really_times_out(
     provider.timeout_seconds = 2
     heartbeats: list[float] = []
     with pytest.raises(ProviderError, match="deadline exceeded") as raised:
-        provider.assimilate(
+        run_local_assimilation_protocol(provider,
             {"verified_candidates": []}, runtime_dir=tmp_path / "runtime",
             heartbeat=lambda: heartbeats.append(time.monotonic()),
         )
@@ -499,7 +511,10 @@ provider = cli.HostStructuredCliProvider(host_client="codex", executable=sys.exe
 def crash():
     if (Path(signals) / "parent-running").is_file():
         os._exit(17)  # No finally blocks; Windows must close the non-inherited Job.
-provider.assimilate({}, runtime_dir=Path(runtime), heartbeat=crash)
+from harness_mem.autonomous.models import AssimilationDecision
+provider._run_native_body({}, runtime_dir=Path(runtime), heartbeat=crash,
+    decision_model=AssimilationDecision, prompt=cli._build_assimilation_prompt({}),
+    temporary_prefix="assimilation-", error_label="assimilation")
 ''', encoding="utf-8")
     process = subprocess.Popen([
         sys.executable, "-I", str(worker), str(Path(__file__).resolve().parents[2]),

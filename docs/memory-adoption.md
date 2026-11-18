@@ -45,6 +45,12 @@ deliberately different responsibilities:
 
 ## Read-only inspection and manual scope (unreleased)
 
+Write-path convergence (2026-10-20, unreleased source implementation; final acceptance pending): automatic intake, current-Agent manual review and Dream now use shared final-content judgment and the existing canonical commit owner. Explicit history uses the existing 20-tool surface: inspect sessions and persisted batch progress, freeze a selection, pause, explicitly continue, or retry eligible failures. Fresh inventory exposes Agent-usable batch references without user-managed IDs. Manual work needs no background CLI permission. Source fixtures and static checks do not establish installed entries, natural host execution, semantic quality, or real-memory cleanup.
+
+Background task budgets cover this runtime's native executor invocations across source processing and Dream slices/retries under one maintenance task identity. Defaults are 64 invocations, 3,600 cumulative native seconds, 2,000,000 input tokens and 128,000 output tokens. Actual terminal usage is accumulated and checked before subsequent dispatch; the final invocation may cross a token threshold and contain multiple native responses. Unknown usage remains unknown and blocks later invocations. These limits are separate from returned-context `cost_budget.*`, total user wait and the current Agent conversation. Only an explicit `task_model_budget.host_max_output_tokens` requests strict native caps: unsupported or unproved caps refuse that mode before transport. Ordinary background operation does not require an unavailable cap. Installation, natural execution and semantic cleanup require their own direct evidence.
+
+The [convergence contract](memory-write-convergence-20261020.md#13-公开最终语义判断合同与调用例) lists the structured final judgment used by `finalize_session_distill` and `govern_memory` decide. Public batch creation/resume is restored in source; installed historical guides are not updated by a repository edit. `inspect_sessions` returns existing batch summaries and `batch_continuation` (none/unique/ambiguous), with directly usable inspection/resume/explicit-continue arguments. It never resumes on inspection.
+
 An explicit correction may pass the exact readable old entries as
 `prepare_session_distill(target_knowledge=[...], session_id=...)`. The runtime
 resolves their unique current owner, then captures the selected native source

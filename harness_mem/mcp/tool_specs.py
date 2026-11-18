@@ -24,6 +24,70 @@ from __future__ import annotations
 from typing import Any, Callable, TypedDict
 
 from harness_mem.core.schemas.evidence import EvidenceRef
+from harness_mem.core.schemas.assimilation import AgentKnowledgeReview
+from harness_mem.autonomous.models import CandidateVerificationDecision
+from harness_mem.core.schemas.source_report import ReportOmission, ReportOutputProposal, ReportTopicJudgment
+
+def _inline_model_schema(model_type: Any) -> dict[str, Any]:
+    """Inline a shared model's local refs for embedding in a public tool schema."""
+    model = model_type.model_json_schema()
+    definitions = model.get("$defs", {})
+
+    def inline(value: Any) -> Any:
+        if isinstance(value, list):
+            return [inline(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+        if "$ref" in value:
+            return inline(definitions[value["$ref"].rsplit("/", 1)[-1]])
+        return {key: inline(item) for key, item in value.items() if key != "$defs"}
+
+    return inline(model)
+
+
+def _final_scope_judgment_schema() -> dict[str, Any]:
+    """Advertise the ordinary final judgment, without private Dream edit fields."""
+    model = _inline_model_schema(CandidateVerificationDecision)
+    # Advertise the ordinary final-write judgment, not Dream's private literal
+    # editing/report proposal fields. Their optional model defaults still apply.
+    point = model["properties"]["points"]["items"]
+    fields = (
+        "candidate_index", "semantic_support", "future_scope", "source_use",
+        "reason", "scope_segments", "update_meaning_judgment",
+    )
+    public_point: dict[str, Any] = {
+        "type": "object", "additionalProperties": False,
+        "properties": {name: point["properties"][name] for name in fields},
+        "required": list(fields[:-1]),
+    }
+    segments = public_point["properties"]["scope_segments"]
+    segments["minItems"] = 1
+    segments["items"]["required"] = list(segments["items"]["properties"])
+    for branch in public_point["properties"]["update_meaning_judgment"]["anyOf"]:
+        if branch.get("type") == "object":
+            branch["required"] = [
+                name for name in branch["properties"] if name != "report_preservation"
+            ]
+    decision = {
+        "type": "object", "additionalProperties": False,
+        "properties": {"points": {"type": "array", "minItems": 1, "items": public_point}},
+        "required": ["points"],
+    }
+    return {
+        "type": "object",
+        "description": (
+            "Current Agent's final semantic judgment over actual output titles, bodies and "
+            "authority. Supply a CandidateVerificationDecision with points, or a map from "
+            "returned candidate_id to that decision. Never a proof string. Each output needs "
+            "supported, durable scope_segments covering its exact final title + newline + "
+            "statement (typed reports also bind rendered authority and native account identity); refine/replace also require update_meaning_judgment naming all exact "
+            "predecessor statements/target_version values, successor statements and retained "
+            "conditions/undecided state. Current-Agent manual work requires no background CLI "
+            "permission or task_model_budget. Runtime source reopening and CAS still apply."
+        ),
+        "anyOf": [decision, {"type": "object", "minProperties": 1, "additionalProperties": decision}],
+    }
+
 
 _CURRENT_CANDIDATE_STATUSES = (
     "pending",
@@ -86,7 +150,7 @@ _SESSION_REFERENCE_SCHEMA: dict[str, Any] = {
 
 _SCHEMAS: dict[str, _SchemaOnly] = {
     "inspect_sessions": {
-        "description": "Read-only device-session inventory, source pages, themes or frozen-batch progress. Missing/absent/multiple workspace roots are valid; directories are optional. Discovery refs are not immutable revisions: prepare fully reads and freezes selected sources. No imports, jobs, memory writes or background work.",
+        "description": "Read-only device-session inventory, source pages, themes or frozen-batch progress. Inventory includes existing batch summaries, actual progress, directly callable inspect/resume/explicit-continue arguments, and none/unique/ambiguous batch_continuation; inspection never clears a pause. Missing/absent/multiple workspace roots are valid; directories are optional. Discovery refs are not immutable revisions: prepare fully reads and freezes selected sources. No imports, jobs, memory writes or background work.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -95,6 +159,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 "project_name": {"type": "string", "description": "Optional context label; historical source roots never reserve this name. Selected sources are independently validated within their root."},
                 "action": {"type": "string", "enum": ["inventory", "source", "overview"], "default": "inventory"},
                 "clients": {"type": "array", "items": {"type": "string", "enum": ["claude-code", "codex", "cursor", "grok", "hermes", "opencode", "antigravity"]}},
+                "archived_only": {"type": "boolean", "default": False, "description": "Filter native inventory to proven archives. Codex archive files and Cursor SQLite archive flags are supported. Unknown state stays out."},
                 "session": _SESSION_REFERENCE_SCHEMA,
                 "offset": {"type": "integer", "minimum": 0, "default": 0},
                 "page_chars": {"type": "integer", "minimum": 1, "maximum": 200000, "default": 16000},
@@ -118,10 +183,22 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "Default scope=all, including global decisions. NEVER infer scope=project from task/workspace names; "
             "only an explicit USER request permits project-only filtering. If an inferred filter misses, "
             "follow retry_without_project_filter before assuming memory is absent. Respect explicit user restrictions. "
-            "Use one focused topic for related missing decisions; reuse every returned fact it answers. "
+            "Start with the complete original question. Use a focused query only for still-unanswered details. "
+            "reuse every returned fact it answers, respecting its project, author and scope. "
             "Repeat only for unanswered questions or new conflicts; keyword variants are not independent verification. "
-            "Check current applicability against sources. Returns titles and whole statements. "
-            "Follow continuation for more results; detail=full opens an indexed long fact. "
+            "Check current applicability against sources. Auto groups explicit question parts and prioritizes "
+            "whole statements for each part. Other long Chinese or focused queries may return previews. "
+            "Optional task_context adds local semantic discovery when configured. "
+            "With task_context, auto returns complete statements when cheaper than preview links, and previews otherwise; "
+            "neither form establishes applicability. Reuse any complete statement without fetching it again. "
+            "Open only a chosen preview with the same query/scope and project_name "
+            "for project scope, detail=full and the candidate's read_cursor. Reuse the exact task_context on every "
+            "continuation and full read; cursors bind context and retrieval model and contain no task text. "
+            "Other short searches return whole statements when they fit; use detail=candidates to review first. "
+            "For multipart questions, check the requested details in each question_parts item in order. "
+            "question_part_matches contains one-based positions in memories and only suggests relevance. "
+            "Use the full statements, then follow continuation or search focused missing details only as needed. "
+            "Honor reuse_arguments in continuation and retain the exact original query and scope for cursors. "
             "Empty query browses natural modules. Exact conversation evidence: search_raw."
         ),
         "input_schema": {
@@ -132,14 +209,19 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "description": "Optional context, not a filter with all. Required for explicit project-only scope; global decisions may otherwise be missed.",
                 },
                 "query": {"type": "string", "description": "The specific topic or missing decision to recover; avoid concatenating unrelated task keywords."},
+                "task_context": {
+                    "type": "string",
+                    "description": "Optional complete task background, conditions and exclusions, separate from the query. Enables local semantic discovery if configured; otherwise reports lexical-only discovery. Reuse the exact text with bound cursors. Context is not user approval or evidence.",
+                },
                 "budget_tokens": {
                     "type": "integer", "minimum": 1,
-                    "description": "Complete-page size: cl100k_base or conservative UTF-8 bytes. Default: cost_budget.search_tokens.",
+                    "description": "Complete-page size: cl100k_base or conservative UTF-8 bytes. A configured cost_budget.search_tokens applies. With no configured search budget, default is 1200 or 3600 for multipart auto.",
                 },
-                "cursor": {"type": "string", "description": "Position from the returned continuation call."},
+                "cursor": {"type": "string", "description": "Position from a continuation, or a candidate read_cursor with detail=full."},
+                "read_cursor": {"type": "string", "description": "Candidate preview's read_cursor. Use detail=full. May be passed in place of cursor."},
                 "detail": {
-                    "type": "string", "enum": ["auto", "full"], "default": "auto",
-                    "description": "auto: whole facts fitting the page; full: one complete fact, even beyond the page size.",
+                    "type": "string", "enum": ["auto", "candidates", "full"], "default": "auto",
+                    "description": "auto: whole short-search or explicitly multipart facts, with previews on other discovery reads; candidates: previews only; full: one complete fact, even beyond the page size. Only statement is complete content; read_cursor opens a preview.",
                 },
                 "scope": {
                     "type": "string",
@@ -154,7 +236,8 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     "autopilot_search_tick": {
         "description": (
             "Host-neutral task-aware search scheduler for Agent events. Concrete memory-backed uncertainty "
-            "runs bounded search_memory and returns context_injection; otherwise returns a skip reason. "
+            "returns bounded incomplete candidate previews for current-Agent relevance review; "
+            "open selected items through search_memory before use. Otherwise returns a skip reason. "
             "Not a session-start wake replacement."
         ),
         "input_schema": {
@@ -213,7 +296,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 },
                 "budget_tokens": {
                     "type": "integer",
-                    "description": "Size of the complete tick response, including feedback fields. Additional knowledge remains accessible through continuation.",
+                    "description": "Size of the complete tick response, including feedback fields. Search focused topics to find further candidates.",
                     "minimum": 1,
                     "default": 1600,
                 },
@@ -379,7 +462,8 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     },
     "wake": {
         "description": (
-            "Return relevant current memory across all projects and whether current-context maintenance is waiting. "
+            "Return incomplete lexical memory candidates across all projects and whether current-context maintenance is waiting. "
+            "Check relevance and source scope; open a selected candidate through search_memory with its read_cursor. "
             "Without a task, return availability and a reading call rather than the whole library. "
             "Larger task results include a search_memory continuation call."
         ),
@@ -407,10 +491,16 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     },
     "prepare_session_distill": {
         "description": (
-            "Prepare source-verified review of an existing memory or processing job. Requires target_knowledge from search or an existing distill_job_id. "
-            "Daily recording and session processing are automatic; this is not a manual remember or batch entry. "
+            "Organize completed conversations, review source-verified knowledge, or resume an existing processing job. "
+            "For an existing frozen batch, cleanup_processed previews physical cleanup of verified completed sources; apply_cleanup explicitly executes it. Each selected session reports its reviewed revision, retained-output check, and native target or record-set accounting when available. Cleanup never selects new sessions or enables Hooks/background work. "
+            "Daily recording is automatic and is not a remember-this-session shortcut; do not ask users to select sessions for ordinary memory. "
+            "Explicit history freezes agent-resolved batch_sessions, then uses batch_id to resume that same selection, pause, continue, or retry. "
+            "Pause performs no further progress or write. Continue resumes a user pause only; an integrity stop keeps its retained reason and cannot be toggled active. "
+            "Corrections still pass target_knowledge from search or an existing distill_job_id. "
             "Default semantic mode checks complete sources; submit reviewed memory_points in finalize without preparing again. "
-            "include_current returns source-derived relevant current facts with the full source, without changing job ownership; mutually exclusive with current_query. "
+            "Before drafting points from Codex, follow native_evidence.review_questions to find validation, failure and applicability passages, then verify against native_evidence.read. Both are exact-source reads and do not advance processing or expand user/assistant evidence. "
+            "Each manual review, including batch resume, includes bounded current facts with module paths and a module catalog for classification. Comparison context does not change job ownership. "
+            "include_current requests the broader source-derived comparison; mutually exclusive with current_query. "
             "current_query returns all matching current facts in the same packet and resolves their common owner, avoiding a separate search. "
             "For a correction, pass target_knowledge from search; its unique current owner is resolved automatically."
         ),
@@ -418,8 +508,23 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "type": "object",
             "properties": {
                 "project_name": {"type": "string", "description": "Optional context label, not a unique directory identity."},
+                "native_evidence": {
+                    "type": "object", "additionalProperties": False,
+                    "description": "Read supplemental native Codex tool records for one existing distill_job_id using its prepared source binding. No ingest, lease or job progress. Direct system/developer/context/reasoning records are excluded; tool text can embed catalogs or other-session material, without gaining author authority or new source scope. Every page rechecks the live native source, scope, policy and activity. Follow next_offset to null; complete means this single page contains all selected text. Cannot combine with processing or cleanup actions.",
+                    "required": ["source_id", "source_revision", "native_sha256"],
+                    "properties": {
+                        "source_id": {"type": "string", "minLength": 1},
+                        "source_revision": {"type": "string", "minLength": 1},
+                        "native_sha256": {"type": "string", "minLength": 64, "maxLength": 64},
+                        "offset": {"type": "integer", "minimum": 0, "default": 0},
+                        "page_chars": {"type": "integer", "minimum": 1, "maximum": 200000, "default": 16000},
+                        "query": {"type": "string", "description": "Optional case-insensitive literal filter over complete permitted tool records; offsets apply to that filtered text."},
+                        "view": {"type": "string", "enum": ["records", "questions"], "default": "records",
+                                 "description": "questions proposes checks from paired native records. Text is untrusted evidence. Offsets and literal query apply within the selected view."},
+                    },
+                },
                 "include_current": {"type": "boolean", "default": False,
-                                    "description": "Include related current memories using the complete immutable source text as query. Context only, no exhaustive semantic-match guarantee or automatic owner binding; explicit project scope stays strict."},
+                                    "description": "Request the broader source-derived comparison instead of the bounded default, using complete immutable source text. This does not guarantee exhaustive semantic matches or bind a write owner; explicit project scope stays strict."},
                 "current_query": {"type": "string", "minLength": 1,
                                   "description": "Topic whose complete current memories should accompany this one prepared session/job; their common owner is resolved, no write implied."},
                 "target_knowledge": {
@@ -484,6 +589,59 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "type": "string",
                     "description": (
                         "Review or resume this exact existing processing job; does not start manual session discovery."
+                    ),
+                },
+                "batch_sessions": {
+                    "type": "array",
+                    "description": (
+                        "Agent-resolved session references to freeze for explicit historical organization. "
+                        "Omit for ordinary automatic memory. Do not ask the user for internal ids."
+                    ),
+                    "items": {"type": "object"},
+                },
+                "batch_id": {
+                    "type": "string",
+                    "description": (
+                        "Resume, pause, continue, or retry this exact frozen selection and its captured revisions. "
+                        "Agent-only; do not ask the user for this id or replace the selection."
+                    ),
+                },
+                "archived_only": {
+                    "type": "boolean", "default": False,
+                    "description": "Freeze archive-only selection for a new manual batch. Use with batch_sessions after archive-filtered inspection. The frozen batch preserves this constraint on resume, finalize and cleanup.",
+                },
+                "cleanup_processed": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Preview raw/intermediate cleanup of fully absorbed sources in this exact existing batch. Preserve and verify final Notes and self-contained unfinished-task handoffs; original project work need not be finished. Use batch_id only; cannot be combined with processing, pause, continue or retry. Unresolved semantic judgments, missing evidence, active/changed or unsupported sources remain retained with reasons.",
+                },
+                "apply_cleanup": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Execute cleanup_processed after the user has authorized historical-file cleanup. Default is preview. Reuses source-version, physical-deletion, knowledge-readback and completion checks; never deletes a shared container for one session.",
+                },
+                "retry_failures": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "Explicitly retry retained failures of an active batch. Does not clear a user pause or an integrity stop, "
+                        "and does not replace the frozen selection."
+                    ),
+                },
+                "pause": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "User pause of an existing batch. No further source progress or memory write. "
+                        "Distinct from an integrity stop; failures and the frozen selection stay."
+                    ),
+                },
+                "continue_batch": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "Continue a user-paused batch on the original frozen selection and captured revisions. "
+                        "Cannot bypass an integrity stop or clear retained failures."
                     ),
                 },
                 "session_id": {
@@ -582,7 +740,10 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "Finalize a fully read session and consistent semantic review, using only this job's candidates. "
             "Optionally submit all memory_points here; runtime stages them via the existing candidate owner before the same source/evidence/lease/transaction gates. "
             "readback_verified=true proves saved changes passed fresh SQLite + ordinary-search checks; "
-            "reuse returned knowledge_changes instead of another readback call. Unfinished work remains partial."
+            "reuse returned knowledge_changes instead of another readback call. Unfinished work remains partial. "
+            "For ordinary manual writes, use memory_points[i].review.evidence to bind each claim and retained condition to exact original text. "
+            "The runtime checks the cited versions, may flag missing conditions in the conversation and paired Codex tool records, and checks retained phrases in the saved body. Existing staged callers can use final_scope_judgment; "
+            "a proof string, missing judgment or omitted markers never authorizes a new write."
         ),
         "input_schema": {
             "type": "object",
@@ -591,6 +752,12 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 "job_id": {
                     "type": "string",
                     "description": "Review-ready distill job id",
+                },
+                "final_scope_judgment": _final_scope_judgment_schema(),
+                "condition_exclusions": {
+                    "type": "object",
+                    "description": "Only for returned source_conditions_need_review findings. Key by condition check id; explain why the clause is out of scope, obsolete, unsupported, or session-only.",
+                    "additionalProperties": {"type": "string", "minLength": 1},
                 },
                 "memory_points": {
                     "type": "array",
@@ -607,16 +774,20 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                             "verification_refs": {"type": "array", "items": EvidenceRef.model_json_schema()},
                             "assimilation_disposition": {"type": "string", "enum": ["add", "confirm", "refine", "replace", "no_write", "handoff", "defer", "conflict", "reject"]},
                             "assimilation_reason": {"type": "string"},
+                            "review": {**_inline_model_schema(AgentKnowledgeReview),
+                                "description": "Current Agent's content judgment. Conditions and undecided_state are literal retained phrases. Use evidence to cite exact quotes by one-based verification_refs position. Bind claim, each condition and undecided state. Conversation quotes require the message_index within the cited role; file quotes omit it. Condition bindings also name the exact retained phrase. For observed operations, operations binds the checked native call/result pair and its observation level. For refine/replace, preserves_meaning=true affirms all still-applicable meaning; report updates also require same_topic=true."},
                             "target_knowledge": {"type": "array", "items": {"type": "object"}},
                             "retained_state_item": {"type": "string", "description": "Only if this explicitly classified user current-state point was also mistakenly listed in unfinished_work: must exactly equal both point content and that work item. Excluded only after verified successful promotion; real handoffs stay."},
                         },
-                        "required": ["content", "canonical_title", "topic_path", "evidence_basis", "verification_outcome", "verification_refs", "assimilation_disposition", "assimilation_reason"],
+                        "required": ["content", "canonical_title", "topic_path", "evidence_basis", "verification_outcome", "verification_refs", "assimilation_disposition"],
+                        "anyOf": [{"required": ["review"]}, {"required": ["assimilation_reason"]}],
                     },
                 },
                 "semantic_review": {
                     "type": "object",
                     "description": "Final outcome, contradictions, unfinished work, and evidence assessment",
                     "properties": {
+                        "final_scope_judgment": _final_scope_judgment_schema(),
                         "session_summary": {
                             "type": "string",
                             "minLength": 12,
@@ -852,6 +1023,21 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                         # validation constraints. additionalProperties remains
                         # true for the composite surface's other action fields.
                         "kind": {"description": "Existing action kind: memory, rule, relation or knowledge."},
+                        "final_scope_judgment": _final_scope_judgment_schema(),
+                        "report_topic_judgment": {
+                            **_inline_model_schema(ReportTopicJudgment),
+                            "description": "For decide of an attributed report: judge the actual predecessor/successor topic relationship. Same source account alone never proves same topic; preserve speaker, period and native source identity.",
+                        },
+                        "report_split": {
+                            "type": "object", "additionalProperties": False,
+                            "description": "For decide of a source_report refine/replace: atomically replace one supported account with every independently verified topic output, retaining substantive qualifiers and attribution. Requires matching knowledge_items and final_scope_judgment over every actual output. Not a v7 literal-edit proof.",
+                            "properties": {
+                                "original_support": {"type": "string", "enum": ["supported"]},
+                                "outputs": {"type": "array", "minItems": 1, "items": _inline_model_schema(ReportOutputProposal)},
+                                "omissions": {"type": "array", "items": _inline_model_schema(ReportOmission)},
+                            },
+                            "required": ["original_support", "outputs", "omissions"],
+                        },
                         "project_name": {"description": "Context label returned by the selected job/target."},
                         "category": {"description": "Required for memory suggestions."},
                         "content": {"description": "The narrow candidate statement, required for memory suggestions."},

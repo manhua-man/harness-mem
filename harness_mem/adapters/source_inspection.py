@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import os
-from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -44,6 +43,27 @@ class InspectedSource:
     project_roots: list[str] | None = None
     capture_config: MergedConfig | None = None
     native_input_digest: str | None = None
+    codex_session_origin: dict[str, str] | None = None
+    archive_state: str | None = None
+    cursor_cleanup_primary_sha256: str | None = None
+    cursor_cleanup_search_sha256: str | None = None
+    hermes_cleanup_sha256: str | None = None
+    antigravity_cleanup_sha256: str | None = None
+    observed_rendering: str | None = None
+
+    @property
+    def native_cleanup_file_kind(self) -> str | None:
+        """Retain the adapter-proven type needed by the native cleanup planner."""
+        kind = self.record.get("source_kind")
+        if self.client == "hermes" and kind == "sqlite-session-export":
+            return kind
+        if self.source_uri != source_uri_from_path(Path(self.record["path"])):
+            return None  # A logical session exported from a shared container.
+        if self.client == "hermes" and kind == "json":
+            return kind
+        if self.client == "antigravity" and kind in {"brain-jsonl", "antigravity-cli-transcript", "antigravity-sqlite"}:
+            return kind
+        return None
 
 
 def normalized_root(value: str | Path) -> str:
@@ -152,7 +172,7 @@ def classify_records(records: list[dict[str, Any]], client: str) -> str:
             interaction |= bool(record["messages"])
         elif record.get("format") in {
             "harness-mem-hermes-state-db-v1", "harness-mem-opencode-session-v1",
-            "harness-mem-antigravity-history-v1",
+            "harness-mem-antigravity-history-v1", "harness-mem-antigravity-sqlite-v1",
         }:
             recognized = True
         elif record.get("table") in {"session", "sessions"} and isinstance(record.get("row"), dict):
@@ -236,7 +256,7 @@ def read_native_source(adapter: Any, client: str, record: SessionRecord, *, proj
         records, error = _records(native_text, client)
         roots = structured_roots(records, client)
         readability = error or classify_records(records, client)
-        _, turns = parse_codex_archive_jsonl_session(path, content=native_text)
+        metadata, turns = parse_codex_archive_jsonl_session(path, content=native_text)
         text = render_codex_conversation(turns)
         # Match the existing permitted conversation capture, not host-private
         # system/context records or hidden reasoning from the rollout file.
@@ -244,20 +264,20 @@ def read_native_source(adapter: Any, client: str, record: SessionRecord, *, proj
         return {"raw_bytes": text.encode("utf-8"), "source_text": text,
                 "source_uri": uri, "project_roots": roots,
                 "native_input_digest": sha256_bytes(raw),
+                "codex_session_origin": metadata["codex_session_origin"],
                 "authored_user_texts": [turn["user"] for turn in turns if turn["user"].strip()],
                 "readability": readability,
                 "inspection_error": error or ("unknown_format" if readability == "unknown_format" else None)}
     if client == "hermes" and adapter._is_state_db(path):
+        if callable(getattr(adapter, "read_session_source", None)):
+            return adapter.read_session_source(path, session_id)
         from harness_mem.adapters.hermes.adapter import _export_state_db_session
         exported = _export_state_db_session(path, session_id)
         from harness_mem.adapters.hermes.adapter import hermes_workspace_roots
         return {**exported, "source_uri": f"{uri}#session={quote(session_id, safe='')}",
                 "project_roots": hermes_workspace_roots(exported["session"])}
     if client == "opencode":
-        from harness_mem.adapters.opencode.adapter import _connect_readonly, _export_session
-        with closing(_connect_readonly(path)) as db:
-            opencode_export = _export_session(db, session_id)
-        return {"raw_bytes": opencode_export.raw_bytes, "source_text": opencode_export.source_text, "source_uri": f"{uri}#session={quote(session_id, safe='')}", "project_roots": [str(opencode_export.session.get("directory") or "")]}
+        return adapter.read_session_source(path, session_id)
     if client == "antigravity" and adapter._is_history_file(path):
         from harness_mem.adapters.antigravity.adapter import _history_export_for_session
         exported = _history_export_for_session(path, session_id, cli_root=adapter.cli_root)
@@ -277,6 +297,9 @@ def inspect_native_source(
         return InspectedSource(client, session_id, uri, "", "", "unknown", "excluded", admitted.reason, record, adapter)
     exported = read_native_source(adapter, client, record, project_root=project_root)
     uri = exported.get("source_uri", uri)
+    admitted = decide_capture(config, client=client, session_id=session_id, source_uri=uri)
+    if not admitted.admitted:
+        return InspectedSource(client, session_id, uri, "", "", "unknown", "excluded", admitted.reason, record, adapter)
     text = exported["source_text"]
     records: list[dict[str, Any]]
     error: str | None
@@ -304,6 +327,15 @@ def inspect_native_source(
                 roots.extend(structured_metadata_roots(record_value, workspace_root=decoded))
     ownership = "source" if project_root is None else ownership_for(roots, project_root)
     status = exported.get("readability") or error or classify_records(records, client)
+    # The native trajectory uses proprietary BLOBs. Persist the typed semantic
+    # records and native digest, never an opaque copy that bypasses redaction.
+    antigravity_sqlite = client == "antigravity" and record.get("source_kind") == "antigravity-sqlite"
+    projected = exported.get("capture_bytes")
+    if projected is None and antigravity_sqlite:
+        projected = text.encode("utf-8")
+    capture_input = projected if projected is not None else exported["raw_bytes"]
+    if projected is not None:
+        text = projected.decode("utf-8")
     if config.capture_private_tags:
         text, _ = redact_private_text(text)
         if client == "codex":
@@ -311,9 +343,11 @@ def inspect_native_source(
             # Literal mentions of encoded fields are not actual containers.
             captured_bytes = text.encode("utf-8")
         else:
-            captured_bytes, _ = redact_private_bytes(exported["raw_bytes"])
+            captured_bytes, _ = redact_private_bytes(capture_input)
+            if projected is not None:
+                text = captured_bytes.decode("utf-8")
     else:
-        captured_bytes = exported["raw_bytes"]
+        captured_bytes = capture_input
     # Filtered host context and assistant-only turns have no permitted dialogue.
     # Preserve unknown-format errors; only skip a fully parsed empty capture.
     if client == "codex" and status == "readable" and not text.strip():
@@ -323,9 +357,16 @@ def inspect_native_source(
         client, session_id, uri, sha256_bytes(captured_bytes), text, ownership,
         status, error, record, adapter,
         captured_bytes=captured_bytes if readable else None,
-        native_input_bytes=exported["raw_bytes"] if readable and client != "codex" else None,
+        native_input_bytes=exported["raw_bytes"] if readable and client != "codex" and projected is None else None,
         authored_user_texts=exported.get("authored_user_texts") if readable else None,
         project_roots=roots,
         capture_config=config,
         native_input_digest=exported.get("native_input_digest") if readable else None,
+        codex_session_origin=exported.get("codex_session_origin") if client == "codex" else None,
+        archive_state=exported.get("archive_state") if client == "cursor" else None,
+        cursor_cleanup_primary_sha256=exported.get("cursor_cleanup_primary_sha256") if client == "cursor" else None,
+        cursor_cleanup_search_sha256=exported.get("cursor_cleanup_search_sha256") if client == "cursor" else None,
+        hermes_cleanup_sha256=exported.get("hermes_cleanup_sha256") if client == "hermes" else None,
+        antigravity_cleanup_sha256=exported.get("antigravity_cleanup_sha256") if antigravity_sqlite else None,
+        observed_rendering=exported.get("observed_rendering") if antigravity_sqlite else None,
     )

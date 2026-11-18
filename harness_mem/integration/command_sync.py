@@ -127,7 +127,7 @@ def render_primary_command(source: Path, client: CommandHost) -> str:
     return (
         "---\n"
         "name: hm\n"
-        "description: Inspect automatic memory and review, correct, or delete stored knowledge.\n"
+        "description: Run hm commands for finished-history organization, cleanup, search and review.\n"
         "metadata:\n"
         f"  wireFormatVersion: {WIRE_FORMAT_VERSION}\n"
         "---\n\n"

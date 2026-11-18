@@ -17,13 +17,22 @@ The public daily surface is exactly one entry:
 | Codex | `$hm` |
 | Claude Code, Cursor, Grok, Hermes, OpenCode, Antigravity | `/hm` |
 
-Use ordinary language after invoking it:
+Use fixed actions after the native entry. Codex examples (other hosts use `/hm`):
 
 ```text
-记住这次
-找一下以前怎么做的
-这条记忆不对
+$hm help
+$hm distill --project oiioii-studio --cleanup
+$hm search "Oii 上游模型与本地替代"
+$hm clean --project oiioii-studio --apply
+$hm review
 ```
+
+Bare `hm` displays help only. `distill` requires `--project <name>` or `--all`;
+`--cleanup` also authorizes cleanup after complete review and readback.
+Standalone `clean` previews; `--apply` executes. `search` defaults to all projects,
+with `--project-only` as the explicit filter. These actions are interpreted by
+the Agent using existing MCP tools. They are not terminal CLI subcommands or
+additional host entries, and missing tools never trigger implicit installation.
 
 ## Development install
 

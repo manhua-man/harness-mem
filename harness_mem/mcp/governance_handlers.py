@@ -8,7 +8,7 @@ audit events, and stable distill candidate IDs retain one owner.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime, timezone
 from typing import Any, cast
 from uuid import uuid4
@@ -41,7 +41,7 @@ def _evidence_fields(
     distill_job_id: str | None,
     evidence_basis: str | None,
     verification_outcome: str | None,
-    verification_refs: list[dict[str, Any]] | None,
+    verification_refs: Sequence[dict[str, Any] | EvidenceRef] | None,
     verification_reason_codes: list[str] | None,
 ) -> dict[str, Any]:
     """Normalize a v0.9.5 evidence envelope without accepting verified time."""
@@ -53,12 +53,18 @@ def _evidence_fields(
         basis = basis or "transcript"
         outcome = "unverified"
         reasons.append("evidence_envelope_missing")
+    refs = []
+    for item in verification_refs or []:
+        if isinstance(item, EvidenceRef):
+            refs.append(item)
+            continue
+        if "bindings" in item:
+            raise ValueError("source bindings are derived by manual finalization")
+        refs.append(EvidenceRef.from_dict(item))
     return {
         "evidence_basis": basis,
         "verification_outcome": outcome,
-        "verification_refs": [
-            EvidenceRef.from_dict(item) for item in verification_refs or []
-        ],
+        "verification_refs": refs,
         "verification_reason_codes": list(dict.fromkeys(reasons)),
     }
 
@@ -452,6 +458,218 @@ def tool_create_task_handoff(
     }
 
 
+_FINAL_SCOPE_UNSET = object()
+_GOVERN_WRITING = frozenset({"add", "refine", "replace", "confirm"})
+
+
+def _govern_refusal(code: str, message: str) -> dict[str, Any]:
+    return {
+        "governance_action": "decide",
+        "success": False,
+        "error": message,
+        "reason_codes": [code],
+    }
+
+
+def _govern_write_block(
+    *,
+    project_name: str,
+    candidate_id: str,
+    disposition: str,
+    knowledge_items: list[Any],
+    target_knowledge_ids: list[Any],
+    target_knowledge: list[Any],
+    final_scope_judgment: Any,
+    report_topic_judgment: Any = None,
+    report_split: Any = None,
+) -> dict[str, Any] | None:
+    """Prove a new public write before resolve_separated_review.
+
+    Unverified or structurally incomplete calls return None so the existing
+    resolve errors stay intact. A verified writing disposition with no proved
+    judgment does not write. A proof string is not that judgment.
+    """
+
+    if disposition not in _GOVERN_WRITING:
+        return None
+    if disposition in {"add", "refine", "replace"} and not knowledge_items:
+        return None
+    if disposition == "confirm" and not (target_knowledge_ids or target_knowledge):
+        return None
+    if disposition in {"refine", "replace"} and not (target_knowledge_ids or target_knowledge):
+        return None
+    return asyncio.run(
+        _govern_write_block_async(
+            project_name=project_name,
+            candidate_id=candidate_id,
+            disposition=disposition,
+            knowledge_items=knowledge_items,
+            target_knowledge_ids=target_knowledge_ids,
+            target_knowledge=target_knowledge,
+            final_scope_judgment=final_scope_judgment,
+            report_topic_judgment=report_topic_judgment,
+            report_split=report_split,
+        )
+    )
+
+
+async def _govern_write_block_async(
+    *,
+    project_name: str,
+    candidate_id: str,
+    disposition: str,
+    knowledge_items: list[Any],
+    target_knowledge_ids: list[Any],
+    target_knowledge: list[Any],
+    final_scope_judgment: Any,
+    report_topic_judgment: Any = None,
+    report_split: Any = None,
+) -> dict[str, Any] | None:
+    from pydantic import ValidationError
+
+    from harness_mem.autonomous.models import CandidateVerificationDecision
+    from harness_mem.commands.evidence_admission import reopen_knowledge_sources
+    from harness_mem.commands.knowledge_assimilation import resolve_knowledge_targets
+    from harness_mem.commands.separated_assimilation import (
+        prove_supplied_final_scope,
+        target_version,
+    )
+
+    backend = _get_backend()
+    store = backend.structured_store.knowledge_store
+    candidate = await store.get_candidate(candidate_id)
+    if candidate is None or candidate.project_name != project_name:
+        return None
+    if candidate.status not in {"pending", "deferred", "conflict"}:
+        return None
+    evidence_items = await store.list_evidence(candidate.id)
+    if len(evidence_items) != 1 or evidence_items[0].verification_outcome != "verified":
+        return None
+    if isinstance(final_scope_judgment, str) or (
+        isinstance(final_scope_judgment, dict)
+        and set(final_scope_judgment) == {"proof"}
+        and isinstance(final_scope_judgment.get("proof"), str)
+    ):
+        return _govern_refusal(
+            "final_scope_proof_string_rejected",
+            "a proof string is not a final semantic judgment; current knowledge was not written",
+        )
+    if final_scope_judgment is _FINAL_SCOPE_UNSET or final_scope_judgment is None:
+        return _govern_refusal(
+            "final_scope_judgment_required",
+            "final scope judgment is missing; current knowledge was not written",
+        )
+    raw = final_scope_judgment
+    if isinstance(raw, dict) and "points" not in raw:
+        raw = raw.get(candidate_id, _FINAL_SCOPE_UNSET)
+        if isinstance(raw, str):
+            return _govern_refusal(
+                "final_scope_proof_string_rejected",
+                "a proof string is not a final semantic judgment; current knowledge was not written",
+            )
+        if raw is _FINAL_SCOPE_UNSET or raw is None:
+            return _govern_refusal(
+                "final_scope_judgment_required",
+                "final scope judgment is missing; current knowledge was not written",
+            )
+    try:
+        decision = (
+            raw if isinstance(raw, CandidateVerificationDecision)
+            else CandidateVerificationDecision.model_validate(raw)
+        )
+    except (TypeError, ValueError, ValidationError) as exc:
+        return _govern_refusal(
+            "final_scope_judgment_rejected",
+            f"final knowledge scope judgment rejected the output: {exc}",
+        )
+    try:
+        target_ids = await resolve_knowledge_targets(
+            store,
+            project_name=project_name,
+            target_ids=target_knowledge_ids,
+            target_knowledge=target_knowledge,
+        )
+    except (TypeError, ValueError):
+        return None
+    job = None
+    distill_job_id = getattr(candidate, "distill_job_id", None) or getattr(
+        evidence_items[0], "distill_job_id", None,
+    )
+    if distill_job_id:
+        job = backend.transcript_store.get_distill_job(distill_job_id)
+    project_root = job.project_root if job is not None else None
+    if disposition in {"refine", "replace", "confirm"}:
+        for target_id in target_ids:
+            sources = await store.list_sources(target_id)
+            validation, reopened = await reopen_knowledge_sources(
+                backend,
+                project_name=project_name,
+                sources=sources,
+                project_root=project_root,
+            )
+            complete = (
+                validation.verification_outcome == "verified"
+                and bool(sources)
+                and len(reopened) == len(sources)
+                and all(item.content and not item.truncated for item in reopened)
+            )
+            if not complete:
+                return _govern_refusal(
+                    "native_source_reopen_incomplete",
+                    "native source reopen is incomplete; current knowledge was not written",
+                )
+    targets: list[dict[str, Any]] = []
+    if disposition != "add":
+        for target_id in target_ids:
+            entry = await store.get_entry(str(target_id), project_name=project_name)
+            if entry is None:
+                return None
+            snapshot = {
+                "id": entry.id,
+                "title": entry.title,
+                "statement": entry.statement,
+                "topic_path": list(entry.module_path or []),
+                "source_report": (
+                    entry.source_report.model_dump(mode="json")
+                    if entry.source_report is not None else None
+                ),
+            }
+            snapshot["version"] = target_version(snapshot)
+            targets.append(snapshot)
+    from harness_mem.commands.knowledge_assimilation import _candidate_knowledge_items
+
+    bound_items = (_candidate_knowledge_items(candidate, {
+        "knowledge_items": list(knowledge_items), "disposition": disposition,
+        "report_topic_judgment": report_topic_judgment, "report_split": report_split,
+    }) if disposition in {"add", "refine", "replace"} else [])
+    payload = {
+        "candidate_id": candidate_id,
+        "disposition": disposition,
+        "knowledge_items": bound_items,
+        "targets": targets,
+    }
+    if report_topic_judgment is not None:
+        payload["report_topic_judgment"] = report_topic_judgment
+    try:
+        proof = prove_supplied_final_scope(payload=payload, judgment=decision)
+    except (TypeError, ValueError, ValidationError) as exc:
+        return _govern_refusal(
+            "final_scope_judgment_rejected",
+            str(exc),
+        )
+    evidence = evidence_items[0]
+    codes = list(evidence.verification_reason_codes)
+    codes.append("autonomous_final_scope_required")
+    codes.append(proof)
+    for point in decision.points:
+        codes.append(f"source_use_{point.source_use}")
+        codes.append(f"future_scope_{point.future_scope}")
+    codes.extend(["source_scope_durable", "future_scope_durable"])
+    evidence.verification_reason_codes = list(dict.fromkeys(str(code) for code in codes))
+    await store.save_evidence(evidence)
+    return None
+
+
 def tool_govern_memory(action: str, arguments: dict[str, Any]) -> dict:
     """Composite candidate/truth write boundary exposed through MCP."""
 
@@ -523,6 +741,9 @@ def tool_govern_memory(action: str, arguments: dict[str, Any]) -> dict:
                 knowledge_items = list(args.pop("knowledge_items", []) or [])
                 target_knowledge_ids = list(args.pop("target_knowledge_ids", []) or [])
                 target_knowledge = list(args.pop("target_knowledge", []) or [])
+                final_scope_judgment = args.pop("final_scope_judgment", _FINAL_SCOPE_UNSET)
+                report_topic_judgment = args.pop("report_topic_judgment", None)
+                report_split = args.pop("report_split", None)
                 if (
                     args
                     or decision not in {"confirm", "reject"}
@@ -551,6 +772,19 @@ def tool_govern_memory(action: str, arguments: dict[str, Any]) -> dict:
                     resolve_separated_review,
                 )
 
+                blocked = _govern_write_block(
+                    project_name=project_name,
+                    candidate_id=candidate_id,
+                    disposition=disposition,
+                    knowledge_items=knowledge_items,
+                    target_knowledge_ids=target_knowledge_ids,
+                    target_knowledge=target_knowledge,
+                    final_scope_judgment=final_scope_judgment,
+                    report_topic_judgment=report_topic_judgment,
+                    report_split=report_split,
+                )
+                if blocked is not None:
+                    return blocked
                 result = asyncio.run(
                     resolve_separated_review(
                         _get_backend(),
@@ -561,6 +795,10 @@ def tool_govern_memory(action: str, arguments: dict[str, Any]) -> dict:
                         target_knowledge_ids=target_knowledge_ids,
                         target_knowledge=target_knowledge,
                         expected_project_name=project_name,
+                        final_scope_judgment=(final_scope_judgment
+                            if disposition in {"add", "refine", "replace", "confirm"} else None),
+                        report_topic_judgment=report_topic_judgment,
+                        report_split=report_split,
                     )
                 )
                 state_event_id = _record_state_event(

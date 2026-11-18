@@ -378,6 +378,15 @@ def _doctor_one_line(text: str) -> str:
     return lines[-1] if lines else ""
 
 
+def _doctor_background_status_block(config: Any) -> None:
+    """Expose scheduling limits separately from storage and Hook readiness."""
+    from harness_mem.autonomous.authorization import background_reason_message, background_status
+
+    status = background_status(config)
+    print(f"Background scheduling: {status.reason}")
+    print(background_reason_message(status.reason))
+
+
 def _doctor_dream_status_block(dream_report: dict[str, Any]) -> None:
     """Render read-only v3.1 dream status without creating a review queue."""
     state = "enabled" if dream_report.get("enabled") else "off"

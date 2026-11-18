@@ -134,8 +134,11 @@ def run_bounded_reading_outcome_probe() -> dict[str, Any]:
         environment.update({
             "HARNESS_MEM_DATA_DIR": str(root / "data"),
             "HARNESS_MEM_DISABLE_EMBEDDINGS": "1",
-            "HOME": str(root), "USERPROFILE": str(root),
-            "PYTHONPATH": str(Path(__file__).resolve().parents[2]),
+            "USERPROFILE": str(root),
+            # Keep dependency paths supplied by an isolated test environment.
+            "PYTHONPATH": os.pathsep.join(filter(None, [
+                str(Path(__file__).resolve().parents[2]), os.environ.get("PYTHONPATH", ""),
+            ])),
         })
         process = subprocess.run(
             [sys.executable, "-m", "harness_mem.mcp.server"],
@@ -145,12 +148,36 @@ def run_bounded_reading_outcome_probe() -> dict[str, Any]:
         )
         responses = [json.loads(line) for line in process.stdout.splitlines() if line.strip()]
         payloads = [_payload(response) for response in responses]
+        if process.returncode or len(payloads) != len(requests):
+            raise RuntimeError(
+                f"isolated MCP process returned {process.returncode} and {len(payloads)}/{len(requests)} "
+                f"responses: {process.stderr.decode('utf-8', errors='replace')[-2000:]}"
+            )
         browse = payloads[:browse_count]
         actual = [row["statement"] for page, _text in browse for row in page["memories"] if "statement" in row]
         normal_sizes = [reading_tokens(text) for page, text in browse if page.get("detail") != "full"]
         quickstart, blank, wake, automatic = [payload for payload, _text in payloads[browse_count:]]
         injection = automatic.get("context_injection") or {}
         automatic_readable = any(row.get("statement") for row in injection.get("memories", []))
+        candidate = next((row for row in injection.get("memories", []) if row.get("read_cursor")), None)
+        if not automatic_readable and candidate:
+            selected = subprocess.run(
+                [sys.executable, "-m", "harness_mem.mcp.server"],
+                input=(json.dumps(_request("search_memory", {
+                    "query": injection["query"], "scope": "all", "detail": "full",
+                    "cursor": candidate["read_cursor"],
+                })) + "\n").encode(),
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                cwd=root, env=environment, timeout=45, check=False,
+            )
+            if selected.returncode == 0 and selected.stdout.splitlines():
+                response = json.loads(selected.stdout.splitlines()[0])
+                expanded, _text = _payload(response)
+                automatic_readable = (
+                    len(expanded.get("memories", [])) == 1
+                    and expanded["memories"][0].get("title") == candidate["title"]
+                    and bool(expanded["memories"][0].get("statement"))
+                )
         if not automatic_readable and injection.get("continuation"):
             call = injection["continuation"]
             followed = subprocess.run(
@@ -174,8 +201,13 @@ def run_bounded_reading_outcome_probe() -> dict[str, Any]:
             "task_wake_within_requested_size": reading_tokens(wake) <= 900 and bool(wake["long_term_memory"]),
             "automatic_complete_response_within_requested_size": reading_tokens(automatic) <= 1400 and automatic["success"] is True,
             "automatic_full_fact_accessible": automatic_readable,
-            "hook_task_output_within_requested_size": reading_tokens(hook_task) <= 900 and "final-condition-" in hook_task,
-            "hook_blank_does_not_dump_statements": "browsingtoken" not in hook_blank and "current memories available" in hook_blank,
+            "hook_task_output_within_requested_size": (
+                reading_tokens(hook_task) <= 900 and "read_cursor:" in hook_task
+                and "final-condition-" not in hook_task
+            ),
+            "hook_blank_does_not_dump_statements": (
+                "browsingtoken" not in hook_blank and "specific task when needed" in hook_blank
+            ),
         }
         return {
             "verified": all(fields.values()), **fields,

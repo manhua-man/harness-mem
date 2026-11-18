@@ -41,7 +41,7 @@ from harness_mem.commands.support import (
     normalize_client_name,
     resolve_project_context,
 )
-from harness_mem.diagnostic_events import DiagnosticRun, diagnostic_parent_id
+from harness_mem.diagnostic_events import DiagnosticRun, diagnostic_parent_id, exception_locations
 from harness_mem.host_entry.exit_codes import ExitCode
 from harness_mem.host_entry.output import HostEntryResult
 
@@ -364,6 +364,49 @@ def _adapter_payload() -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _wake_search_task(
+    task: str | None, *, client: str | None, source: str,
+) -> str | None:
+    """Derive a search query from one known Codex wrapper; keep the raw task."""
+    if not task or client != "codex" or source != "ide_hook":
+        return task
+    text = task.lstrip()
+    opening = '<in-app-browser-context source="ambient-ui-state">'
+    closing = "</in-app-browser-context>"
+    if not text.startswith(opening):
+        return task
+    ambient, separator, remainder = text[len(opening):].partition(closing)
+    if not separator or "This block is automatically supplied ambient UI state" not in ambient:
+        return task
+    remainder = remainder.strip()
+    if not remainder:
+        return None
+    heading = "## My request:"
+    if not remainder.startswith(heading):
+        return task
+    request = remainder[len(heading):].strip()
+    if not request:
+        return None
+    # The host payload is flat text, so the wrapper's actual origin cannot be
+    # proved here. If the request identifies this wrapper as its subject,
+    # defer task-aware lookup rather than guessing which part is user input.
+    lowered = request.casefold()
+    explicit_marker = any(marker in lowered for marker in (
+        "in-app-browser-context", "ambient-ui-state",
+    ))
+    possible_sample = (
+        any(reference in lowered for reference in (
+            "上面", "前面", "上述", "以上", "上文", "粘贴", "刚贴", "the above", "pasted",
+        ))
+        and any(subject in lowered for subject in (
+            "上下文包装", "浏览器上下文", "浏览器环境包装", "context wrapper", "browser context",
+        ))
+    )
+    if explicit_marker or possible_sample:
+        return None
+    return request
+
+
 def _stdin_session_identity(adapter: str, payload: dict[str, Any]) -> Any:
     if adapter.startswith("grok-"):
         return (
@@ -466,6 +509,8 @@ def _adapter_request(
         current_task=current_task,
         native_transcript_path=(payload.get("transcript_path") if client == "codex"
                                 and isinstance(payload.get("transcript_path"), str) else None),
+        native_turn_id=(payload.get("turn_id") if client == "codex"
+                        and isinstance(payload.get("turn_id"), str) else None),
         session_id=(payload.get("conversationId") if client == "antigravity" else trigger_id),
         user_activity=(adapter == "antigravity-pre" or payload.get("hook_event_name") == "UserPromptSubmit"),
         wait=getattr(args, "wait", False),
@@ -621,6 +666,24 @@ def _run_adapter(args: argparse.Namespace) -> int:
     return int(ExitCode.SUCCESS)
 
 
+def _codex_stop_is_native_heartbeat(
+    request: argparse.Namespace, payload: dict[str, Any],
+) -> bool:
+    """Recognize one exact native automatic turn, never a marker in prose."""
+    path = getattr(request, "native_transcript_path", None)
+    session_id, turn_id = payload.get("session_id"), payload.get("turn_id")
+    if not isinstance(path, str) or not path or not session_id or not turn_id:
+        return False
+    if payload.get("transcript_path") != path:
+        return False
+    from harness_mem.native_codex_turn import read_native_codex_turn
+
+    return read_native_codex_turn(
+        path, session_id=session_id, project_root=request.project_root,
+        turn_id=turn_id,
+    ).status == "heartbeat"
+
+
 def _run_codex_stop_event(
     args: argparse.Namespace, request: argparse.Namespace, payload: dict[str, Any],
 ) -> tuple[int, str | None]:
@@ -660,11 +723,22 @@ def _run_codex_stop_event(
         if not isinstance(receipt, dict):
             receipt = {}
         prior = receipt.get("result")
-        duplicate = receipt.get("identity") == identity and isinstance(prior, dict) and prior.get("status") == "queued"
+        duplicate = (receipt.get("identity") == identity and isinstance(prior, dict)
+                     and (prior.get("status") == "queued"
+                          or prior.get("reason") == "native_heartbeat_turn_excluded"))
         exit_code: int
         stdout_payload: str | None
         if duplicate and isinstance(prior, dict):
             result = {**prior, "summary": {**prior.get("summary", {}), "native_event_duplicate": True}}
+            exit_code, stdout_payload = int(ExitCode.SUCCESS), json.dumps(result, sort_keys=True)
+        elif _codex_stop_is_native_heartbeat(request, payload):
+            result = {
+                "action": request.action, "success": True, "status": "skipped",
+                "reason": "native_heartbeat_turn_excluded",
+                "project_root": str(Path(request.project_root).resolve()),
+                "trigger_id": request.trigger_id,
+                "summary": {"background": False, "spawned": False},
+            }
             exit_code, stdout_payload = int(ExitCode.SUCCESS), json.dumps(result, sort_keys=True)
         else:
             exit_code, stdout_payload = _run_request(request)
@@ -701,6 +775,7 @@ parent_run_id=diagnostic_parent_id(),
     )
     diagnostic.emit("accepted", "running")
     diagnostic.emit("started", "running")
+    args._hook_failure_details = None
     try:
         with diagnostic.activate_children():
             exit_code, payload = await _run_core(args)
@@ -734,11 +809,14 @@ parent_run_id=diagnostic_parent_id(),
     references = {key: value for key, value in references.items() if value is not None}
     response_status = str(parsed.get("status") or "")
     if exit_code != ExitCode.SUCCESS or response_status == "failed":
+        failure_details = getattr(args, "_hook_failure_details", None)
         diagnostic.emit(
             "failed",
             "failed",
             references=references,
             error=(parsed.get("error") or {"kind": "hook_failed", "message": response_status}),
+            details={**(failure_details if isinstance(failure_details, dict) else {}),
+                     "exit_code": int(exit_code)},
         )
     elif response_status == "skipped":
         diagnostic.emit("skipped", "skipped", references=references)
@@ -769,6 +847,7 @@ async def _run_core(args: argparse.Namespace) -> tuple[int, str | None]:
     # ---- 1. post-argparse validation (Req 2.7) -------------------------
     err = validate_args(args)
     if err is not None:
+        args._hook_failure_details = {"failure_owner": "argument_validation"}
         logger.error(err)
         return (ExitCode.ARG_VALIDATION_ERROR, None)
 
@@ -834,6 +913,8 @@ async def _run_core(args: argparse.Namespace) -> tuple[int, str | None]:
             record_background_activity(
                 DEFAULT_DATA_DIR, project_root=project_root, client=client_override or "",
                 session_id=getattr(args, "session_id", None) or args.trigger_id,
+                native_transcript_path=getattr(args, "native_transcript_path", None),
+                native_turn_id=getattr(args, "native_turn_id", None),
             )
 
         if args.action in {"post-turn-maintenance", "dream-end"}:
@@ -938,6 +1019,8 @@ async def _run_core(args: argparse.Namespace) -> tuple[int, str | None]:
         try:
             merged = load_merged_config(project_root)
         except ConfigError as exc:
+            args._hook_failure_details = {"failure_owner": "config_load",
+                "exception_type": type(exc).__name__, **exception_locations(exc)}
             logger.error("config error: %s", exc)
             return (ExitCode.CONFIG_LOAD_ERROR, None)
 
@@ -1001,21 +1084,41 @@ async def _run_core(args: argparse.Namespace) -> tuple[int, str | None]:
             if args.action == "wake-start":
                 from harness_mem.commands.wake import build_wake_injection
 
+                if args.source == "ide_hook" and client_override and project_context.project_root:
+                    from harness_mem.commands.dream_continuation import enqueue_bound_continuation
+                    # A native event can wake an already-bound task. Its current
+                    # prompt/transcript is never the continuation's source.
+                    try:
+                        await enqueue_bound_continuation(
+                            backend, project_name=project_name,
+                            project_root=str(project_context.project_root), config=merged,
+                            host_client=client_override,
+                        )
+                    except Exception:
+                        logger.warning("could not enqueue bound Dream continuation", exc_info=True)
+
                 try:
                     selection: dict[str, Any] = {}
                     text = await build_wake_injection(
-                        backend, project_name, current_task=getattr(args, "current_task", None),
+                        backend, project_name,
+                        current_task=_wake_search_task(
+                            getattr(args, "current_task", None),
+                            client=client_override, source=args.source,
+                        ),
                         selection_receipt=selection,
                     )
-                except Exception:  # noqa: BLE001 - host entry is total.
+                except Exception as exc:  # noqa: BLE001 - host entry is total.
+                    args._hook_failure_details = {"failure_owner": "wake_injection",
+                        "exception_type": type(exc).__name__, **exception_locations(exc)}
                     logger.exception("host_entry caught unhandled wake exception")
                     return (ExitCode.HOOK_FAILED, None)
                 if selection.get("query_present"):
                     count = int(selection.get("returned_count") or 0)
                     args.recall_notice = (
-                        f"记忆：已召回 {count} 条相关内容。" if count
-                        else "记忆：已找到相关内容，可按需展开。" if selection.get("matched_count")
-                        else "记忆：暂无匹配。"
+                        f"记忆：已返回 {count} 条候选记忆。" if count
+                        else f"记忆：有 {selection['candidate_count']} 条待核对候选。" if selection.get("candidate_count")
+                        else "记忆：有候选记忆可按需展开。" if selection.get("matched_count")
+                        else "记忆：暂无词面匹配，可换关键词检索。"
                     )
                 record_success("wake-start")
                 return (ExitCode.SUCCESS, text)
@@ -1063,6 +1166,8 @@ async def _run_core(args: argparse.Namespace) -> tuple[int, str | None]:
                         trigger_id=args.trigger_id,
                         native_transcript_path=getattr(args, "native_transcript_path", None),
                         background_requested_at=getattr(args, "background_requested_at", None),
+                        resume_run_id=getattr(args, "resume_run_id", None),
+                        host_client=client_override,
                     )
                     if (
                         isinstance(maintenance_payload.get("evidence_packet"), dict)
@@ -1234,6 +1339,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.trigger_id = request.trigger_id
             args.native_transcript_path = request.native_transcript_path
             args.background_requested_at = request.requested_at
+            args.resume_run_id = request.resume_run_id
             worker_generation = request.generation
             os.environ["HARNESS_MEM_HOOK_BACKGROUND_GENERATION"] = request.generation
         else:

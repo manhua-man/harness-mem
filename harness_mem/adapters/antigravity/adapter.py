@@ -6,6 +6,7 @@ import base64
 import json
 import os
 import re
+import sqlite3
 from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,6 +14,13 @@ from typing import Any
 from urllib.parse import quote, unquote, urlsplit
 from uuid import uuid4
 
+from harness_mem.adapters.antigravity.sqlite_history import (
+    SQLITE_SOURCE_KIND,
+    is_conversation_db,
+    read_conversation_roots,
+    read_sqlite_conversation,
+    read_summary_roots,
+)
 from harness_mem.adapters.claude_code.project_profile_detector import normalize_project_root
 from harness_mem.adapters.protocol import Issue, SessionRecord
 from harness_mem.adapters.scan_scheduler import sync_sessions_fairly
@@ -154,9 +162,15 @@ class AntigravityAdapter:
             except OSError as exc:
                 _metadata_issue(issues, self.history_file, exc)
 
+        # Native SQLite supersedes the same profile's display-log mirror.
+        # Distinct copies across profiles remain visible to the cleanup owner.
+        native_records = self._sqlite_metadata_records(history, issues)
+        native_keys = {(item["path"].parent.parent, item["session_id"]) for item in native_records}
         sessions = [
-            record for record in sessions_by_id.values()
+            record for record in [*sessions_by_id.values(), *native_records]
             if record["size_bytes"] / 1024 >= min_size_kb
+            and (record["source_kind"] == SQLITE_SOURCE_KIND
+                 or (self._record_host_root(record["path"]), record["session_id"]) not in native_keys)
         ]
         sessions.sort(key=lambda item: item["mtime_ns"], reverse=True)
         sessions = sessions if limit is None else sessions[:limit]
@@ -166,6 +180,76 @@ class AntigravityAdapter:
             for record in sessions
         }
         return sessions
+
+    def _record_host_root(self, path: Path) -> Path:
+        return path.parent if self._is_history_file(path) else path.parents[4]
+
+    def _sqlite_metadata_records(
+        self, history: dict[str, dict[str, Any]], issues: list[Issue] | None,
+    ) -> list[SessionRecord]:
+        records: list[SessionRecord] = []
+        for root in dict.fromkeys(brain.parent for brain in self._brain_dirs()):
+            summary = root / "conversation_summaries.db"
+            try:
+                summaries = read_summary_roots(summary)
+            except (OSError, sqlite3.Error, ValueError):
+                summaries = {}
+            for path in (root / "conversations").glob("*.db"):
+                if not is_conversation_db(path):
+                    continue
+                try:
+                    session_id = path.stem
+                    roots = read_conversation_roots(path, session_id)
+                    roots.extend(summaries.get(session_id, []))
+                    if root == self.cli_root:
+                        roots.extend(history.get(session_id, {}).get("project_roots", []))
+                    mirror = _sqlite_mirror(root, session_id)
+                    if mirror is not None:
+                        mirror_roots, _ = read_jsonl_metadata(
+                            mirror, client="antigravity", workspace_root=_single_native_root(roots),
+                        )
+                        roots.extend(mirror_roots)
+                    record = metadata_record(path, session_id, project_roots=roots, source_kind=SQLITE_SOURCE_KIND)
+                    record["metadata_paths"] = self._sqlite_metadata_paths(path)
+                    _set_metadata_ownership(record, roots)
+                    records.append(record)
+                except (OSError, sqlite3.Error, ValueError):
+                    if issues is not None:
+                        issues.append({"level": "warning", "code": "antigravity_sqlite_metadata_unreadable",
+                                       "message": "Antigravity conversation metadata could not be verified", "path": str(path)})
+        return records
+
+    def _sqlite_metadata_paths(self, path: Path) -> list[Path]:
+        root = path.parent.parent
+        summary = root / "conversation_summaries.db"
+        logs = root / "brain" / path.stem / ".system_generated" / "logs"
+        paths = [path, path.with_name(path.name + "-wal"), summary, summary.with_name(summary.name + "-wal"),
+                 logs / "transcript_full.jsonl", logs / "transcript.jsonl"]
+        if root == self.cli_root and self.history_file is not None:
+            paths.append(self.history_file)
+        return paths
+
+    def _read_sqlite_source(self, path: Path, session_id: str, *, cleanup_witness: bool = True) -> dict[str, Any]:
+        root = path.parent.parent
+        if root not in {brain.parent for brain in self._brain_dirs()}:
+            raise ValueError("Antigravity SQLite source is outside known conversation locations")
+        exported = read_sqlite_conversation(path, session_id)
+        roots = list(exported["project_roots"])
+        summary = root / "conversation_summaries.db"
+        roots.extend(read_summary_roots(summary, session_id).get(session_id, []))
+        if root == self.cli_root and self.history_file is not None and self.history_file.is_file():
+            roots.extend(_native_roots(_history_records_for_session(self.history_file, session_id)))
+        mirror = _sqlite_mirror(root, session_id)
+        mirror_matches = True
+        if mirror is not None:
+            records = _strict_mirror_records(mirror)
+            mirror_matches = _mirror_matches_sqlite(records, exported["source_text"])
+            roots.extend(_native_roots(records, workspace_root=_single_native_root(roots)))
+        exported["project_roots"] = list(dict.fromkeys(roots))
+        if cleanup_witness and mirror_matches and _single_native_root(roots):
+            from harness_mem.adapters.antigravity.sqlite_cleanup import capture_antigravity_cleanup_witness
+            exported["antigravity_cleanup_sha256"] = capture_antigravity_cleanup_witness(path, session_id)
+        return exported
 
     def _source_metadata_paths(self, path: Path, session_id: str) -> list[Path]:
         """Dependencies for ephemeral previews, including attachment replacement.
@@ -196,7 +280,9 @@ class AntigravityAdapter:
         used for this read, and compatibility sync matching stays independent.
         """
         uri = source_uri_from_path(session_path)
-        if self._is_history_file(session_path):
+        if is_conversation_db(session_path):
+            exported = self._read_sqlite_source(session_path, session_id)
+        elif self._is_history_file(session_path):
             exported = _history_export_for_session(
                 session_path, session_id, cli_root=self.cli_root,
             )
@@ -306,6 +392,15 @@ class AntigravityAdapter:
         issues: list[Issue] | None = None,
     ) -> Observation:
         del issues
+        if is_conversation_db(session_path):
+            exported = self._read_sqlite_source(session_path, session_id, cleanup_witness=False)
+            return Observation(
+                id=str(uuid4()), session_id=session_id, client="antigravity", content_type="transcript",
+                raw_content=exported["observed_rendering"],
+                timestamp=datetime.fromtimestamp(session_path.stat().st_mtime, tz=timezone.utc),
+                metadata={"project_name": project_name, "project_root": self.project_root},
+                tags=["session", "antigravity", "sqlite"],
+            )
         if self._is_history_file(session_path):
             exported = _history_export_for_session(
                 session_path,
@@ -805,6 +900,39 @@ def _find_cli_transcript(cli_root: Path | None, session_id: str) -> Path | None:
         if candidate.is_file() and candidate.stat().st_size > 0:
             return candidate
     return None
+
+
+def _sqlite_mirror(root: Path, session_id: str) -> Path | None:
+    return _find_cli_transcript(root, session_id)
+
+
+def _strict_mirror_records(path: Path) -> list[dict[str, Any]]:
+    # Mirrors can corroborate the DB only if each line is a complete object.
+    with path.open(encoding="utf-8-sig") as stream:
+        records = [json.loads(line) for line in stream if line.strip()]
+    if any(not isinstance(record, dict) for record in records):
+        raise ValueError("Antigravity transcript mirror is invalid")
+    return records
+
+
+def _mirror_matches_sqlite(records: list[dict[str, Any]], source_text: str) -> bool:
+    source = [json.loads(line) for line in source_text.splitlines()[1:]]
+    if [record.get("step_index") for record in records] != [row["step_index"] for row in source]:
+        return False
+    for mirror, native in zip(records, source):
+        kind = native["type"]
+        if kind not in {"USER_INPUT", "PLANNER_RESPONSE"} and mirror.get("type") not in {"USER_INPUT", "PLANNER_RESPONSE"}:
+            continue
+        body = mirror.get("content", "")
+        if mirror.get("type") != kind or not isinstance(body, str):
+            return False
+        if kind == "USER_INPUT" and body.startswith("<USER_REQUEST>\n"):
+            body, marker, _ = body.removeprefix("<USER_REQUEST>\n").partition("\n</USER_REQUEST>")
+            if not marker:
+                return False
+        if body.strip() != native["content"].strip():
+            return False
+    return True
 
 
 def current_hook_task(payload: dict[str, Any]) -> tuple[str, str] | None:

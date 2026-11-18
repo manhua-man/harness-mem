@@ -1,8 +1,9 @@
 # Reference projects catalog
 
-Checked: 2026-08-02. This index is the entry point for the reference-source
-catalog. Each project has a separate page with its upstream marker, local
-mirror, source evidence, adoption decision, and review trigger.
+Catalog baseline checked: 2026-08-02; individual pages may record newer checks.
+This index is the entry point for the reference-source catalog. Each project has
+a separate page with its upstream marker, local mirror, source evidence,
+adoption decision, and review trigger.
 
 The release-planning derivation is documented in
 [evidence-to-roadmap.md](evidence-to-roadmap.md); it separates upstream facts
@@ -31,7 +32,7 @@ and Dream transactions; deployment remains separate from natural acceptance.
 | [smartsearch](smartsearch.md) | evidence retrieval | Source extraction and visible fallback/degraded paths |
 | [mattpocock/skills](mattpocock-skills.md) | workflow/skills | Explicit grilling, domain modeling, composable skill boundaries |
 | [Pi](pi.md) | host/session architecture | Append-aware context, tool-safe cut points, branch lineage |
-| [vstash](vstash.md) | paper-only research | Revisit only when implementation evidence appears |
+| [vstash](vstash.md) | retrieval research | Public source checked at a fixed revision; Chinese and runtime fit remain unverified |
 
 ## Architecture reading order
 
@@ -48,7 +49,20 @@ retrieval/index trio, then the evaluation and host-compatibility pages:
 4. [Letta](letta.md), [smartsearch](smartsearch.md), and [Pi](pi.md) cover
    budget, evidence UX, and session-context lineage;
    [mattpocock/skills](mattpocock-skills.md) covers optional workflow
-   composition; [vstash](vstash.md) remains paper-only.
+   composition; [vstash](vstash.md) provides a source-level retrieval comparison.
+
+## Evidence review refresh (2026-11-18)
+
+- Session Distill remains at `42fb1c0`. Its question table and check-work provide a review pattern for HM's existing manual finalize path. The public anchor checker covers referenced files and line ranges. The separate batch verifier described in the operation retrospective is absent from that public tree. [Deep Distill workflow](https://github.com/manhua-man/session-distill-skills/blob/42fb1c0b26c2eeafe38104aae130c7e112f0d75d/shared/references/deep-distill-workflow.md) · [Anchor checker](https://github.com/manhua-man/session-distill-skills/blob/42fb1c0b26c2eeafe38104aae130c7e112f0d75d/scripts/kb-anchor-checker.py#L234)
+- claude-mem `c1dc252` tests a Codex patch call with a paired result and verifies the recorded file edit in SQLite. Its failed-tool fixtures exercise failed reads and writes separately. Hindsight `082822a` binds exact quotes to source memory IDs and retains attachment context. Mem0 `fff8a64` distinguishes provider extraction failure from an empty extraction and only projects successful inserts. These are relevant to HM's literal evidence, actual write checks, and partial results. [claude-mem patch regression](https://github.com/thedotmack/claude-mem/blob/c1dc252bda98b1310ba3fa4b195efe49070d554b/tests/transcripts/processor-patch-result-evidence.test.ts) · [Hindsight evidence](https://github.com/vectorize-io/hindsight/blob/082822aa0bcfa069f3bffc8cef79480ce79e7c02/hindsight-api-slim/hindsight_api/engine/reflect/observations.py#L33) · [Mem0 write path](https://github.com/mem0ai/mem0/blob/fff8a6472512d1bc1a4bccab8c645b65a1df7fe5/mem0/memory/main.py#L966)
+- BEAM `8f4e5ef` traces required evidence through storage, retrieval, presentation, and use. The matched HM run adopts those distinctions in independent scoring. LongMemEval `9e0b455` and MemoryData `bdbe698` remain at the checked catalog revisions. Their useful comparison points are all-required-evidence recall and replayable question metadata. [BEAM failure attribution](https://github.com/MasterSummer/BEAM-LongHorizonMemBench/blob/8f4e5ef25f9f43c567b4ebfd18570ea8467987c1/src/lhmsb/longhorizon/failure_attribution.py) · [LongMemEval scoring](https://github.com/xiaowu0162/LongMemEval/blob/9e0b455f4ef0e2ab8f2e582289761153549043fc/src/retrieval/eval_utils.py#L27) · [MemoryData loader](https://github.com/OpenDataBox/MemoryData/blob/bdbe698f776d921ac791d1b07c0a7fc65a8bb4bb/benchmark/memoryagentbench/loader.py#L173)
+- vstash `c293cb2` now has claim validity and atomic replacement. Its tests cover superseded knowledge staying out of normal results after a text rewrite and rejection of invalid replacement targets before a write. These cases can inform regression tests for HM's existing current-knowledge boundary. Source references in vstash are supplied by the caller and the examples verify lifecycle behavior. [vstash change](https://github.com/stffns/vstash/commit/c293cb2aa89dd3a28491f87fae158098eab74890) · [Replacement tests](https://github.com/stffns/vstash/blob/c293cb2aa89dd3a28491f87fae158098eab74890/tests/test_claims_unified.py)
+
+The default-branch check also found newer heads for Graphiti (`4ef979c`),
+PrecisionMemBench (`61a712a`), Letta (`8816d3a`), Tantivy (`0aa896f`),
+smartsearch (`1969e4f`), mattpocock/skills (`5863806`), and Pi (`ff8721f`).
+These are remote reference observations. The sqlite-vec and LoCoMo heads still
+match the catalog pins.
 
 ## Version and evidence rules
 

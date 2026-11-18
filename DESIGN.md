@@ -6,7 +6,7 @@
 
 - **Audience:** developers and agent users who need useful device-wide memory without managing a second knowledge application.
 - **Primary experience:** quiet infrastructure surfaced through short MCP responses, host-native commands, and useful diagnostics.
-- **Core promise:** keep one clear set of current memories that users can find across projects, correct, replace, or delete.
+- **Core promise:** provide a shared memory foundation for every supported Agent, with one clear set of current memories users can find across projects, correct, replace, or delete.
 - **Not this:** a dashboard-first product, a stream of internal IDs, or an opaque “AI remembered it” experience.
 
 The product targets all seven supported hosts: Claude Code, Codex, Cursor,
@@ -20,17 +20,80 @@ a reduction in supported-host scope.
 1. **Result before machinery** — lead with what is ready, missing, blocked, or changed.
 2. **Progressive disclosure** — default replies stay short; evidence, receipts, IDs, and raw transcripts appear only when users ask for details.
 3. **Trust is visible** — distinguish current memory, temporary material, and failed verification in language and structure.
-4. **Automatic daily memory** — normal conversations feed automatic recording, background organization and task-aware recall. The native `hm` entry is for viewing and reviewing memory; users do not command each session to be remembered.
+4. **Completed history first** — the current Agent turns finished conversations into verified, organized knowledge, cleans processed history when requested, and retrieves useful knowledge later. Hooks, background executors and Dream are optional automation, not prerequisites for this core experience.
 5. **Safe by default** — preview destructive maintenance, retain uncertain sources, and make authorization boundaries explicit.
 6. **Repairable, not magical** — errors name the failed boundary, preserved state, and next safe action.
 
 ## Information Architecture
 
+### Current product choice (2026-11-04)
+
+The user prioritizes completed-conversation absorption, historical-file cleanup
+and reliable recall, using session-distill-skills as the minimum implementation
+reference. The primary `hm` flow is select history when needed, directly prepare
+known sessions, read complete sources, verify and organize knowledge, show actual saved content, then clean
+processed sources under the user's authorization. Users do not manage internal
+IDs or activate a background model to complete that work. Source and knowledge
+version checks, shared transactions, full readback and active-source protection
+remain in the common runtime. Automatic per-turn recording and host injection
+are deferred while these outcomes are being repaired. The current selection,
+acceptance and unresolved work live in [the roadmap](docs/roadmap.md#current-iteration-plan).
+Earlier dated automatic-first decisions below are historical context.
+
+The user's command-entry correction on 2026-11-04 makes explicit native commands
+the primary interaction: `$hm <action> [args]` in Codex and `/hm <action> [args]`
+in the other supported hosts. Bare `hm` and `help` show help only. `distill`
+requires a named project or explicit `--all`; `--cleanup` authorizes cleanup of
+that verified selection. Standalone `clean` previews and `clean --apply` executes.
+`search` defaults across projects; only `--project-only` filters it. `status`,
+`review`, `pause` and `continue` reuse the existing read, governance and batch
+owners. The Agent interprets fixed actions and arguments, handles internal IDs,
+and reports missing/ambiguous inputs before mutation. This is one host-native
+entry, with no new terminal CLI, MCP tool or implicit installation. The canonical
+command guide owns the argument table; repository mirrors are generated from it.
+
+Manual writing uses the prepared `memory_points[i].review` contract for one
+content judgment per fact. The Agent checks current evidence, combines synonymous
+knowledge and preserves conditions, exceptions and real unfinished obligations.
+The runtime binds exact text and source/target versions to the existing commit
+and readback owners. Do not make the Agent repeat final text as segments, hashes
+or a second predecessor inventory. Replacement reviews explicitly retain
+applicable meaning; source-report replacements also retain topic and attribution.
+Keep advanced compatibility fields out of the ordinary instruction path. A
+verified readback is reused unless new conflict, changed source or missing
+content requires another read.
+
+Prepared conversations should provide a usable, version-bound read when native
+tool evidence is needed, without making users locate transcript files. Keep tool
+material separate from authored statements. Default report prose keeps the full
+account, native session time, speaker and uncertainty in concise language; do not
+repeat the storage-format wrapper. Display changes must preserve exact readable
+selection for correction and the underlying source/version checks.
+Keep the attribution with each independently retrievable report, since a later
+search may return only that one item. A shared result-page heading is insufficient.
+
+### Historical organization and readiness (2026-10-20)
+
+Explicit history organization is retained alongside automatic daily memory.
+The unreleased source exposes selection, persisted progress discovery, pause,
+explicit continuation and failure retry through existing MCP tools. Users state
+scope in ordinary language; the Agent follows returned inspect/resume/continue
+arguments. Ambiguous batches require choosing the intended readable scope.
+Inspection preserves paused state and performs no background processing.
+Current-Agent review needs no background CLI authorization or task budget.
+
+Write-path convergence (2026-10-20, unreleased source implementation; final acceptance pending): automatic intake, current-Agent manual review and Dream now use shared final-content judgment and the existing canonical commit owner. Explicit history uses the existing 20-tool surface: inspect sessions and persisted batch progress, freeze a selection, pause, explicitly continue, or retry eligible failures. Fresh inventory exposes Agent-usable batch references without user-managed IDs. Manual work needs no background CLI permission. Source fixtures and static checks do not establish installed entries, natural host execution, semantic quality, or real-memory cleanup.
+
+Background task budgets cover this runtime's native executor invocations across source processing and Dream slices/retries under one maintenance task identity. Defaults are 64 invocations, 3,600 cumulative native seconds, 2,000,000 input tokens and 128,000 output tokens. Actual terminal usage is accumulated and checked before subsequent dispatch; the final invocation may cross a token threshold and contain multiple native responses. Unknown usage remains unknown and blocks later invocations. These limits are separate from returned-context `cost_budget.*`, total user wait and the current Agent conversation. Only an explicit `task_model_budget.host_max_output_tokens` requests strict native caps: unsupported or unproved caps refuse that mode before transport. Ordinary background operation does not require an unavailable cap. Installation, natural execution and semantic cleanup require their own direct evidence.
+
+See [the convergence contract](docs/memory-write-convergence-20261020.md)
+for implementation boundaries and pending user-path acceptance.
+
 The product decision of 2026-10-18 makes daily memory automatic: configure the
 host integration once, then continue ordinary conversations. Session recording,
 background organization and task-aware recall run through that integration.
-Users do not select sessions, request remembering, or approve each extracted
-point. Current unreleased Quickstart installs the native entry and user-level
+Ordinary daily use does not require selecting sessions, requesting remembering,
+or approving each extracted point. Current unreleased Quickstart installs the native entry and user-level
 lifecycle Hooks; `--confirm` authorizes background model processing once.
 Claude Code, Codex, Cursor, Grok, Hermes, OpenCode and Antigravity derive the
 workspace dynamically from native task context. Explicit project settings
@@ -38,11 +101,15 @@ override user policy, including `distill.autonomous.enabled=false` to opt out.
 Code support and installed files do not establish seven-host live acceptance.
 
 Codex exposes `$hm`; other supported hosts expose `/hm` for on-demand inspection
-and human review:
+and human review. The currently implemented entry provides:
 
 - Show what has been remembered.
 - Correct this memory.
 - Delete this memory.
+
+The unreleased source also exposes explicit historical organization, progress,
+pause and continuation using the same write rules. Installed/native acceptance
+remains pending as recorded above.
 
 Users describe corrections or deletions by title or content in ordinary language.
 They do not need to understand internal components, or supply, copy, or manage memory
@@ -140,10 +207,14 @@ Hermes entry and Hook preparation use the same active-profile location.
   Discovery does not import old sessions or enable background processing.
 - Automatic session jobs keep complete sources and resumable progress. Show
   verified saved knowledge separately from queued, retryable or failed work.
-  Existing manual batches remain recoverable compatibility data, not a daily
-  user operation or an alternative to repairing automation.
-- Human work is inspection and review of existing memory, candidates or failed
-  jobs. It does not create a parallel manual remembering workflow.
+  Existing manual batches retain their source and progress. The 2026-10-20
+  source restores explicit history organization and resume through the
+  shared core; installed/native acceptance remains pending. Ordinary
+  daily use still requires no manual batch.
+- Human work includes inspection/review of existing memory and jobs, plus
+  explicitly requested history organization in unreleased source. That entry
+  shares verification and writes with automation rather than adding a second
+  remembering workflow.
 - Inspection shows the actual saved titles and statements, ordinary no-write
   reasons and unfinished work; a count, test verdict or report link alone does
   not satisfy the result.

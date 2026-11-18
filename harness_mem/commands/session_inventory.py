@@ -34,6 +34,47 @@ def session_reference(client: str, session_id: str, source_id: str, source_revis
                 reference_id=sha256(json.dumps(identity).encode()).hexdigest())
 
 
+def existing_batch_inventory(data_dir: Path, *, project_root: Path | None = None,
+                             project_name: str | None = None) -> dict:
+    """Project existing finite selections without resuming or rescanning sources."""
+    from harness_mem.commands.manual_distill import inspect_manual_batch
+    from harness_mem.storage.manual_batch_store import ManualBatchStore
+
+    scope = "all" if project_root is None else "project"
+    manifests = ManualBatchStore(data_dir).list_batches(
+        project_root=str(project_root) if project_root is not None else None,
+        project_name=project_name, scope=scope,
+    )
+    batches = []
+    for manifest in manifests:
+        root = Path(manifest["project_root"]) if scope == "project" else None
+        try:
+            progress = inspect_manual_batch(data_dir, project_name=manifest["project_name"],
+                                            project_root=root, batch_id=manifest["batch_id"], check_new=False)
+        except (OSError, ValueError, KeyError) as exc:
+            # A broken old binding is reportable batch state, not a reason to
+            # hide the rest of the user's inventory. Do not resume or repair it.
+            progress = {"status": "integrity_blocked", "progress": {
+                "selected": len(manifest["sessions"]), "remaining": None,
+                "reason": str(exc), "completion_verified": False,
+            }}
+        reference = {"batch_id": manifest["batch_id"], "project_name": manifest["project_name"],
+                     **({"project_root": str(root)} if root is not None else {})}
+        batches.append({"batch_id": manifest["batch_id"], "scope": scope,
+                        "project_name": manifest["project_name"], "project_root": manifest["project_root"],
+                        "state": manifest["state"], "status": progress["status"],
+                        "progress": progress["progress"],
+                        "inspect_arguments": reference, "resume_arguments": reference,
+                        **({"continue_arguments": {**reference, "continue_batch": True}}
+                           if manifest["state"] == "paused" else {})})
+    candidates = [row for row in batches if row["progress"]["remaining"] and row["state"] != "stopped"]
+    resolution = "unique" if len(candidates) == 1 else "ambiguous" if candidates else "none"
+    return {"batches": batches, "batch_count": len(batches), "processing_unchanged": True,
+            "batch_continuation": {"resolution": resolution, "candidate_count": len(candidates),
+                                   "references": [row["resume_arguments"] for row in candidates],
+                                   "next_step": "Use prepare_session_distill with the chosen reference; paused batches require explicit continue_batch=true."}}
+
+
 def _project_context_labels(data_dir: Path) -> dict[str, set[str]]:
     """Read optional workspace labels, never infer name ownership from sources.
 
@@ -83,12 +124,40 @@ def _metadata_roots(record: Mapping[str, Any]) -> list[str]:
     return list(record.get("project_roots") or ([record["cwd"]] if record.get("cwd") else []))
 
 
+def _archive_state(client: str, record: Mapping[str, Any]) -> str:
+    if client == "codex":
+        return {"codex-archive": "archived", "codex-current": "not_archived"}.get(
+            str(record.get("source_kind")), "unknown",
+        )
+    if client == "cursor" and record.get("archive_state") in {"archived", "not_archived"}:
+        return str(record["archive_state"])
+    return "unknown"
+
+
+def _codex_origin_fields(client: str, metadata: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep delegated and unclassified history visible, with honest selection hints."""
+    if client not in {"codex", "codex-archive"}:
+        return {}
+    origin = metadata.get("codex_session_origin", {"kind": "legacy_missing"})
+    kind = origin.get("kind") if isinstance(origin, dict) else "declared_unknown"
+    hints = {
+        "primary": "prefer_primary_conversation",
+        "delegated": "related_agent_work_not_human_policy",
+        "declared_unknown": "native_origin_does_not_prove_human_policy",
+        "legacy_missing": "legacy_origin_unavailable",
+    }
+    if kind not in hints:
+        origin, kind = {"kind": "declared_unknown"}, "declared_unknown"
+    return {"codex_session_origin": origin, "selection_hint": hints[kind]}
+
+
 def _metadata_row(client: str, record: Mapping[str, Any], project_name: str, project_root: Path | None) -> dict:
     roots = _metadata_roots(record)
     owner = ownership_for(roots, project_root) if project_root is not None else "source"
     token = sha256(json.dumps({
         "uri": _metadata_source_uri(client, record), "session": record["session_id"],
         "roots": roots, "mtime_ns": record.get("mtime_ns"), "bytes": record.get("size_bytes"),
+        **_codex_origin_fields(client, record),
     }, sort_keys=True).encode()).hexdigest()
     # Discovery identity is tied to the root, not a guessed/friendly name.
     # Preparation replaces it with the validated canonical source identity.
@@ -99,6 +168,8 @@ def _metadata_row(client: str, record: Mapping[str, Any], project_name: str, pro
         "project_root": normalized_root(project_root) if project_root is not None else metadata_project_root(roots), "project_name": project_name,
         "ownership": owner, "readability": "not_checked", "processing": "pending" if owner in {"project", "source"} else "not_selected",
         "imported": False, "origin": "native", "revision_verified": False,
+        "archive_state": _archive_state(client, record),
+        **_codex_origin_fields(client, record),
         **({"scope": "all"} if project_root is None else {}),
     }
 
@@ -106,6 +177,7 @@ def _metadata_row(client: str, record: Mapping[str, Any], project_name: str, pro
 def discover_session_projects(
     data_dir: Path, *, clients: list[str] | None = None,
     adapter_factory: Callable[..., Any] | None = None,
+    archived_only: bool = False,
 ) -> dict:
     """Discover all native project bindings without importing or rendering sessions."""
     selected = list(dict.fromkeys(HOSTS if clients is None else clients))
@@ -118,7 +190,8 @@ def discover_session_projects(
         host_issues: list[dict[str, str]] = []
         try:
             adapter = factory(client)
-            records.extend((client, record) for record in list_native_records(adapter, client, host_issues))
+            records.extend((client, record) for record in list_native_records(adapter, client, host_issues)
+                           if not archived_only or _archive_state(client, record) == "archived")
         except (OSError, ValueError, sqlite3.Error):
             issues.append({"client": client, "reason": "source_scan_failed"})
         issues.extend({"client": client, "reason": item.get("code", "source_scan_failed")} for item in host_issues)
@@ -365,6 +438,7 @@ def collect_session_inventory(
     lightweight: bool = False,
     selected_sessions: list[dict] | None = None,
     session_id: str | None = None,
+    archived_only: bool = False,
 ) -> SessionInventory:
     if project_root is not None and not project_root.is_absolute():
         raise ValueError("project_root must be absolute")
@@ -374,6 +448,7 @@ def collect_session_inventory(
         raise ValueError("clients must select supported hosts")
     config = load_merged_config(str(project_root) if project_root is not None and project_root.is_dir() else None)
     adapter_factory = adapter_factory or build_inspection_adapter
+    project_bindings = _project_context_labels(data_dir) if project_root is None and not lightweight else {}
     result = SessionInventory(project_name, normalized_root(project_root) if project_root is not None else "")
     sources = []
     jobs: list[SessionDistillJob] = []
@@ -404,9 +479,11 @@ def collect_session_inventory(
             if session_id is not None and record.get("session_id") != session_id:
                 continue
             preliminary = _metadata_row(client, record, project_name, project_root)
+            if archived_only and preliminary["archive_state"] != "archived":
+                continue
+            native_uri = _metadata_source_uri(client, record)
             record_sources = [source for source in sources if source.client == client
-                              and source.session_id == record["session_id"]
-                              and source.source_uri == _metadata_source_uri(client, record)]
+                              and source.session_id == record["session_id"] and source.source_uri == native_uri]
             record_config = config
             if project_root is None:
                 try:
@@ -417,11 +494,14 @@ def collect_session_inventory(
                     continue
             if selected_sessions is not None and not any(
                 item.get("client") == client and item.get("session_id") == record.get("session_id")
-                and item.get("source_id") == (
-                    preliminary["source_id"] if str(item.get("source_revision", "")).startswith("metadata:")
-                    else str(item.get("source_id")) if project_root is None and any(source.id == item.get("source_id") for source in record_sources)
-                    else transcript_source_id(client=client, project_name=project_name, session_id=record["session_id"],
-                                              source_uri=_metadata_source_uri(client, record))
+                and (
+                    preliminary["source_id"] == item.get("source_id")
+                    if str(item.get("source_revision", "")).startswith("metadata:")
+                    else (project_root is None and not lightweight) or item.get("source_id") == transcript_source_id(
+                        client=client, project_name=project_name, session_id=record["session_id"], source_uri=native_uri,
+                    ) or project_root is None and any(
+                        source.id == item.get("source_id") for source in record_sources
+                    )
                 ) for item in selected_sessions
             ):
                 continue
@@ -439,8 +519,13 @@ def collect_session_inventory(
                 result.rows.append(preliminary)
                 continue
             try:
+                opencode_paths = adapter.session_dependency_paths(record) if client == "opencode" else None
+                if opencode_paths is not None:
+                    record["metadata_paths"] = opencode_paths
                 preview_stamps = _record_dependency_stamps(record)
                 native = inspect_native_source(adapter, client, record, project_root=project_root, config=record_config)
+                if opencode_paths is not None and adapter.session_dependency_paths(record) != opencode_paths:
+                    raise ValueError("source or workspace metadata changed during complete read")
                 if project_root is None:
                     full_stamps = _record_dependency_stamps({**record, "project_roots": native.project_roots or []})
                     record_config = source_capture_policy(native.project_roots or [], config_loader=load_merged_config)
@@ -465,11 +550,29 @@ def collect_session_inventory(
                     "source policy changed during complete read",
                     "source or workspace metadata changed during complete read",
                 } else "source_unreadable"
+                if client == "opencode":
+                    reason = getattr(exc, "reason_code", reason)
                 result.issues.append({"client": client, "session_id": record.get("session_id"), "reason": reason,
                                       "error_type": type(exc).__name__})
                 result.rows.append({"client": client, "session_id": record.get("session_id"), "ownership": "unknown", "readability": "unreadable", "processing": "not_selected"})
                 continue
-            source_id = transcript_source_id(client=client, project_name=project_name, session_id=native.session_id, source_uri=native.source_uri)
+            archive_state = native.archive_state or preliminary["archive_state"]
+            if archived_only and archive_state != "archived":
+                continue
+            native_root = metadata_project_root(native.project_roots or [])
+            bindings = project_bindings.get(native_root, set())
+            # The complete source, rather than the inventory hint or caller's
+            # display label, proves the workspace for a new device-wide job.
+            owner = next(iter(bindings)) if len(bindings) == 1 else project_name
+            source_id = transcript_source_id(client=client, project_name=owner, session_id=native.session_id, source_uri=native.source_uri)
+            if project_root is None and selected_sessions is not None:
+                # Filter the fully read source by locator identity. Callers
+                # still check the exact revision, including cleanup replay
+                # which must see a changed or reintroduced native file.
+                locators = {source_id, preliminary["source_id"], *(source.id for source in record_sources)}
+                if not any(item.get("client") == client and item.get("session_id") == native.session_id
+                           and item.get("source_id") in locators for item in selected_sessions):
+                    continue
             reference = session_reference(client, native.session_id, source_id, f"sha256:{native.native_digest}")
             matching = [source for source in sources if source.client == client and source.session_id == native.session_id
                         and (source.source_uri == native.source_uri or source.raw_sha256 == native.native_digest)]
@@ -491,8 +594,11 @@ def collect_session_inventory(
                 processing = "completed" if job.id in proven else "needs_verification" if job.status == "completed" else job.status
             row = {**reference, "ownership": native.ownership, "readability": native.readability, "processing": processing,
                    "imported": bool(matching_jobs), "origin": "native", "revision_verified": True,
-                   "project_root": normalized_root(project_root) if project_root is not None else job.project_root if job is not None else metadata_project_root(native.project_roots or _metadata_roots(record)),
-                   "project_name": job.project_name if project_root is None and job is not None else project_name,
+                   "archive_state": archive_state,
+                   "project_root": normalized_root(project_root) if project_root is not None else job.project_root if job is not None else native_root or metadata_project_root(_metadata_roots(record)),
+                   "project_name": job.project_name if project_root is None and job is not None else owner,
+                   **_codex_origin_fields(client, {"codex_session_origin": native.codex_session_origin}
+                                          if native.codex_session_origin is not None else record),
                    **({"scope": "all"} if project_root is None else {})}
             row["metadata_reference_id"] = preliminary["reference_id"]
             if job is not None:
@@ -510,7 +616,8 @@ def collect_session_inventory(
             if native.ownership in {"project", "source"} and native.readability != "excluded":
                 result.native[reference["reference_id"]] = native
         # Unknown/other ownership is counted, never eligible for a manual batch.
-    for source in sources:
+    # The ledger does not prove a native source is still archived.
+    for source in (() if archived_only else sources):
         if selected_sessions is not None and not any(
             item.get("source_id") == source.id for item in selected_sessions
         ):
@@ -528,6 +635,7 @@ def collect_session_inventory(
         result.rows.append({**reference, "ownership": "project" if project_root is not None else "source", "readability": "excluded" if not allowed else "readable" if source.coverage == "complete" else "partial",
                             "processing": "skipped" if not allowed else "completed" if job and job.id in proven else "needs_verification" if job and job.status == "completed" else job.status if job else "pending",
                             "imported": True, "origin": "ledger", "project_name": source.project_name, "project_root": source.project_root,
+                            **_codex_origin_fields(source.client, source.metadata),
                             **({"scope": "all"} if project_root is None else {}), **({"job_id": job.id} if job else {})})
     result.rows.sort(key=lambda row: (row["client"], row.get("session_id", ""), row.get("source_id", ""), row.get("source_revision", "")))
     return result
@@ -626,6 +734,11 @@ def read_session_page(
                             and row.get("metadata_reference_id") == expected["reference_id"])), None)
             native = inventory.native.get(row["reference_id"]) if row is not None else None
             if native is None or row is None or native.ownership not in {"project", "source"}:
+                issue = next((item.get("reason") for item in inventory.issues
+                              if item.get("session_id") == expected["session_id"]
+                              and str(item.get("reason")).startswith("opencode_")), None)
+                if issue:
+                    raise ValueError(issue)
                 raise ValueError("source revision changed, unavailable, or outside project")
             verified = session_reference(*(str(row[field]) for field in ("client", "session_id", "source_id", "source_revision")))
             context_root, context_name = row.get("project_root", ""), row.get("project_name", project_name)

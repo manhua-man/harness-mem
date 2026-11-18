@@ -16,6 +16,14 @@ from harness_mem.core.schemas.knowledge import (
     KnowledgeSource,
 )
 from harness_mem.core.schemas.project_knowledge_base import ProjectKnowledgeSourceRef
+from harness_mem.core.schemas.source_report import (
+    ReportOmission,
+    ReportOutputProposal,
+    SourceReport,
+    account_write_allowed,
+    bind_report_split,
+    report_revision_allowed,
+)
 from harness_mem.knowledge_renderer import render_knowledge_markdown
 from harness_mem.storage.canonical_store import CanonicalTransactionPreconditionError
 from harness_mem.storage.knowledge_job_workspace import KnowledgeJobWorkspace
@@ -129,6 +137,7 @@ class KnowledgeStore:
         refresh_id: str,
         refreshed_sources: Sequence[KnowledgeSource] | None = None,
         expected_entry: KnowledgeEntry | None = None,
+        expected_sources: Sequence[KnowledgeSource] | None = None,
     ) -> dict:
         """Record a source-backed freshness check without changing knowledge.
 
@@ -139,6 +148,11 @@ class KnowledgeStore:
         """
 
         expected_sha = self._store.record_payload_sha256("knowledge_entries", entry_id)
+        source_hashes = (
+            {source.id: self._store.record_payload_sha256("knowledge_sources", source.id)
+             for source in expected_sources}
+            if expected_sources is not None else None
+        )
         current = await self.get_entry(entry_id, project_name=project_name)
         if expected_entry is not None and (
             current is None or current.to_dict() != expected_entry.to_dict()
@@ -149,6 +163,15 @@ class KnowledgeStore:
         sources = await self.list_sources(entry_id)
         if not sources:
             raise ValueError("knowledge verification refresh requires sources")
+        if expected_sources is not None:
+            expected_by_id = {source.id: source for source in expected_sources}
+            if (len(expected_by_id) != len(expected_sources)
+                    or {source.id for source in sources} != set(expected_by_id)
+                    or any(source.to_dict() != expected_by_id[source.id].to_dict()
+                           for source in sources)
+                    or any(value is None for value in source_hashes.values())):
+                raise CanonicalTransactionPreconditionError(
+                    "confirmation sources changed after verification")
         normalized_at = verified_at.astimezone(timezone.utc)
         refreshed_entry = current.model_copy(
             update={"verified_at": normalized_at, "updated_at": normalized_at}
@@ -186,6 +209,8 @@ class KnowledgeStore:
             )
         ]
         operations[0]["expected_sha256"] = expected_sha
+        if source_hashes is not None:
+            operations[0]["expected_source_ids"] = sorted(source_hashes)
         operations.extend(
             _replace_operation(
                 self._store,
@@ -196,6 +221,9 @@ class KnowledgeStore:
             )
             for source in refreshed_source_rows
         )
+        if source_hashes is not None:
+            for operation in operations[1:]:
+                operation["expected_sha256"] = source_hashes[operation["entity_id"]]
         return self._store.apply_canonical_payload_transaction(
             idempotency_key=f"knowledge-verification-refresh:{refresh_id}",
             mutations=operations,
@@ -213,6 +241,7 @@ class KnowledgeStore:
             str, Sequence[ProjectKnowledgeSourceRef]
         ],
         project_root: object | None = None,
+        expected_context_entries: Sequence[KnowledgeEntry] = (),
     ) -> dict:
         """Atomically add current knowledge or replace current entries."""
 
@@ -241,17 +270,46 @@ class KnowledgeStore:
             )
 
         project_name = decision.project_name
+        context_hashes: dict[str, str] = {}
+        for expected in expected_context_entries:
+            if expected.project_name != project_name or expected.id in context_hashes:
+                raise CanonicalTransactionPreconditionError("knowledge context expectation scope changed")
+            # Capture the hash before reading the object. A concurrent change
+            # either fails the object comparison or the transaction's assert.
+            digest = self._store.record_payload_sha256(
+                "knowledge_entries", expected.id, project_name=project_name,
+            )
+            current = await self.get_entry(expected.id, project_name=project_name)
+            if digest is None or current is None or current.to_dict() != expected.to_dict():
+                raise CanonicalTransactionPreconditionError("knowledge context changed after verification")
+            context_hashes[expected.id] = digest
         current_predecessors: list[KnowledgeEntry] = []
         predecessor_sources: dict[str, list[KnowledgeSource]] = {}
+        predecessor_hashes: dict[str, str] = {}
+        predecessor_source_hashes: dict[str, str] = {}
         for expected in predecessor_entries:
+            digest = self._store.record_payload_sha256(
+                "knowledge_entries", expected.id, project_name=project_name,
+            )
             current = await self.get_entry(expected.id, project_name=project_name)
-            if current is None:
+            if digest is None or current is None:
                 raise ValueError("knowledge change predecessor is not current")
             if current.to_dict() != expected.to_dict():
                 raise ValueError("knowledge change predecessor changed before commit")
             current_predecessors.append(current)
+            predecessor_hashes[current.id] = digest
             predecessor_sources[current.id] = await self.list_sources(current.id)
+            for source in predecessor_sources[current.id]:
+                source_digest = self._store.record_payload_sha256(
+                    "knowledge_sources", source.id, project_name=project_name,
+                )
+                if source_digest is None or KnowledgeSource.from_dict(
+                    self._store.read_record_payload("knowledge_sources", source.id)
+                ).to_dict() != source.to_dict():
+                    raise CanonicalTransactionPreconditionError("knowledge source changed before commit")
+                predecessor_source_hashes[source.id] = source_digest
 
+        split_entries: list[KnowledgeEntry] = []
         for entry in added_entries:
             if entry.project_name != project_name:
                 raise ValueError("knowledge change output crosses projects")
@@ -261,14 +319,51 @@ class KnowledgeStore:
             report = entry.source_report
             if any(ref.kind == "source_report" for ref in refs) != (report is not None):
                 raise ValueError("source-report and fact authority boundary cannot be crossed")
-            if report is not None:
-                if candidate_before.source_report != report:
+            if report is not None and decision.report_split:
+                split_entries.append(entry)
+            elif report is not None:
+                predecessor_reports = [
+                    old.source_report
+                    for old in predecessor_entries
+                    if old.source_report is not None
+                ]
+                topic_judgments = list(decision.report_topic_judgments)
+                if topic_judgments:
+                    if (candidate_before.source_report is None or decision.report_topic_judgment is not None
+                            or len(topic_judgments) != len(predecessor_entries)
+                            or len(predecessor_reports) != len(predecessor_entries)):
+                        raise ValueError("source-report topic judgments must cover every predecessor once")
+                    expected_report = candidate_before.source_report.with_topic_revision(
+                        report.render_title(), topic_judgments[0], predecessor=predecessor_reports[0])
+                    if expected_report != report or any(
+                        not judgment.authorizes(predecessor, report)
+                        for predecessor, judgment in zip(predecessor_reports, topic_judgments)
+                    ):
+                        raise ValueError("source-report replacement topic judgments changed before commit")
+                elif len(predecessor_reports) > 1:
+                    raise ValueError("source-report topic judgments must cover every predecessor once")
+                elif (candidate_before.source_report is None
+                        or not account_write_allowed(
+                            candidate_before.source_report,
+                            report,
+                            decision.report_topic_judgment,
+                            predecessor_reports,
+                        )):
                     raise ValueError("source-report write must retain its verified candidate account")
-                if any(
-                    old.source_report is None or not report.same_account_source(old.source_report)
+                if not topic_judgments and any(
+                    old.source_report is None
+                    or not report_revision_allowed(
+                        report,
+                        old.source_report,
+                        decision.report_topic_judgment,
+                        disposition=decision.disposition,
+                    )
                     for old in predecessor_entries
                 ):
-                    raise ValueError("source-report replacement cannot cross source, speaker or period")
+                    raise ValueError(
+                        "source-report replacement cannot cross source, speaker, period, or topic"
+                    )
+            if report is not None:
                 indexes: set[int] = set()
                 for ref in refs:
                     query = parse_qs(urlparse(ref.target).fragment)
@@ -287,6 +382,27 @@ class KnowledgeStore:
             if any((predecessor.source_report is None) != (report is None)
                    for predecessor in predecessor_entries):
                 raise ValueError("source-report and fact authority boundary cannot be crossed")
+        if decision.report_split:
+            if not split_entries or len(predecessor_entries) != 1:
+                raise ValueError("a report refinement replaces one predecessor with retained outputs")
+            predecessor_report = predecessor_entries[0].source_report
+            if (
+                candidate_before.source_report is None
+                or predecessor_report is None
+                or candidate_before.source_report != predecessor_report
+            ):
+                raise ValueError("source-report write must retain its verified candidate account")
+            payload = decision.report_split
+            bound = bind_report_split(
+                candidate_before.source_report,
+                original_support=str(payload.get("original_support") or ""),
+                outputs=[ReportOutputProposal.model_validate(item) for item in payload.get("outputs") or []],
+                omissions=[ReportOmission.model_validate(item) for item in payload.get("omissions") or []],
+                mode=str(payload.get("mode", "literal_projection")),
+            )
+            written = [entry.source_report for entry in split_entries]
+            if any(not isinstance(item, SourceReport) for item in written) or written != bound:
+                raise ValueError("stored report split does not match its bound outputs")
 
         new_sources: list[KnowledgeSource] = []
         for entry in added_entries:
@@ -295,6 +411,18 @@ class KnowledgeStore:
             )
 
         operations: list[dict] = []
+        retiring_ids = {entry.id for entry in current_predecessors}
+        output_ids = {entry.id for entry in added_entries}
+        for identity, digest in context_hashes.items():
+            if identity in retiring_ids:
+                continue  # Its existing deletion carries this same guard below.
+            if identity in output_ids:
+                raise CanonicalTransactionPreconditionError("knowledge output overlaps retained context")
+            operations.append({
+                "operation": "assert", "collection": "knowledge_entries",
+                "entity_id": identity, "project_name": project_name,
+                "expected_sha256": digest,
+            })
         for entry in current_predecessors:
             for source in predecessor_sources[entry.id]:
                 operations.append(
@@ -313,10 +441,31 @@ class KnowledgeStore:
                     project_name=entry.project_name,
                 )
             )
+            operations[-1]["expected_sha256"] = context_hashes.get(entry.id, predecessor_hashes[entry.id])
+            operations[-1]["expected_source_ids"] = sorted(source.id for source in predecessor_sources[entry.id])
+        # A content-derived successor can retain a predecessor's identity.
+        # Replace its guarded deletion with one guarded upsert, including any
+        # retained source identity; the canonical transaction still rejects
+        # every other attempt to mutate one target twice.
+        retired_positions = {
+            (operation["collection"], operation["entity_id"]): index
+            for index, operation in enumerate(operations) if operation["operation"] == "delete"
+        }
+        for operation in operations:
+            if operation["operation"] == "delete" and operation["collection"] == "knowledge_sources":
+                operation["expected_sha256"] = predecessor_source_hashes[operation["entity_id"]]
+
+        def add_output(collection: str, identity: str, payload: dict) -> None:
+            position = retired_positions.pop((collection, identity), None)
+            if position is None:
+                operations.append(_new_operation(collection, identity, payload))
+            else:
+                operations[position] = {**operations[position], "operation": "upsert", "payload": payload}
+
         for entry in added_entries:
-            operations.append(_new_operation("knowledge_entries", entry.id, entry.to_dict()))
+            add_output("knowledge_entries", entry.id, entry.to_dict())
         for source in new_sources:
-            operations.append(_new_operation("knowledge_sources", source.id, source.to_dict()))
+            add_output("knowledge_sources", source.id, source.to_dict())
         return self._store.apply_canonical_payload_transaction(
             idempotency_key=f"knowledge-change:{decision.id}",
             mutations=operations,
@@ -446,16 +595,19 @@ def _knowledge_sources(
 ) -> list[KnowledgeSource]:
     verified_at = entry.verified_at or entry.updated_at
     sources: list[KnowledgeSource] = []
-    seen: set[tuple[str, str]] = set()
+    source_indexes: dict[tuple[str, str], int] = {}
     for ref in refs:
         parsed = urlparse(ref.target)
         source_kind = str(ref.kind or "").strip()
         if not source_kind:
             source_kind = "repository" if parsed.scheme == "file" and not parsed.fragment else "transcript"
         source_key = (source_kind, ref.target)
-        if source_key in seen:
+        if source_key in source_indexes:
+            existing = sources[source_indexes[source_key]]
+            if ref.digest == existing.content_sha256:
+                existing.bindings.extend(binding for binding in ref.bindings if binding not in existing.bindings)
             continue
-        seen.add(source_key)
+        source_indexes[source_key] = len(sources)
         identity = f"{entry.id}\0{source_kind}\0{ref.target}"
         sources.append(
             KnowledgeSource(
@@ -466,6 +618,7 @@ def _knowledge_sources(
                 locator=ref.target,
                 content_sha256=ref.digest,
                 verified_at=verified_at,
+                bindings=ref.bindings,
             )
         )
     return sources

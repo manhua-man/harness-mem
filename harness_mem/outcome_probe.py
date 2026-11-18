@@ -320,7 +320,10 @@ def inspect_autonomous_outcome(
     expected_cli = evidence_client
     if merged_config is not None:
         current_background = background_status(merged_config, client=evidence_client)
-        authorized = current_background.ready
+        # Authorization of the recorded work and ability to dispatch another
+        # native request are different facts. A new budget refusal must not
+        # erase a completed, bound receipt or claim that the next run is ready.
+        authorized = current_background.on
         expected_cli = current_background.selected_cli or evidence_client
     hook_receipt = read_hook_execution_receipt(
         data_dir,
@@ -471,6 +474,8 @@ def inspect_autonomous_outcome(
     return {
         "receipt_exists": True,
         "authorized": authorized,
+        "current_scheduling_ready": current_background.ready if merged_config is not None else False,
+        "current_scheduling_reason": current_background.reason if merged_config is not None else "config_unavailable",
         "state": receipt.get("state"),
         "execution_source": evidence.get("execution_source"),
         "trigger_id": evidence.get("trigger_id"),

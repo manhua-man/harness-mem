@@ -395,8 +395,16 @@ async def run_post_turn_maintenance(
     trigger_id: str | None = None,
     native_transcript_path: str | None = None,
     background_requested_at: float | None = None,
+    resume_run_id: str | None = None,
+    host_client: str | None = None,
 ) -> dict[str, Any]:
     """Sync transcript evidence and queue Agent-led distillation work."""
+    if resume_run_id is not None:
+        from harness_mem.commands.dream_continuation import run_bound_continuation
+        return await run_bound_continuation(
+            backend, project_name=project_name, project_root=project_root, config=config,
+            host_client=host_client or "", resume_run_id=resume_run_id, trigger_id=trigger_id,
+        )
     from harness_mem.maintenance_lock import maintenance_is_locked
 
     if maintenance_is_locked(backend.data_dir, trigger_id=trigger_id):
@@ -549,26 +557,20 @@ async def run_post_turn_maintenance(
                 # existing detached owner; never restage or invent another Stop.
                 if source == "ide_hook" and os.environ.get("HARNESS_MEM_HOOK_BACKGROUND_WORKER") == "1":
                     from harness_mem.hook_background import (
-                        BackgroundRequest, background_generation_from_env,
-                        background_request_cancelled, heartbeat_background_worker,
+                        heartbeat_background_worker,
                     )
                     worker_client = host_client or os.environ.get("HARNESS_MEM_CLIENT", "")
                     original_run = dream_tick.get("run_id")
                     metadata = dream_tick.get("continuation") or {}
                     max_slices = int(metadata.get("max_slices", 0)) if isinstance(metadata, dict) else 0
-                    request = BackgroundRequest(
-                        generation=background_generation_from_env() or "",
-                        project_root=project_root, client=worker_client, source=source,
-                        trigger_id=trigger_id, requested_at=background_requested_at or 0.0,
-                    )
                     for _slice in range(max(0, max_slices)):
                         if dream_tick.get("status") != "continuing" or not isinstance(original_run, str):
                             break
-                        if (maintenance_is_locked(backend.data_dir, trigger_id=trigger_id)
-                                or (background_requested_at is not None
-                                    and background_request_cancelled(backend.data_dir, request))):
+                        # User activity cancels the idle window before dispatch,
+                        # not an already-started, source-bound finite Dream task.
+                        if maintenance_is_locked(backend.data_dir, trigger_id=trigger_id):
                             dream_tick = {**dream_tick, "continuation_paused": True,
-                                          "reason": "new_user_input_or_exclusive_maintenance"}
+                                          "reason": "exclusive_maintenance_run_active"}
                             break
                         if not heartbeat_background_worker(
                             backend.data_dir, project_root=Path(project_root), client=worker_client,

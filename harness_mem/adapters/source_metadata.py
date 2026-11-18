@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 from typing import Any, cast
+from collections.abc import Iterable, Mapping
 from urllib.parse import unquote, urlsplit
 
 from harness_mem.adapters.protocol import SessionRecord
@@ -20,6 +21,46 @@ from harness_mem.adapters.protocol import SessionRecord
 
 ROOT_FIELDS = ("cwd", "project_root", "workspace_root", "workspace")
 HEADER_BYTES = 65536
+
+
+def codex_session_origin(records: Iterable[Mapping[str, Any]]) -> dict[str, str]:
+    """Classify only native session headers, never user prose or task labels.
+
+    Missing declarations preserve the pre-existing legacy author contract.
+    An explicit unrecognized declaration cannot claim that legacy exemption.
+    """
+    origins: list[dict[str, str]] = []
+    for record in records:
+        if record.get("type") != "session_meta":
+            continue
+        payload = record.get("payload")
+        if not isinstance(payload, dict) or "source" not in payload:
+            continue
+        source = payload["source"]
+        if isinstance(source, str) and source in {"cli", "vscode", "exec"}:
+            origin = {"kind": "primary"}
+        elif source == "subagent" or isinstance(source, dict) and "subagent" in source:
+            origin = {"kind": "delegated"}
+            subagent = source.get("subagent") if isinstance(source, dict) else None
+            spawn = subagent.get("thread_spawn") if isinstance(subagent, dict) else None
+            parent = spawn.get("parent_thread_id") if isinstance(spawn, dict) else None
+            if isinstance(parent, str) and parent.strip():
+                origin["parent_thread_id"] = parent
+        else:
+            origin = {"kind": "declared_unknown"}
+        origins.append(origin)
+    if not origins:
+        return {"kind": "legacy_missing"}
+    if any(origin != origins[0] for origin in origins[1:]):
+        return {"kind": "declared_unknown"}
+    return origins[0]
+
+
+def codex_origin_allows_user_statements(origin: Any) -> bool:
+    """A native user role in delegated/unknown work is no human policy proof."""
+    return origin is None or isinstance(origin, dict) and origin.get("kind") in {
+        "primary", "legacy_missing",
+    }
 
 
 def _local_metadata_path(value: str) -> Path | None:
@@ -77,6 +118,7 @@ def _read_jsonl_metadata(
     # Full admission still reads the complete selected native source independently.
     roots: list[str] = []
     header: dict[str, Any] = {}
+    codex_headers: list[dict[str, Any]] = []
     with path.open("rb") as stream:
         prefix = stream.read(byte_budget)
     # An incomplete final line is not a JSON record and cannot establish roots.
@@ -100,10 +142,16 @@ def _read_jsonl_metadata(
             if not isinstance(payload, dict):
                 continue
             metadata = payload
+            if record.get("type") == "session_meta":
+                codex_headers.append({"type": "session_meta", "payload": {
+                    **({"source": payload["source"]} if "source" in payload else {}),
+                }})
         if not header:
             header = {key: metadata[key] for key in (*ROOT_FIELDS, "id", "session_id", "timestamp")
                       if key in metadata and isinstance(metadata[key], (str, int, float))}
         roots.extend(structured_metadata_roots(metadata, workspace_root=workspace_root))
+    if client == "codex":
+        header["codex_session_origin"] = codex_session_origin(codex_headers)
     return tuple(dict.fromkeys(roots)), header
 
 

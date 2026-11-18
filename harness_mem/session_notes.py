@@ -257,21 +257,23 @@ def render_session_note(job: SessionDistillJob) -> str:
             + completion_label,
             f"- 形成长期记忆：{int(promotion.get('promoted') or 0)} 条",
             "",
-            "## Answer Packet（结果校验）",
+            "## 记忆整理与来源核验",
             "",
-            f"- 验证问题：{_user_visible_text(packet.get('question') or '未记录。')}",
-            "- 验证状态："
+            "> 此处说明记忆内容和来源是否核对通过；原任务的执行与验收状态见“最终结果”和“未完成工作”。",
+            "",
+            f"- 会话末次请求：{_user_visible_text(packet.get('question') or '未记录。')}",
+            "- 记忆内容与来源核验："
             + _readable_label(
                 packet.get("answer_status"),
                 _ANSWER_STATUS_LABELS,
                 "没有充分证据",
             ),
-            "- 核心结论："
+            "- 整理结论："
             + _user_visible_text(
                 packet.get("core_conclusion") or "未形成可验证结论。"
             ),
             f"- 证据来源：{_readable_evidence_basis(packet.get('evidence_basis'))}",
-            f"- 验证时间：{packet.get('verified_at') or '无'}",
+            f"- 来源核验时间：{packet.get('verified_at') or '无'}",
             "- 写入状态："
             + _readable_label(
                 packet.get("promotion_status"),

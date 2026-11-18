@@ -64,7 +64,11 @@ def repair_source_observation_projection(
     revision = backend.transcript_store.get_revision(source_id, source_revision)
     if source is None or revision is None:
         return None
-    if revision.source_kind in _SHARED_SOURCE_KINDS:
+    is_native_sqlite_projection = (
+        revision.client == "hermes" and revision.source_kind == "sqlite-session-export"
+        or revision.client == "antigravity" and revision.source_kind == "antigravity-sqlite"
+    )
+    if revision.source_kind in _SHARED_SOURCE_KINDS and not is_native_sqlite_projection:
         return None
     try:
         stored_bytes = backend.transcript_store.reconstruct_raw(
@@ -76,7 +80,20 @@ def repair_source_observation_projection(
     if transcript_bytes_revision(stored_bytes) != source_revision:
         return None
 
-    if revision.parser_version in _CODEX_CONVERSATION_PARSERS:
+    if is_native_sqlite_projection:
+        from harness_mem.commands.evidence_admission import _native_sqlite_conversation
+
+        try:
+            rendering = _native_sqlite_conversation(revision, stored_bytes)
+        except (ValueError, TypeError, UnicodeError):
+            return None
+        if not rendering:
+            return None
+        observation = Observation(
+            session_id=revision.session_id, client=revision.client, raw_content=rendering,
+            content_type="transcript",
+        )
+    elif revision.parser_version in _CODEX_CONVERSATION_PARSERS:
         # New Codex snapshots intentionally keep only the permitted
         # user/assistant transcript in the ledger.  It is already the exact
         # search projection, so replaying it through the native JSONL parser

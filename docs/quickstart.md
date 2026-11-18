@@ -70,10 +70,36 @@ after setup. Users do not ask to remember each conversation. Use `hm` to
 inspect or review memory:
 
 ```text
-Show what has been remembered.
-Correct this memory: ...
-Delete the memory about ...
+$hm help
+$hm distill --project oiioii-studio --cleanup
+$hm search "Oii upstream models and local alternatives"
+$hm review
 ```
+
+These fixed subcommands describe the unreleased command-entry update; other
+hosts use `/hm` in place of `$hm`. Bare `hm` shows help only. `status` inspects
+progress, `distill` requires a project or explicit `--all`, and `clean` previews
+while `clean --apply` executes verified cleanup. The Agent routes the actions to
+the existing MCP tools; they are not additional terminal CLI commands. The
+current development runtime remains uninstalled, with native dispatch pending;
+see [the current plan](roadmap.md#current-iteration-plan).
+
+Use `$hm distill --all --archived-only` to select proven native Codex and
+Cursor archives. Other history remains available through ordinary `distill`.
+Explicit cleanup can remove a verified Cursor SQLite archive and its matching
+records in the supported local conversation search database. It verifies the
+selected archive and saved results before writing, then checks both databases
+after the commits. Other profiles, unsupported search layouts, keys with
+unverified ownership and same-session JSONL copies keep the source protected.
+OpenCode can read both legacy JSON history and SQLite.
+See [archive coverage](roadmap.md#archive-capability-follow-up-2026-11-13).
+
+Ordinary `distill` can select finished Hermes `state.db` sessions and supported
+Antigravity native SQLite conversations. The same `clean` preview and apply
+commands target the selected session's records and verified native companions.
+The shared databases remain in place. A display transcript with a native
+Antigravity database must be reviewed through that native source before cleanup.
+See [native database coverage](roadmap.md#hermes-and-antigravity-native-databases-2026-11-13).
 
 Search and review do not require working Hooks. Task-related recall uses native
 context injection where supported and the Agent's MCP search otherwise. Codex

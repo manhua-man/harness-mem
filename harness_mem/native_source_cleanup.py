@@ -209,6 +209,9 @@ def plan_native_source_cleanup(
             quiet_seconds,
             shape_reason,
         )
+    if source.client == "antigravity" and _antigravity_has_native_database(source_path):
+        return _unsupported_plan(source, locator_sha256, quiet_seconds,
+                                 "antigravity_sqlite_requires_native_review")
 
     # Reject the locator itself before building manifests.  On platforms that
     # support symlinks, manifest construction deliberately raises for a link;
@@ -435,6 +438,8 @@ def apply_native_source_cleanup(plan: NativeCleanupPlan) -> dict:
     verification_path = plan.verification_path
     if verification_path is None:
         return _result(plan, "partial_failure", reason_codes=("invalid_cleanup_plan",))
+    if plan.client == "antigravity" and _antigravity_has_native_database(verification_path):
+        return _result(plan, "retained", reason_codes=("antigravity_sqlite_requires_native_review",))
     primary_index = _primary_action_index(plan.actions, verification_path)
     if primary_index is None:
         return _result(
@@ -1040,6 +1045,21 @@ def build_native_cleanup_descriptor(
     }
 
 
+def _antigravity_has_native_database(transcript: Path) -> bool:
+    """A display-log cleanup cannot stand in for native trajectory review."""
+    directory = transcript.parents[4] / "conversations"
+    identity = transcript.parents[2].name
+    for suffix in (".db", ".db-wal", ".db-shm", ".db-journal"):
+        try:
+            (directory / f"{identity}{suffix}").lstat()
+        except FileNotFoundError:
+            continue
+        except OSError:
+            return True
+        return True
+    return False
+
+
 def _actions_for_source(
     source: TranscriptSource,
     path: Path,
@@ -1060,9 +1080,6 @@ def _actions_for_source(
         for companion in (
             host_root / "annotations" / f"{source.session_id}.pbtxt",
             host_root / "conversations" / f"{source.session_id}.pb",
-            host_root / "conversations" / f"{source.session_id}.db",
-            host_root / "conversations" / f"{source.session_id}.db-wal",
-            host_root / "conversations" / f"{source.session_id}.db-shm",
         ):
             companion_root = _containing_root(companion, roots)
             if companion_root is not None and companion.exists():

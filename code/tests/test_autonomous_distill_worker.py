@@ -55,6 +55,38 @@ from harness_mem.hook_receipts import record_hook_execution
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
+@pytest.fixture(autouse=True)
+def isolated_worker_host_state(tmp_path, monkeypatch):
+    """Every worker here consumes fictional sources and in-process providers."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "isolated-home")
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "isolated-codex-home"))
+
+    class ForbiddenPopen:
+        def __init__(self, *_args, **_kwargs):
+            pytest.fail("deterministic worker tests must not dispatch a native host")
+
+        def __class_getitem__(cls, _item):
+            return cls
+
+    monkeypatch.setattr("harness_mem.autonomous.executors.host_structured_cli.subprocess.Popen", ForbiddenPopen)
+    monkeypatch.setattr("harness_mem.autonomous.executors.codex_app_server.CodexAppServer.run", ForbiddenPopen)
+    # Host Hook execution is separately owned. These worker consumers test a
+    # declared fake preflight rather than dispatching a real Hook event.
+    monkeypatch.setattr("harness_mem.autonomous.worker.challenge_hook_reentry_guard", lambda *_args, **_kwargs: {
+        "all_blocked": True, "downstream_jobs_created": 0, "actions": {},
+        "fixture_boundary": "no-host-event-dispatched",
+    })
+
+
+
+async def persist_fixture_snapshot(backend, observation, **kwargs):
+    source = Path(kwargs["project_root"]) / "fixture-sources" / (kwargs["session_id"] + ".txt")
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text(kwargs["source_text"], encoding="utf-8")
+    kwargs["source_uri"] = source.resolve().as_uri()
+    return await persist_session_snapshot(backend, observation, **kwargs)
+
+
 def _verify_all_candidates(self, manifest, *, runtime_dir, heartbeat=None):
     del runtime_dir
     if heartbeat is not None:
@@ -66,8 +98,11 @@ def _verify_all_candidates(self, manifest, *, runtime_dir, heartbeat=None):
                     {
                         "candidate_index": item["candidate_index"],
                         "semantic_support": "supported",
-                        "future_scope": "durable",
-                        "reason": "The bounded source directly supports a reusable project point.",
+                        "future_scope": "durable", "source_use": "reusable_knowledge",
+                        "scope_segments": [{"text": item.get("scope_text", item["statement"]),
+                            "source_use": "reusable_knowledge", "future_scope": "durable",
+                            "standalone": True, "content_role": "claim", "source_support": "supported"}],
+                        "reason": "The complete fixture source supports this reusable project point.",
                     }
                     for item in manifest["candidates"]
                 ]
@@ -2034,13 +2069,19 @@ def test_per_point_verifier_blocks_unsupported_and_session_only_candidates(
                             {
                                 "candidate_index": 0,
                                 "semantic_support": "partial",
-                                "future_scope": "unclear",
+                                "future_scope": "unclear", "source_use": "task_context",
+                                "scope_segments": [{"text": "The implementation is complete.",
+                                    "source_use": "task_context", "future_scope": "session_only", "standalone": False,
+                                    "content_role": "temporary_context", "source_support": "unclear"}],
                                 "reason": "The source does not prove completion.",
                             },
                             {
                                 "candidate_index": 1,
                                 "semantic_support": "supported",
-                                "future_scope": "session_only",
+                                "future_scope": "session_only", "source_use": "task_context",
+                                "scope_segments": [{"text": "Show the current result now.",
+                                    "source_use": "task_context", "future_scope": "session_only", "standalone": False,
+                                    "content_role": "temporary_context", "source_support": "supported"}],
                                 "reason": "This is only a one-off display request.",
                             },
                         ]
@@ -2136,7 +2177,10 @@ def test_per_point_verifier_blocks_unfinished_task_envelope_even_if_model_marks_
                             {
                                 "candidate_index": 0,
                                 "semantic_support": "supported",
-                                "future_scope": "durable",
+                                "future_scope": "durable", "source_use": "reusable_knowledge",
+                                "scope_segments": [{"text": "Before a benchmark, verify every read target exists.",
+                                    "source_use": "reusable_knowledge", "future_scope": "durable", "standalone": True,
+                                    "content_role": "claim", "source_support": "supported"}],
                                 "reason": "Incorrectly treats task instructions as a rule.",
                             }
                         ]
@@ -2192,7 +2236,7 @@ def test_per_point_verifier_requires_repository_evidence_for_current_version_cla
     manifest = {
         "candidates": [
             {
-                "candidate_index": 0,
+                "candidate_index": 0, "statement": statement,
                 "sources": [{"kind": "user_statement", "content": statement}],
             }
         ]
@@ -2212,6 +2256,7 @@ def test_per_point_verifier_requires_repository_evidence_for_current_version_cla
 
     assert verified[0][1]["verification_outcome"] == "not_applicable"
     assert verified[0][1]["verification_reason_codes"] == [
+        "source_use_reusable_knowledge", "future_scope_durable", "autonomous_final_scope_required", "source_scope_durable",
         "session_only_not_durable",
         "current_version_requires_repository_evidence",
     ]
@@ -2236,7 +2281,7 @@ def test_per_point_verifier_accepts_current_version_with_repository_evidence(
     manifest = {
         "candidates": [
             {
-                "candidate_index": 0,
+                "candidate_index": 0, "statement": statement,
                 "sources": [
                     {
                         "kind": "repository",
@@ -2323,7 +2368,10 @@ def test_semantic_reverification_rebinds_repository_ref_to_current_digest(
                             {
                                 "candidate_index": 0,
                                 "semantic_support": "supported",
-                                "future_scope": "durable",
+                                "future_scope": "durable", "source_use": "reusable_knowledge",
+                                "scope_segments": [{"text": "Revision identity uses a content hash.",
+                                    "source_use": "reusable_knowledge", "future_scope": "durable", "standalone": True,
+                                    "content_role": "claim", "source_support": "supported"}],
                                 "reason": "The current file still supports the claim.",
                             }
                         ]
@@ -2468,6 +2516,12 @@ class _BlockedVerificationProvider(_DeterministicProvider):
                             "candidate_index": item["candidate_index"],
                             "semantic_support": self.semantic_support,
                             "future_scope": self.future_scope,
+                            "source_use": "task_context" if self.future_scope == "session_only" else "unclear",
+                            "scope_segments": [{"text": item.get("scope_text", item["statement"]),
+                                "source_use": "task_context" if self.future_scope == "session_only" else "unclear",
+                                "future_scope": self.future_scope, "standalone": False,
+                                "content_role": "temporary_context" if self.future_scope == "session_only" else "claim",
+                                "source_support": "supported" if self.semantic_support == "supported" else "contradicted" if self.semantic_support == "contradicted" else "unclear"}],
                             "reason": "The extracted claim must not reach current knowledge.",
                         }
                         for item in manifest["candidates"]
@@ -3510,7 +3564,7 @@ def test_worker_never_promotes_points_blocked_by_semantic_verification(
         "Assistant: I will preserve that project storage decision.\n"
     )
     snapshot = asyncio.run(
-        persist_session_snapshot(
+        persist_fixture_snapshot(
             backend,
             Observation(
                 session_id=session_id,
@@ -3588,6 +3642,16 @@ def test_autonomous_worker_completes_job_materializes_note_and_receipt(
     monkeypatch.setenv("HARNESS_MEM_SESSION_NOTES_DIR", str(notes_dir))
     backend = LocalMemoryBackend(data_dir)
     asyncio.run(backend.init())
+    commit_evidence = {}
+    actual_apply = backend.structured_store.knowledge_store.apply_current_change
+
+    async def observe_actual_commit(*args, **kwargs):
+        candidate_id = kwargs["candidate_before"].id
+        evidence = await backend.structured_store.knowledge_store.list_evidence(candidate_id)
+        commit_evidence[candidate_id] = [code for row in evidence for code in row.verification_reason_codes]
+        return await actual_apply(*args, **kwargs)
+
+    monkeypatch.setattr(backend.structured_store.knowledge_store, "apply_current_change", observe_actual_commit)
     receipt_path = autonomous_receipt_path(
         data_dir,
         project_name="demo",
@@ -3599,7 +3663,7 @@ def test_autonomous_worker_completes_job_materializes_note_and_receipt(
         encoding="utf-8",
     )
     snapshot = asyncio.run(
-        persist_session_snapshot(
+        persist_fixture_snapshot(
             backend,
             Observation(
                 session_id="autonomous-session",
@@ -3663,6 +3727,21 @@ def test_autonomous_worker_completes_job_materializes_note_and_receipt(
         ("Local index storage", "The project uses SQLite for local derived indexes.")
     ]
     assert len(stored.output_candidate_ids) == 1
+    from harness_mem.commands.separated_assimilation import final_scope_proof, prove_supplied_final_scope
+    point = stored.semantic_review["assimilation"]["points"][0]
+    actual_items = point["knowledge_items"] or [{
+        "title": point["canonical_title"], "statement": point["canonical_statement"],
+        "topic_path": point["topic_path"], "claim_kind": point.get("claim_kind") or "procedure",
+    }]
+    assert actual_items == [{"title": "Local index storage", "statement": "The project uses SQLite for local derived indexes.",
+                             "topic_path": ["storage"], "claim_kind": "procedure"}]
+    payload = {"candidate_id": point["candidate_id"], "disposition": point["disposition"],
+               "knowledge_items": actual_items, "targets": []}
+    judgment = CandidateVerificationDecision.model_validate(stored.semantic_review["final_scope_judgment"][point["candidate_id"]])
+    expected_proof = prove_supplied_final_scope(payload=payload, judgment=judgment)
+    assert expected_proof == final_scope_proof(payload)
+    assert expected_proof in commit_evidence[point["candidate_id"]]
+    assert judgment.points[0].scope_segments[0].text == "Local index storage\nThe project uses SQLite for local derived indexes."
     assert stored.promotion_summary["answer_packet"]["promoted_items"] == [
         {
             "title": "Local index storage",
@@ -3680,7 +3759,7 @@ def test_autonomous_worker_completes_job_materializes_note_and_receipt(
     assert backend.transcript_store.db_path.resolve().as_uri() in knowledge_text
     assert f"source_id={snapshot.source.id}" in knowledge_text
     assert "source_revision=sha256%3A" in knowledge_text
-    assert "file:///autonomous-session.jsonl" not in knowledge_text
+    assert (project / "fixture-sources" / "autonomous-session.txt").resolve().as_uri() not in knowledge_text
     assert stored.review_execution_source == "autonomous_worker"
     assert stored.semantic_review["session_summary"].startswith("The user established")
     latest_note_path = notes_dir / "autonomous-session.md"
@@ -3699,6 +3778,7 @@ def test_autonomous_worker_completes_job_materializes_note_and_receipt(
     assert receipt is not None
     assert receipt["schema_version"] == 4
     assert receipt["hook_launch_verified"] is True
+    assert receipt["hook_guard_check"]["fixture_boundary"] == "no-host-event-dispatched"
     assert receipt["hook_config_fingerprint"]
     assert receipt["last_semantic_success_at"]
     assert receipt["last_job_completed_at"]
@@ -3750,6 +3830,8 @@ def test_autonomous_worker_completes_job_materializes_note_and_receipt(
         jobs=[stored],
     )
     assert outcome["provider_isolated"] is True
+    assert outcome["current_scheduling_ready"] is True
+    assert outcome["current_scheduling_reason"] == "ok"
     assert outcome["provider"]["total_tokens"] == 1000
     assert outcome["note_verified"] is True
     assert outcome["durable_hook_binding"] is True
@@ -3847,7 +3929,7 @@ def test_autonomous_worker_completes_job_materializes_note_and_receipt(
     # A later provider timeout remains visible as the latest attempt while the
     # independently verified prior completion remains valid.
     deferred_snapshot = asyncio.run(
-        persist_session_snapshot(
+        persist_fixture_snapshot(
             backend,
             Observation(
                 session_id="deferred-session",
@@ -3909,7 +3991,27 @@ def test_autonomous_worker_completes_job_materializes_note_and_receipt(
     )
     assert incomplete["provider_metrics_bound"] is False
     assert incomplete["lifecycle_verified"] is False
+    committed_rows = [entry.to_dict() for entry in asyncio.run(knowledge_store.list_entries("demo"))]
     asyncio.run(backend.close())
+    reopened = LocalMemoryBackend(data_dir)
+    asyncio.run(reopened.init())
+    from harness_mem.mcp import tool_handlers
+    from harness_mem.commands.evidence_admission import reopen_knowledge_sources
+    monkeypatch.setattr(tool_handlers, "_backend_provider", lambda: reopened)
+    monkeypatch.setattr(tool_handlers, "_observer_data_dir_provider", lambda: reopened.data_dir)
+    try:
+        fresh_rows = asyncio.run(reopened.structured_store.knowledge_store.list_entries("demo"))
+        assert [entry.to_dict() for entry in fresh_rows] == committed_rows
+        recalled = tool_handlers.build_tool_handlers()["search_memory"](query="Local index storage", project_name="demo", scope="project")
+        assert recalled["memories"] == [{"title": "Local index storage", "statement": "The project uses SQLite for local derived indexes."}]
+        sources = asyncio.run(reopened.structured_store.knowledge_store.list_sources(fresh_rows[0].id))
+        validation, complete = asyncio.run(reopen_knowledge_sources(reopened, project_name="demo", sources=sources, project_root=str(project)))
+        assert validation.verification_outcome == "verified"
+        assert len(complete) == len(sources) > 0
+        assert all(row.content and not row.truncated for row in complete)
+        assert "Always use SQLite" in complete[0].content
+    finally:
+        asyncio.run(reopened.close())
 
 
 def test_note_io_failure_preserves_all_native_paid_stage_journal(tmp_path, monkeypatch):
@@ -3930,17 +4032,18 @@ def test_note_io_failure_preserves_all_native_paid_stage_journal(tmp_path, monke
         def observed(manifest, *, runtime_dir, heartbeat=None, _method=method, _name=name):
             result = _method(manifest, runtime_dir=runtime_dir, heartbeat=heartbeat)
             usage = {key: getattr(result, key) for key in ('input_tokens', 'output_tokens', 'total_tokens')}
-            result = replace(result, native_attempts=({'call_id': _name, 'model_dispatched': True,
+            result = replace(result, native_attempts=({'call_id': _name + '-' + str(len(provider._native_results) + 1), 'model_dispatched': True,
                 'usage': usage, 'known_usage_subtotal': usage},))
             provider._native_results.append(replace(result, decision=None))
             return result
         setattr(provider, name, observed)
     def failed_note(*_args, **_kwargs):
-        raise OSError('fixture Note disk failure after three paid calls')
+        raise OSError('fixture Note disk failure after four simulated paid calls')
+    actual_note = owner._materialize_note
     monkeypatch.setattr(owner, '_materialize_note', failed_note)
     monkeypatch.setattr(owner, 'pending_distill_jobs', lambda *_args, **_kwargs: [])
     try:
-        snapshot = asyncio.run(persist_session_snapshot(backend,
+        snapshot = asyncio.run(persist_fixture_snapshot(backend,
             Observation(session_id='note-failure', client='codex', raw_content=text,
                         content_type='transcript', timestamp=datetime.now(timezone.utc), metadata={}),
             project_name='demo', project_root=str(project), client='codex', session_id='note-failure',
@@ -3951,17 +4054,44 @@ def test_note_io_failure_preserves_all_native_paid_stage_journal(tmp_path, monke
         outcome = result['outcomes'][0]
         assert outcome['status'] == 'deferred'
         assert 'Note disk failure' in outcome['error']['message']
-        assert [row['call_id'] for row in outcome['provider']['native_attempts']] == ['decide', 'verify', 'assimilate']
-        assert outcome['provider']['total_tokens'] == 1180
+        assert [row['call_id'] for row in outcome['provider']['native_attempts']] == ['decide-1', 'verify-2', 'assimilate-3', 'verify-4']
+        assert outcome['provider']['total_tokens'] == 1210
         receipt = read_autonomous_receipt(backend.data_dir, project_name='demo', project_root=project)
         # The top-level compatibility provider remains a verified-completion
         # field; the deferred job's paid history is in batch.jobs, not promoted
         # into a successful-completion record.
         assert receipt['provider'] is None
-        assert receipt['batch']['jobs'][0]['provider']['total_tokens'] == 1180
-        assert receipt['batch']['total_tokens'] == 1180
-        assert receipt['batch']['known_usage_subtotal']['total_tokens'] == 1180
-        assert len(receipt['batch']['jobs'][0]['provider']['native_attempts']) == 3
+        assert receipt['batch']['jobs'][0]['provider']['total_tokens'] == 1210
+        assert receipt['batch']['total_tokens'] == 1210
+        assert receipt['batch']['known_usage_subtotal']['total_tokens'] == 1210
+        assert len(receipt['batch']['jobs'][0]['provider']['native_attempts']) == 4
+        store = backend.structured_store.knowledge_store
+        committed = [row.to_dict() for row in asyncio.run(store.list_entries('demo'))]
+        assert len(committed) == 1
+        monkeypatch.setattr(owner, '_materialize_note', actual_note)
+
+        class NoNewCalls:
+            name = 'codex_cli'
+
+            def decide(self, *_args, **_kwargs):
+                pytest.fail('Note retry must not dispatch any new model decision')
+
+            verify = assimilate = decide
+
+        async def no_reapply(*_args, **_kwargs):
+            pytest.fail('Note retry must not apply already committed knowledge again')
+
+        monkeypatch.setattr(store, 'apply_current_change', no_reapply)
+        recovered = run_autonomous_distill_batch(backend, project_name='demo', project_root=project,
+            config=load_merged_config(project), trigger_id='note-failure', client='codex', provider=NoNewCalls(),
+            max_jobs=1, preferred_job_id=snapshot.distill_job_id, notes_dir=tmp_path / 'notes')
+        assert recovered['state'] == 'succeeded', recovered
+        assert recovered['outcomes'] == []
+        assert [row.to_dict() for row in asyncio.run(store.list_entries('demo'))] == committed
+        assert recovered['receipt']['provider']['total_tokens'] == 1210
+        assert len(recovered['receipt']['provider']['native_attempts']) == 4
+        note = recovered['receipt']['note']
+        assert hashlib.sha256(Path(note['path']).read_bytes()).hexdigest() == note['sha256']
     finally:
         asyncio.run(backend.close())
 
@@ -3976,7 +4106,7 @@ def test_missing_summary_repair_uses_job_bound_note_after_identity_pruning(
     asyncio.run(backend.init())
     notes_dir = tmp_path / "notes"
     snapshot = asyncio.run(
-        persist_session_snapshot(
+        persist_fixture_snapshot(
             backend,
             Observation(
                 session_id="pruned-session",
@@ -4059,7 +4189,7 @@ def test_missing_summary_repair_marks_pruned_job_without_note_unavailable(
     backend = LocalMemoryBackend(tmp_path / "data")
     asyncio.run(backend.init())
     snapshot = asyncio.run(
-        persist_session_snapshot(
+        persist_fixture_snapshot(
             backend,
             Observation(
                 session_id="missing-note-session",

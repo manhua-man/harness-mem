@@ -40,7 +40,9 @@ def inspect_semantic_executor(
         return selected, "unsupported_cli"
     if not host_cli._resolve_executable(selected):
         return selected, "cli_not_found"
-    return selected, "ok"
+    from harness_mem.autonomous.executors.task_budget import task_budget_scheduling_reason
+
+    return selected, task_budget_scheduling_reason(config, selected)
 
 
 def build_semantic_executor(config: MergedConfig, client: str) -> Any:

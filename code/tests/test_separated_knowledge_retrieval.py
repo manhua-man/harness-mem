@@ -226,7 +226,7 @@ def test_separated_knowledge_search_is_current_only_and_clean(
         assert diagnostics["answer_ready_context"]["truth"] == [
             {
                 "source_id": entries[0].id,
-                "reason": "current project knowledge matched the query",
+                "reason": "current project knowledge lexically matched the query",
                 "summary": (
                     "Preserve original evidence first: Data ingestion must preserve "
                     "traceable original evidence before normalization. Markdown may be "
@@ -234,6 +234,10 @@ def test_separated_knowledge_search_is_current_only_and_clean(
                 ),
             }
         ]
+        # Finding a current row is not a semantic relevance or sufficiency vote.
+        assert diagnostics["answer_ready_context"]["safe_to_answer"] is False
+        assert diagnostics["answer_ready_context"]["sufficiency_status"] == "unassessed"
+        assert diagnostics["answer_ready_context"]["support_level"] == "unassessed"
         assert diagnostics["record_outcome_call"] is not None
 
         autopilot = read_search_handlers.tool_autopilot_search_tick(
@@ -247,8 +251,18 @@ def test_separated_knowledge_search_is_current_only_and_clean(
         )
         assert autopilot["search_executed"] is True
         assert len(autopilot["context_injection"]["memories"]) == 1
-        assert autopilot["context_injection"]["source_ids"] == [entries[0].id]
-        assert autopilot["context_injection"]["memories"]
+        assert autopilot["context_injection"]["source_ids"] == []
+        candidate = autopilot["context_injection"]["memories"][0]
+        assert "statement" not in candidate
+        opened = read_search_handlers.tool_search_memory(
+            query=autopilot["context_injection"]["query"], scope="all",
+            detail="full", cursor=candidate["read_cursor"],
+        )
+        assert opened["memories"] == [{
+            "project_name": "demo",
+            "title": entries[0].title,
+            "statement": entries[0].statement,
+        }]
     finally:
         _run(backend.close())
 

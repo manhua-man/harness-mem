@@ -4,6 +4,7 @@ import asyncio
 import json
 import re
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -23,6 +24,23 @@ from harness_mem.mcp.tool_specs import (
 )
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
+
+
+@pytest.fixture(autouse=True)
+def isolate_user_hook_installation(tmp_path, monkeypatch):
+    """Status bootstrap may install user hooks; never let this suite touch a real host."""
+    from harness_mem.integration import installer
+
+    original = installer.install_user_hook_suite
+    isolated_home = tmp_path / "isolated-user-home"
+
+    def isolated_install(*, home_dir=None, **kwargs):
+        target = Path(home_dir).resolve() if home_dir is not None else isolated_home.resolve()
+        if not target.is_relative_to(tmp_path.resolve()):
+            raise AssertionError("User Hook test target must remain inside tmp_path")
+        return original(home_dir=target, **kwargs)
+
+    monkeypatch.setattr(installer, "install_user_hook_suite", isolated_install)
 
 
 SKILL_GOVERNANCE_TOOLS = {
@@ -142,6 +160,24 @@ def _listed_tool_names(params: dict | None = None) -> tuple[dict, set[str]]:
     assert response is not None
     result = response["result"]
     return result, {tool["name"] for tool in result["tools"]}
+
+
+def test_status_bootstrap_user_hooks_stay_in_temporary_home(backend, tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    runner = tmp_path / "harness-mem-hook.exe"
+    runner.write_text("fixture runner", encoding="utf-8")
+    monkeypatch.setattr(support_module, "DEFAULT_DATA_DIR", backend.data_dir)
+    monkeypatch.setattr(integration_cmds, "verified_hook_runner", lambda: runner)
+
+    result = status_handlers.tool_get_project_status(project_root=str(workspace), host_client="codex")
+
+    assert result["success"] is True
+    hook_file = tmp_path / "isolated-user-home" / ".codex" / "hooks.json"
+    hooks = json.loads(hook_file.read_text(encoding="utf-8"))["hooks"]
+    assert set(hooks) == {"SessionStart", "UserPromptSubmit", "Stop"}
+    assert all(str(runner).replace("\\", "/") in group[0]["hooks"][0]["command"]
+               for group in hooks.values())
 
 
 def test_initialize_has_no_project_or_hook_side_effects(
@@ -931,9 +967,68 @@ def test_govern_evidence_reference_schema_is_the_runtime_schema() -> None:
     from harness_mem.core.schemas.evidence import EvidenceRef
     properties = server.TOOLS["govern_memory"]["input_schema"]["properties"]["arguments"]["properties"]
     assert properties["verification_refs"]["items"] == EvidenceRef.model_json_schema()
-    assert properties["verification_refs"]["items"]["properties"]["kind"]["enum"] == ["repository", "user_statement", "transcript"]
+    assert properties["verification_refs"]["items"]["properties"]["kind"]["enum"] == [
+        "repository", "user_statement", "transcript", "source_report",
+    ]
 
 
 def test_dream_auto_is_enabled_by_default_config() -> None:
     assert MergedConfig().dream_auto_enabled is True
     assert MergedConfig().to_reflection_config()["dream"]["auto"]["enabled"] is True
+
+
+def test_final_scope_judgment_is_public_structured_and_self_contained() -> None:
+    """Public schema survives top-level filtering and advertises actual write inputs."""
+    from jsonschema import Draft202012Validator
+    from harness_mem.autonomous.models import CandidateVerificationDecision
+
+    final = _SCHEMAS["finalize_session_distill"]["input_schema"]["properties"]
+    nested = final["semantic_review"]["properties"]["final_scope_judgment"]
+    direct = final["final_scope_judgment"]
+    govern = _SCHEMAS["govern_memory"]["input_schema"]["properties"]["arguments"]["properties"]["final_scope_judgment"]
+    assert direct == nested == govern
+    assert len(PUBLIC_MCP_TOOL_NAMES) == 20
+    assert '"$ref"' not in json.dumps(direct)
+    Draft202012Validator.check_schema(direct)
+    validator = Draft202012Validator(direct)
+    judgment = {"points": [{
+        "candidate_index": 0, "semantic_support": "supported",
+        "future_scope": "durable", "source_use": "standing_decision",
+        "reason": "The user requires release review for future releases.",
+        "scope_segments": [{
+            "text": "Release review\nReleases require review.",
+            "source_use": "standing_decision", "future_scope": "durable",
+            "standalone": True, "content_role": "claim", "source_support": "supported",
+        }],
+        "update_meaning_judgment": {
+            "relationship": "preserves_applicable_meaning",
+            "predecessor_conditions": ["review"],
+            "predecessor_statements": ["Releases require review."],
+            "predecessor_versions": ["runtime-returned-target-version"],
+            "successor_statements": ["Releases require review."],
+            "undecided_state": None,
+            "basis": "The complete successor retains the required review condition.",
+        },
+    }]}
+    validator.validate(judgment)
+    validator.validate({"returned-candidate": judgment})
+    CandidateVerificationDecision.model_validate(judgment)
+    for invalid in (None, "fsv_" + "a" * 64, {"proof": "fsv_example"}, {}, {"points": []}):
+        assert list(validator.iter_errors(invalid)), invalid
+    assert "pause" not in _SCHEMAS["inspect_sessions"]["input_schema"]["properties"]
+    assert "batch_continuation" in _SCHEMAS["inspect_sessions"]["description"]
+    arguments = _SCHEMAS["govern_memory"]["input_schema"]["properties"]["arguments"]["properties"]
+    for name in ("report_topic_judgment", "report_split"):
+        schema = arguments[name]
+        assert '"$ref"' not in json.dumps(schema)
+        Draft202012Validator.check_schema(schema)
+    assert set(arguments["report_topic_judgment"]["required"]) == {
+        "relationship", "predecessor_title", "successor_title", "basis",
+    }
+    split = arguments["report_split"]
+    assert set(split["required"]) == {"original_support", "outputs", "omissions"}
+    fields = split["properties"]["outputs"]["items"]["properties"]
+    assert {"topic_title", "text", "exchange_indexes", "source_support", "source_use",
+            "future_scope", "topic_judgment", "qualifiers", "scope_segments"} <= set(fields)
+    assert "literal_edit_contract" not in fields
+    assert "report_split" not in final["memory_points"]["items"]["properties"]

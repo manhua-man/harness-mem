@@ -31,6 +31,7 @@ from harness_mem.mcp import governance_handlers
 from harness_mem.mcp.distill_projection import render_distill_exchange_windows
 from harness_mem.read_knowledge import _deduplicate_current, search_current_knowledge
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from test_report_account_identity import report_judgment
 
 PROJECT = "source-report-regression"
 CLAIM = "The user approved the production rollout."
@@ -117,6 +118,7 @@ async def publish(backend, root, candidate, *, module="diagnostics"):
         reason="Retain only the checked source speaker's bounded account.",
         knowledge_items=[knowledge_item(module=module)], project_root=root,
         expected_project_name=PROJECT,
+        final_scope_judgment=report_judgment(candidate.source_report, "Diagnostic source account"),
     )
     return await backend.structured_store.knowledge_store.get_entry(result["canonical_truth_ids"][0], project_name=PROJECT)
 
@@ -176,7 +178,10 @@ def test_sr01_exact_pending_replay_remains_usable(isolated):
         assert not replay and replay_again
         assert repeated.source_report == first.source_report
         row = run(publish(backend, root, repeated))
-        assert row.source_report == first.source_report
+        assert row.source_report.model_copy(update={"topic_title": None}) == first.source_report
+        assert row.source_report.topic_title == "Diagnostic source account"
+        assert row.title == row.source_report.render_title()
+        assert row.statement == row.source_report.render_statement()
 
 
 @pytest.mark.parametrize("operation", ["replay", "prepare"])
@@ -237,6 +242,7 @@ def test_sr01_public_relabel_does_not_persist_as_approval(isolated, monkeypatch,
             "kind": "knowledge", "project_name": PROJECT, "candidate_id": first["entry_id"],
             "decision": "confirm", "disposition": "add", "reason": "Persist only the original attributed account.",
             "knowledge_items": [{**knowledge_item(), "claim_kind": "implementation_fact"}],
+            "final_scope_judgment": report_judgment(original.source_report, "Diagnostic source account"),
         })
         record_property("first_suggest", first)
         record_property("relabel_suggest", second)
@@ -245,8 +251,11 @@ def test_sr01_public_relabel_does_not_persist_as_approval(isolated, monkeypatch,
         rows = run(search_current_knowledge(fresh, query="production rollout", project_name=PROJECT, limit=100))
         record_property("reopened_rows", [row.to_dict() for row in rows])
         assert rows, decision
-        assert all(row.source_report is not None for row in rows), "Public replay persisted an unqualified approval fact"
-        assert all(row.source_report == original.source_report for row in rows)
+        assert all(
+            row.source_report is not None
+            and row.source_report.model_copy(update={"topic_title": None}) == original.source_report
+            for row in rows
+        ), "Public replay persisted an unqualified approval fact"
         assert second["success"] is False, "Public replay accepted a different evidence authority"
 
 
@@ -378,5 +387,7 @@ def test_sr05_multi_day_report_labels_session_time_and_keeps_stated_period(isola
         assert row.source_report.text == stated
         label = row.statement.casefold()
         assert "source-session timestamp" in label, "Session creation time is displayed as an unqualified report period"
-        assert "source-session timestamp" in row.title.casefold()
+        legacy_title = row.source_report.model_copy(update={"topic_title": None}).render_title()
+        assert "source-session timestamp" in legacy_title.casefold()
+        assert row.title == "Diagnostic source account"
         assert "2024-06-03" in row.statement

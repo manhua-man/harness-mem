@@ -34,6 +34,8 @@ class SessionRecord(TypedDict, total=False):
     project_roots: list[str]
     metadata_status: str
     metadata_paths: list[Path]
+    codex_session_origin: dict[str, str]
+    archive_state: str
 
 
 class SessionAdapter(Protocol):

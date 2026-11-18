@@ -58,7 +58,8 @@ def test_prepare_plus_finish_preserves_suggestion_identity_and_correction_state(
     assert changed_replay["success"] is False and "differs" in changed_replay["error"]
     rows = tool_handlers.tool_search_memory(query="Iris club")["memories"]
     assert len(rows) == 2
-    assert any("Source-scoped report" in row["statement"] and "assistant" in row["statement"] for row in rows)
+    assert any("Assistant account" in row["statement"] and "not independently established" in row["statement"]
+               and row["statement"].endswith(suggestion) for row in rows)
 
     corrected = "For Iris club, use Chinese book titles with original on first use; other rules stay. Author names are undecided."
     write("iris-corrected", corrected)

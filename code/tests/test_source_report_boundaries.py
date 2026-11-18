@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime, timezone
 
 import pytest
+from test_shared_write_core import _source_for as native_source_for, _point as judged_point, _repo_ref
 
 from harness_mem.autonomous.models import AgentExtractionDecision
 from harness_mem.autonomous.provider import expand_agent_extraction_decision
@@ -80,16 +81,20 @@ def test_untrusted_report_rewrite_cannot_strip_attribution_or_change_verified_co
         await backend.init()
         try:
             report = _report()
+            source = await native_source_for(report, backend)
             candidate = KnowledgeCandidate(project_name="demo", candidate_type="memory", statement=report.text, source_report=report)
             result = await record_assimilation_result(
-                backend, candidate=candidate, point=_point(), project_root=tmp_path, source_refs=[_source()],
+                backend, candidate=candidate,
+                point=judged_point("Sample boundary", "Rollout was approved.", report=report),
+                project_root=tmp_path, source_refs=[source],
             )
             row = await backend.structured_store.knowledge_store.get_entry(result[0], project_name="demo")
-            assert row.source_report == report
+            assert row.source_report.model_copy(update={"topic_title": None}) == report
+            assert row.source_report.topic_title == "Sample boundary"
             assert row.statement == report.render_statement()
             assert "Rollout was approved" not in row.statement
-            assert row.title.startswith("Source report — ")
-            assert KnowledgeEntry.from_dict(row.to_dict()).source_report == report
+            assert row.title == "Sample boundary"
+            assert KnowledgeEntry.from_dict(row.to_dict()).source_report == row.source_report
             return row
         finally:
             await backend.close()
@@ -107,7 +112,8 @@ def test_report_cannot_target_an_existing_verified_fact(tmp_path, disposition):
             fact = KnowledgeCandidate(project_name="demo", candidate_type="memory", statement="The actual rollout requires a signed approval.")
             fact_point = _point()
             fact_point["knowledge_items"][0]["statement"] = fact.statement
-            ids = await record_assimilation_result(backend, candidate=fact, point=fact_point, project_root=tmp_path, source_refs=[_source("repository")])
+            fact_point = judged_point("Sample boundary", fact.statement, claim_kind="implementation_fact")
+            ids = await record_assimilation_result(backend, candidate=fact, point=fact_point, project_root=tmp_path, source_refs=[_repo_ref(tmp_path)])
             before = (await store.get_entry(ids[0], project_name="demo")).to_dict()
             report = _report()
             candidate = KnowledgeCandidate(project_name="demo", candidate_type="memory", statement=report.text, source_report=report)
@@ -159,22 +165,55 @@ def test_report_metadata_cannot_be_removed_from_its_stored_statement():
                        statement=report.text, source_report=report)
 
 
-def test_dream_cannot_upgrade_or_merge_an_attributed_report(tmp_path):
+def test_dream_cannot_upgrade_or_merge_an_attributed_report(tmp_path, monkeypatch):
     from harness_mem.commands.dream_assimilation import (
-        DreamAssimilationCandidate, prepare_dream_assimilation, validate_dream_assimilation_decision,
+        DreamAssimilationCandidate, prepare_dream_assimilation, build_dream_maintenance_plan,
+        apply_dream_assimilation,
     )
-    report = _report()
-    row = KnowledgeEntry(project_name="demo", module_path=["scope"], title=report.render_title(),
-                         statement=report.render_statement(), source_report=report)
-    candidate = DreamAssimilationCandidate(
-        candidate_id="D1", entry=row, sources=(), semantic_support="contradicted", future_scope="durable",
-        verification_reason="Recheck the report against its source, not external actuality.", source_excerpts=(),
-    )
-    prepared = prepare_dream_assimilation(project_name="demo", project_root=tmp_path,
-                                         run_id="D-run", signal_kind="conflict", candidates=[candidate])
-    decision = AssimilationDecision.model_validate({"points": [{
-        "candidate_id": "D1", "disposition": "replace", "matched_truth_handles": ["T1"],
-        "knowledge_items": _point()["knowledge_items"], "reason": "Attempt to turn the report into a fact.",
-    }]})
-    with pytest.raises(ValueError, match="source.report authority"):
-        validate_dream_assimilation_decision(prepared, decision)
+    from harness_mem.autonomous.models import CandidateVerificationPoint
+    from test_shared_write_core import _meaning, _entry_version
+
+    async def exercise():
+        monkeypatch.setenv("HARNESS_MEM_DISABLE_EMBEDDINGS", "1")
+        backend = LocalMemoryBackend(tmp_path / "data")
+        await backend.init()
+        try:
+            report = _report()
+            source = await native_source_for(report, backend)
+            candidate = KnowledgeCandidate(project_name="demo", candidate_type="memory",
+                statement=report.text, source_report=report)
+            ids = await record_assimilation_result(backend, candidate=candidate,
+                point=judged_point("Sample boundary", report.text, report=report),
+                project_root=tmp_path, source_refs=[source])
+            store = backend.structured_store.knowledge_store
+            row = await store.get_entry(ids[0], project_name="demo")
+            before = row.to_dict()
+            items = _point()["knowledge_items"]
+            meaning = _meaning([items[0]["statement"]], predecessors=[(row.statement, _entry_version(row))])
+            point = CandidateVerificationPoint.model_validate({
+                "candidate_index": 0, "semantic_support": "supported", "future_scope": "durable",
+                "source_use": "standing_decision", "reason": "Attempt to turn the report into an external fact.",
+                "replacement_items": items, "replacement_target_ids": [row.id],
+                "update_meaning_judgment": meaning,
+                "output_verifications": [{"semantic_support": "supported", "future_scope": "durable",
+                    "source_use": "standing_decision", "reason": "This proposed output has a complete scope judgment.",
+                    "scope_segments": [{"text": items[0]["title"] + "\n" + items[0]["statement"],
+                        "source_use": "standing_decision", "future_scope": "durable", "standalone": True,
+                        "content_role": "claim", "source_support": "supported"}],
+                    "update_meaning_judgment": meaning}],
+            })
+            prepared = prepare_dream_assimilation(project_name="demo", project_root=tmp_path,
+                run_id="D-run", signal_kind="stale", candidates=[DreamAssimilationCandidate(
+                    candidate_id="D1", entry=row, sources=tuple(await store.list_sources(row.id)),
+                    semantic_support="supported", future_scope="durable", verification_reason=point.reason,
+                    source_excerpts=(), scope_verification=point)])
+            plan = build_dream_maintenance_plan(prepared)
+            assert len(plan) == 1 and plan[0]["disposition"] == "no_write"
+            assert "authority" in plan[0]["reason"]
+            outcomes = await apply_dream_assimilation(backend, prepared=prepared, plan=plan)
+            assert len(outcomes) == 1 and outcomes[0]["status"] != "applied"
+            assert (await store.get_entry(row.id, project_name="demo")).to_dict() == before
+            assert len(await store.list_entries("demo")) == 1
+        finally:
+            await backend.close()
+    asyncio.run(exercise())

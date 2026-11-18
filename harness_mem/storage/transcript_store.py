@@ -60,12 +60,20 @@ class TranscriptStore:
             get_source=self.get_source,
             reconstruct=self.reconstruct,
             manual_job_check=self._manual_job_check,
+            paused_batch_check=self._paused_batch_check,
         )
 
     def _manual_job_check(self, job: SessionDistillJob) -> bool:
         from harness_mem.storage.manual_batch_store import ManualBatchStore
 
         return ManualBatchStore(self.db_path.parent).owns_job(
+            job, self.get_revision(job.source_id, job.source_revision),
+        )
+
+    def _paused_batch_check(self, job: SessionDistillJob) -> bool:
+        from harness_mem.storage.manual_batch_store import ManualBatchStore
+
+        return ManualBatchStore(self.db_path.parent).owning_pause(
             job, self.get_revision(job.source_id, job.source_revision),
         )
 
@@ -648,6 +656,9 @@ class TranscriptStore:
     def reserve_manual_distill_job(self, job_id: str) -> SessionDistillJob:
         return self._distill.reserve_manual(job_id)
 
+    def release_other_manual_revisions(self, job: SessionDistillJob) -> None:
+        self._distill.release_other_manual_revisions(job)
+
     def enable_zero_candidate_challenge(
         self,
         job_id: str,
@@ -866,6 +877,7 @@ class TranscriptStore:
         job_id: str,
         *,
         receipt_id: str,
+        retain_unfinished_work: bool = False,
     ) -> dict[str, int]:
         """Remove one completed job's raw evidence while retaining its receipt row.
 
@@ -1031,6 +1043,12 @@ class TranscriptStore:
                         ),
                         "evidence_state": "source_pruned",
                     }
+                    if retain_unfinished_work:
+                        # Explicit finished-history cleanup retains already-saved
+                        # original project tasks; it does not mark their execution done.
+                        sanitized_review["unfinished_work"] = list(review.get("unfinished_work") or [])
+                        if review.get("retained_state_refs"):
+                            sanitized_review["retained_state_refs"] = list(review["retained_state_refs"])
                     # The compact session summary is the durable audit artifact,
                     # not raw transcript evidence. Keep it when present so a
                     # newly completed cleanup does not create a coverage gap

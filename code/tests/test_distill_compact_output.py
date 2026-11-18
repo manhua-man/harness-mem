@@ -18,6 +18,7 @@ from harness_mem.mcp.session_handlers import tool_inspect_sessions
 from harness_mem.mcp.tool_specs import build_tools
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from test_device_memory_flow import device as device
+from test_device_memory_flow import preference_judgment
 
 
 CHECKS = (
@@ -47,7 +48,7 @@ def _review(statement="Read the complete fictional conversation.", **updates):
     }
 
 
-def _suggest(backend, packet, statement, title, *, disposition="add", targets=None):
+def _suggest(packet, statement, title, *, target=None):
     window, = packet["semantic_decision_exchanges"]
     result = governance_handlers.tool_govern_memory(action="suggest", arguments={
         "kind": "memory", "project_name": packet["project_name"],
@@ -56,11 +57,13 @@ def _suggest(backend, packet, statement, title, *, disposition="add", targets=No
         "canonical_title": title, "topic_path": ["Preferences"],
         "evidence_basis": "user_statement", "verification_outcome": "verified",
         "verification_refs": [{"kind": "user_statement", "exchange_index": window["exchange_index"],
-                               "content_sha256": window["content_sha256"]}],
-        "assimilation_disposition": disposition, "assimilation_reason": "Verified future preference.",
-        **({"target_knowledge": targets} if targets else {}),
+                               "content_sha256": window["content_sha256"], "role": "user"}],
+        "assimilation_disposition": "replace" if target else "add",
+        "assimilation_reason": "Verified future preference.",
+        **({"target_knowledge": [target]} if target else {}),
     })
     assert result["success"], result
+    return preference_judgment(result["entry_id"], title, statement, target=target)
 
 
 def test_two_original_short_sessions_through_executor_and_reopened_storage(device, tmp_path, monkeypatch):
@@ -80,10 +83,12 @@ def test_two_original_short_sessions_through_executor_and_reopened_storage(devic
     body = window["content"]
     assert first in body and "Understood." in body
     assert hashlib.sha256(body.encode()).hexdigest() == window["content_sha256"]
-    _suggest(backend, packet, first, "Retention preference")
+    judgment = _suggest(packet, first, "Retention preference")
     final1, finish1 = _rpc(backend, "finalize_session_distill", {
-        "project_name": packet["project_name"], "job_id": packet["distill_job_id"], "semantic_review": _review(first),
+        "project_name": packet["project_name"], "job_id": packet["distill_job_id"],
+        "semantic_review": _review(first, final_scope_judgment=judgment),
     })
+    assert final1["success"], final1
     assert final1["organization_status"] == "completed"
     assert final1["readback_verified"] is True
     old = tool_handlers.tool_search_memory(query="")["memories"][0]
@@ -96,11 +101,15 @@ def test_two_original_short_sessions_through_executor_and_reopened_storage(devic
     corrected = "For future collaboration, retain independently verifiable facts for fourteen days."
     language = "For future collaboration, answer in concise Chinese."
     assert second in packet["semantic_decision_exchanges"][0]["content"]
-    _suggest(backend, packet, corrected, "Retention preference", disposition="replace", targets=[old])
-    _suggest(backend, packet, language, "Reply preference")
+    judgments = {
+        **_suggest(packet, corrected, "Retention preference", target=old),
+        **_suggest(packet, language, "Reply preference"),
+    }
     final2, finish2 = _rpc(backend, "finalize_session_distill", {
-        "project_name": packet["project_name"], "job_id": packet["distill_job_id"], "semantic_review": _review(second),
+        "project_name": packet["project_name"], "job_id": packet["distill_job_id"],
+        "semantic_review": _review(second, final_scope_judgment=judgments),
     })
+    assert final2["success"], final2
     assert {row["change"] for row in final2["knowledge_changes"]} == {"added", "replaced"}
     assert final2["readback_verified"] is True
     replay, _ = _rpc(backend, "finalize_session_distill", {
@@ -226,10 +235,11 @@ def test_completed_readback_is_rechecked_instead_of_trusting_a_saved_receipt(dev
     write("readback", statement)
     rows = tool_inspect_sessions(clients=["codex"])["sessions"]
     packet, _ = _rpc(backend, "prepare_session_distill", {"scope": "all", "batch_sessions": rows})
-    _suggest(backend, packet, statement, "Source retention")
+    judgment = _suggest(packet, statement, "Source retention")
     arguments = {"project_name": packet["project_name"], "job_id": packet["distill_job_id"],
-                 "semantic_review": _review(statement)}
+                 "semantic_review": _review(statement, final_scope_judgment=judgment)}
     final, _ = _rpc(backend, "finalize_session_distill", arguments)
+    assert final["success"], final
     assert final["readback_verified"] is True
     # Persisted success cannot conceal a later normal-retrieval failure.
     import harness_mem.read_knowledge as retrieval

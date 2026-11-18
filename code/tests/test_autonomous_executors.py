@@ -16,9 +16,15 @@ from harness_mem.autonomous.executors import host_cli
 from harness_mem.autonomous.executors.host_structured_cli import HostStructuredCliProvider
 from harness_mem.autonomous.executors.registry import build_semantic_executor
 from harness_mem.autonomous.provider import ProviderError
-from harness_mem.autonomous.models import AutonomousDecision
+from harness_mem.autonomous.models import AgentExtractionDecision, AutonomousDecision
 from harness_mem.config.merge import MergedConfig, load_merged_config
-from test_codex_memory_task_profile import fake_codex_rpc  # noqa: F401
+from test_codex_memory_task_profile import fake_codex_rpc, run_protocol_body  # noqa: F401
+
+
+
+class _FakeStdin:
+    def reconfigure(self, *, newline):
+        assert newline == "\n"
 
 
 @pytest.fixture(autouse=True)
@@ -144,12 +150,21 @@ def test_stream_allocation_failure_does_not_register_a_provider_lease(
     )
     provider = HostStructuredCliProvider(host_client="codex", executable=sys.executable)
     with pytest.raises(ProviderError, match="fixture allocation failed") as raised:
-        provider.assimilate({}, runtime_dir=tmp_path / "runtime")
+        run_protocol_body(provider, "assimilate", {}, runtime_dir=tmp_path / "runtime")
     assert raised.value.native_attempts[-1]["model_dispatched"] is False
     assert raised.value.attempt_results[-1].total_tokens is None
     provider.close()
     assert leases == []
     assert not list((tmp_path / "runtime").iterdir())
+
+
+
+def fictional_hermes_executable(tmp_path):
+    """A nonexistent-in-production layout; Popen is always a fake in these tests."""
+    executable = tmp_path / "hermes-bin"
+    executable.write_bytes(b"fictional Hermes identity, never executed")
+    (tmp_path / "python.exe").write_bytes(b"fictional Python identity, never executed")
+    return str(executable)
 
 
 def _authorized_config() -> MergedConfig:
@@ -243,16 +258,22 @@ def test_build_semantic_executor_uses_explicit_cli_instead_of_current_host(
 
 
 @pytest.mark.parametrize("current_host", ["cursor", "grok", "antigravity"])
-def test_build_semantic_executor_does_not_replace_unsupported_current_host(
+def test_build_semantic_executor_preserves_actual_current_host_support(
     monkeypatch: pytest.MonkeyPatch,
     current_host: str,
 ) -> None:
     monkeypatch.setenv("HARNESS_MEM_CODEX_EXECUTABLE", "codex-bin")
-    with pytest.raises(
-        ProviderError,
-        match=f"No background CLI is implemented for '{current_host}'",
-    ):
-        build_semantic_executor(_authorized_config(), current_host)
+    if current_host == "antigravity":
+        monkeypatch.setattr(host_cli, "_resolve_executable", lambda _host: "fictional-agy")
+        executor = build_semantic_executor(_authorized_config(), current_host)
+        assert executor.host_client == "antigravity"
+        assert executor.executable == "fictional-agy"
+    else:
+        with pytest.raises(
+            ProviderError,
+            match=f"No background CLI is implemented for '{current_host}'",
+        ):
+            build_semantic_executor(_authorized_config(), current_host)
 
 
 def test_build_semantic_executor_rejects_disabled_background() -> None:
@@ -296,6 +317,8 @@ def test_host_cli_invokes_structured_command_for_each_host(
     expected_token: str,
     request: pytest.FixtureRequest,
 ) -> None:
+    if host_client == "hermes":
+        binary = fictional_hermes_executable(tmp_path)
     monkeypatch.setenv(env_name, binary)
     monkeypatch.setenv("HARNESS_MEM_DISTILL_MODEL", "must-not-be-forwarded")
     monkeypatch.setenv("HARNESS_MEM_ASSIMILATION_MODEL", "must-not-be-forwarded")
@@ -306,6 +329,7 @@ def test_host_cli_invokes_structured_command_for_each_host(
 
     class _Process:
         returncode = 0
+        stdin = _FakeStdin()
 
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             lease_events.append("popen")
@@ -318,7 +342,7 @@ def test_host_cli_invokes_structured_command_for_each_host(
             command = captured["command"]
             payload = json.dumps(_decision_payload())
             if "-z" in command:
-                captured["prompt"] = command[command.index("-z") + 1]
+                captured["prompt"] = input if os.name == "nt" else command[command.index("-z") + 1]
                 usage_path = command[command.index("--usage-file") + 1]
                 Path(usage_path).write_text(
                     json.dumps(
@@ -364,7 +388,7 @@ def test_host_cli_invokes_structured_command_for_each_host(
         host_client=host_client,
         executable=binary,
     )
-    result = provider.decide(
+    result = run_protocol_body(provider, "decide",
         _decision_manifest(),
         runtime_dir=tmp_path / "runtime",
     )
@@ -373,7 +397,13 @@ def test_host_cli_invokes_structured_command_for_each_host(
         assert provider.close()["closed"] is True
 
     assert expected_token in captured["command"]
-    assert captured["command"][0] == binary
+    if host_client == "hermes" and os.name == "nt":
+        assert captured["command"][0] == str(tmp_path / "python.exe")
+        assert binary in captured["command"]
+        assert captured["command"][-1] == "-z"
+        assert "sys.stdin.buffer.read()" in captured["command"][2]
+    else:
+        assert captured["command"][0] == binary
     assert "--model" not in captured["command"]
     assert "-m" not in captured["command"]
     assert captured["env"]["HARNESS_MEM_AUTONOMOUS_PROVIDER"] == "1"
@@ -413,8 +443,14 @@ def test_host_cli_invokes_structured_command_for_each_host(
         assert 'Use this shape: {"review"' in captured["prompt"]
         assert "Every object key and every string value must use ASCII double quotes" in captured["prompt"]
         assert '"$defs"' not in captured["prompt"]
-        # Complete attributed-report guidance is authorized; never truncate it.
-        assert len(captured["prompt"]) < 6500
+        # The new common write contract remains complete on stdin. On
+        # Windows, bound argv independently rather than truncating that source.
+        assert captured["prompt"] == (
+            host_structured_cli._build_prompt(_decision_manifest()) + "\n\n"
+            + host_structured_cli._hermes_output_contract(AgentExtractionDecision)
+        )
+        if os.name == "nt":
+            assert len(host_structured_cli.subprocess.list2cmdline(captured["command"])) < 6500
         assert result.input_sha256 == hashlib.sha256(
             captured["prompt"].encode("utf-8")
         ).hexdigest()
@@ -435,6 +471,7 @@ def test_host_cli_assimilate_never_overrides_the_cli_model(
 
     class _Process:
         returncode = 0
+        stdin = _FakeStdin()
 
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             captured["command"] = args[0]
@@ -461,9 +498,9 @@ def test_host_cli_assimilate_never_overrides_the_cli_model(
 
     provider = HostStructuredCliProvider(
         host_client="hermes",
-        executable="hermes-bin",
+        executable=fictional_hermes_executable(tmp_path),
     )
-    provider.assimilate(
+    run_protocol_body(provider, "assimilate",
         {"verified_candidates": []},
         runtime_dir=tmp_path / "runtime",
     )
@@ -479,6 +516,7 @@ def test_host_cli_classifies_plain_text_http_failure_with_zero_exit_as_transient
 ) -> None:
     class _Process:
         returncode = 0
+        stdin = _FakeStdin()
 
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             del args, kwargs
@@ -509,10 +547,10 @@ def test_host_cli_classifies_plain_text_http_failure_with_zero_exit_as_transient
 
     provider = HostStructuredCliProvider(
         host_client="hermes",
-        executable="hermes-bin",
+        executable=fictional_hermes_executable(tmp_path),
     )
     with pytest.raises(ProviderError) as raised:
-        provider.decide(
+        run_protocol_body(provider, "decide",
             _decision_manifest(),
             runtime_dir=tmp_path / "runtime",
         )
@@ -529,6 +567,7 @@ def test_host_cli_runs_each_phase_in_fresh_invocation_cwd(
 
     class _Process:
         returncode = 0
+        stdin = _FakeStdin()
 
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             self.cwd = Path(kwargs["cwd"])
@@ -564,11 +603,11 @@ def test_host_cli_runs_each_phase_in_fresh_invocation_cwd(
         executable="claude-bin",
     )
     runtime_dir = tmp_path / "runtime"
-    provider.decide(
+    run_protocol_body(provider, "decide",
         _decision_manifest(),
         runtime_dir=runtime_dir,
     )
-    provider.verify(
+    run_protocol_body(provider, "verify",
         {"candidates": []},
         runtime_dir=runtime_dir,
     )

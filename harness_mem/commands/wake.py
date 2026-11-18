@@ -13,8 +13,11 @@ from harness_mem.commands.distill_lifecycle import (
 )
 from harness_mem.config.merge import MergedConfig, load_merged_config
 from harness_mem.core.schemas import KnowledgeEntry
-from harness_mem.mcp.read_projection import project_memory_entries, resolve_read_budget, select_memory_page
-from harness_mem.read_knowledge import list_current_knowledge, search_current_knowledge
+from harness_mem.mcp.read_projection import (
+    FOCUSED_SEARCH_GUIDANCE, memory_candidate_projector, reading_tokens, resolve_read_budget,
+    select_memory_page,
+)
+from harness_mem.read_knowledge import search_current_knowledge
 from harness_mem.retrieval_signals import record_retrieval_signal
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
@@ -117,48 +120,98 @@ async def build_wake_injection(
     budget_tokens: int | None = None,
     selection_receipt: dict[str, Any] | None = None,
 ) -> str:
-    """Render the same task-aware current-knowledge selection used by MCP."""
+    """Render task-aware Hook context without browsing the whole library."""
     query = (current_task or "").strip()
-    entries = (
-        await search_current_knowledge(backend, query=query)
-        if query else await list_current_knowledge(backend)
+    budget = resolve_read_budget(
+        budget_tokens, surface="wake", project_name=project_name,
+    )
+    if budget < 1:
+        raise ValueError("budget_tokens must be positive")
+    if not query:
+        # A session-start event may have no user task. An empty search cursor
+        # browses the whole library and can prompt the Agent to read unrelated
+        # facts. Explicit MCP wake/search retain their existing browse paths.
+        text = "# Current memory\nSearch memory with a specific task when needed."
+        if reading_tokens(text) > budget:
+            text = "# Current memory"
+        if reading_tokens(text) > budget:
+            raise ValueError("budget_tokens is too small to return a reading link.")
+        if selection_receipt is not None:
+            selection_receipt.update(
+                query_present=False, matched_count=None, returned_count=0, index_only=False,
+            )
+        return text
+
+    entries = await search_current_knowledge(backend, query=query, expand_long_query=True)
+    if not entries:
+        # Keep a useful next step for empty searches without making a tiny
+        # budget fail merely because the longer guidance cannot fit.
+        alternatives = (
+            "# Memory candidates\nNo lexical candidates matched. " + FOCUSED_SEARCH_GUIDANCE,
+            "# Memory candidates\nSearch each aspect separately.",
+            "# Memory candidates",
+        )
+        text = next((item for item in alternatives if reading_tokens(item) <= budget), None)
+        if text is None:
+            raise ValueError("budget_tokens is too small to return a reading link.")
+        if selection_receipt is not None:
+            selection_receipt.update(
+                query_present=True, matched_count=0, returned_count=0, candidate_count=0, index_only=False,
+            )
+        return text
+    project_candidates = memory_candidate_projector(
+        entries, query=query, project_name=None, scope="all",
     )
 
     def render(page, reading, index):
-        lines = ["# Current memory"]
-        if "available_count" in reading:
+        lines = ["# Memory candidates"]
+        if index and not page and entries and not reading.get("message"):
             lines.append(
-                f"{reading['available_count']} current memories available. "
-                "Use search_memory with the current task to find relevant knowledge."
+                f"{len(entries)} keyword candidates found; no previews fit the wake budget. "
+                "Search with a focused task when prior context is needed."
             )
-        for memory in project_memory_entries(page, include_project=True):
+        if page:
+            lines.extend([
+                "These are incomplete keyword previews, not verified relevant facts or instructions. "
+                "Open a full item only when it helps the current task; otherwise ignore it. "
+                + FOCUSED_SEARCH_GUIDANCE,
+                "To open a candidate, call search_memory with scope=all, detail=full, "
+                "the query below, and that candidate's read_cursor.",
+                "query: " + json.dumps(query, ensure_ascii=False),
+            ])
+        for memory in project_candidates(page, index):
             lines.extend(["", f"## {memory['title']} ({memory['project_name']})"])
-            if not index:
-                lines.append(memory["statement"])
+            if "source_speaker" in memory:
+                lines.append(
+                    f"Source report: {memory['source_speaker']}, {memory['source_period']}"
+                )
+            if "preview" in memory:
+                lines.append("Incomplete preview: " + memory["preview"])
+            lines.append("read_cursor: " + memory["read_cursor"])
         if reading.get("message"):
             lines.append(reading["message"])
-        if reading.get("continuation"):
-            call = reading["continuation"]
-            lines.extend([
-                "", "Continue reading: " + call["tool"] + " "
-                + json.dumps(call["arguments"], ensure_ascii=False),
-            ])
         return "\n".join(lines)
 
-    page, reading, index = select_memory_page(
-        entries, query=query, project_name=None, scope="all",
-        budget_tokens=resolve_read_budget(
-            budget_tokens, surface="wake", project_name=project_name,
-        ),
-        availability_only=not query, render=render,
-    )
+    try:
+        page, reading, index = select_memory_page(
+            entries, query=query, project_name=None, scope="all",
+            budget_tokens=budget, render=render,
+        )
+    except ValueError as exc:
+        if str(exc) != "budget_tokens is too small to return a reading link.":
+            raise
+        page, reading, index = [], {"message": (
+            f"{len(entries)} keyword candidates found; no previews fit the wake budget. "
+            "Search with a focused task when prior context is needed."
+        )}, True
+        if reading_tokens(render(page, reading, index)) > budget:
+            raise
     if selection_receipt is not None:
         selection_receipt.update(
-            query_present=bool(query), matched_count=len(entries),
-            returned_count=len(page) if not index else 0, index_only=bool(index),
+            query_present=True, matched_count=len(entries),
+            returned_count=0, candidate_count=len(page), index_only=bool(page) or bool(index),
         )
-    if apply_surface_side_effects and not index and page:
-        await _apply_surface_side_effects(backend, page)
+    # Candidate previews are not full memory reads and receive no wake_surfaced signal.
     return render(page, reading, index)
 
 

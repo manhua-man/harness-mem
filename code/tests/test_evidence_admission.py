@@ -511,6 +511,28 @@ def test_codex_private_span_cannot_turn_assistant_copy_into_user_evidence(
         assert raw.count("Hidden spare.") == 1  # Only the assistant's copy remains.
     else:
         assert "Hidden spare." not in raw
+    if copy_style == "new_heading_boundary":
+        from harness_mem.commands.manual_condition_review import bind_review_evidence
+        from harness_mem.core.schemas.assimilation import AgentKnowledgeReview
+
+        # The hardened projection keeps both public messages and renders
+        # the nested User label inside the assistant's message.
+        assert snapshot.source.metadata["authored_user_text_sha256"] == [
+            hashlib.sha256(text.encode()).hexdigest() for text in ("Public start.", "Public end.")
+        ]
+        candidate = _user_statement_candidate(snapshot, raw, exchange=1, role=ref_role)
+        with pytest.raises(ValueError, match="exact, uniquely located"):
+            bind_review_evidence(
+                review=AgentKnowledgeReview.model_validate({
+                    "support": "supported", "use": "standing_decision",
+                    "reason": "Try to promote an assistant's quoted private decision.",
+                    "conditions": [], "undecided_state": None,
+                    "evidence": [{"target": "claim", "ref": 1, "message_index": 1, "quote": "Hidden decision."}],
+                }),
+                statement="Hidden decision.", refs=candidate.verification_refs,
+                transcript=raw, project_root=str(project),
+            )
+        return
     assert snapshot.source.metadata["authored_user_text_sha256"] == []
     candidate = _user_statement_candidate(snapshot, raw, exchange=2, role=ref_role)
     validation = _run(evidence_admission.validate_candidate_evidence(backend, candidate))

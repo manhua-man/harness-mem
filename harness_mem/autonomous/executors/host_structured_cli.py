@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from contextlib import ExitStack, contextmanager
+from copy import deepcopy
 import hashlib
 import json
+import math
 import os
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -12,7 +14,7 @@ import shutil
 import subprocess
 import tempfile
 import time
-from typing import Any, Callable, Iterator, Mapping
+from typing import Any, Callable, Iterator, Literal, Mapping
 from uuid import uuid4
 
 from pydantic import ValidationError
@@ -21,6 +23,12 @@ from harness_mem.autonomous.models import (
     AgentExtractionDecision,
     AssimilationDecision,
     CandidateVerificationDecision,
+    DREAM_SOURCE_RECHECK_CONTRACT,
+    NativeFinalScopeDecision,
+    NativeSourceCoverageExtractionDecision,
+    NativeResidualSourceCoverageExtractionDecision,
+    NativeSourceCoverageVerificationDecision,
+    SourceClassificationDecision,
 )
 from harness_mem.autonomous.provider import (
     ProviderError,
@@ -30,6 +38,9 @@ from harness_mem.autonomous.provider import (
     _build_verification_prompt,
     _classify_failure,
     expand_agent_extraction_decision,
+    expand_source_coverage_verification_decision,
+    residual_source_coverage_enabled,
+    source_coverage_inventory_enabled,
     _strict_output_schema,
     _usage_metrics,
 )
@@ -39,6 +50,16 @@ from harness_mem.autonomous.hook_guard import (
 )
 from harness_mem.autonomous.executors.constants import host_cli_provider_name
 from harness_mem.autonomous.executors.host_cli import _codex_background_overrides
+from harness_mem.autonomous.executors.task_budget import (
+    NativeDispatchRequest,
+    NativeDispatchResult,
+    NativeInputCapability,
+    TaskBudgetBinding,
+    TaskBudgetDispatch,
+    TaskBudgetRefusal,
+    dispatch_with_task_budget as _dispatch_with_task_budget,
+    is_production_native_host,
+)
 
 _CODEX_MEMORY_INSTRUCTIONS = (
     "You are the harness-mem memory decision worker. Use only the supplied "
@@ -598,6 +619,51 @@ def _hermes_output_contract(decision_model: Any) -> str:
         "double quotes so the result is valid JSON.parse input; never use unquoted "
         "keys, single quotes, or JavaScript object syntax. "
     )
+    if decision_model in (SourceClassificationDecision, NativeFinalScopeDecision, NativeSourceCoverageVerificationDecision):
+        common = (
+            "Return only one compact JSON object. Use standard JSON escaping for embedded double "
+            "quotes, backslashes and newlines. Preserve scope_segments.text exactly, never rewrite "
+            "it to avoid quoting. Keep only reason and basis concise. "
+        )
+    if decision_model is NativeResidualSourceCoverageExtractionDecision:
+        return common + (
+            'Use {"extraction":{"review":{"summary":"...","final_request":"...","actual_result":"...",'
+            '"contradictions":[],"unfinished":[],"no_candidate_reason":null,"not_durable_signals":[]},'
+            '"points":[{"kind":"memory","statement":"...","condition":null,'
+            '"evidence_basis":"user_statement","report_role":null,"exchange_indexes":[1]}]},'
+            '"patches":[{"w":0,"span_index":0,"spans":[{"s":0,"e":12,"d":"covered","p":[],"c":[0],"r":[]}]}]}. '
+            "Address exactly the runtime pending spans and preserve each complete range. "
+            "Do not return a full inventory or rewrite retained positive dispositions. "
+            "With points, no_candidate_reason=null and not_durable_signals=[]; with points=[], "
+            "give at least24 characters of honest no_candidate_reason."
+        )
+    if decision_model is NativeSourceCoverageExtractionDecision:
+        return common + (
+            'Use {"extraction":{"review":{"summary":"...","final_request":"...","actual_result":"...",'
+            '"contradictions":[],"unfinished":[],"no_candidate_reason":null,"not_durable_signals":[]},'
+            '"points":[{"kind":"memory","statement":"...","condition":null,'
+            '"evidence_basis":"user_statement","report_role":null,"exchange_indexes":[1]}]},'
+            '"inventory":[{"w":0,"spans":[{"s":0,"e":12,"d":"extract","p":[0],"c":[],"r":[]}]}]}. '
+            "Offsets are illustrative; use exact Unicode-character ranges for every original user window. "
+            "Kinds memory/rule/relation retain normal fields; rules require condition and relations require "
+            "source_entity/target_entity/relation_type. All points use only user_statement evidence. "
+            "Choose one exclusive extraction shape: with points, no_candidate_reason is null and "
+            "not_durable_signals is []; with points=[], no_candidate_reason has at least 24 characters. "
+            "Both shapes still return the complete inventory. "
+            "Disposition is extract/covered/superseded/temporary/out_of_task/unclear; p indexes points, "
+            "c indexes current snapshots, r contains later-user {w,s,e} ranges. No source prose in inventory."
+        )
+    if decision_model is NativeSourceCoverageVerificationDecision:
+        return common + (
+            'Use {"points":[{"candidate_index":0,"semantic_support":"supported",'
+            '"future_scope":"durable","source_use":"standing_decision","reason":"source-based judgment",'
+            '"scope_segments":[{"text":"exact candidate statement","source_support":"supported",'
+            '"source_use":"standing_decision","future_scope":"durable","standalone":true,'
+            '"content_role":"claim"}],"claim_units":[]}],'
+            '"audit":[{"w":0,"span_index":0,"verdict":"supported"}]}. '
+            "Every inventory span needs one independent supported/unclear/contradicted audit, even when points=[]. "
+            "Audit is offsets/indexes/verdicts only; candidate scope_segments.text must remain exact."
+        )
     if decision_model is AgentExtractionDecision:
         return common + (
             'Use this shape: {"review":{"summary":"...","final_request":"...",'
@@ -618,6 +684,42 @@ def _hermes_output_contract(decision_model: Any) -> str:
             "successful_solution, repeated_failure, rule_or_preference, "
             "reusable_workflow_or_fact, version_or_migration, unfinished_handoff. "
             "Do not invent labels such as version_release or deletion."
+        )
+    if decision_model is SourceClassificationDecision:
+        return common + (
+            'Use this classification shape: {"points":[{"candidate_index":0,'
+            '"semantic_support":"supported","future_scope":"durable",'
+            '"source_use":"reusable_knowledge","reason":"source-based reason",'
+            '"scope_segments":[{"text":"exact complete claim","source_support":"supported",'
+            '"source_use":"reusable_knowledge","future_scope":"durable",'
+            '"standalone":true,"content_role":"claim"}],"claim_units":'
+            '[{"first_segment":0,"end_segment_exclusive":1,"standalone":true,'
+            '"source_support":"supported","source_use":"reusable_knowledge",'
+            '"future_scope":"durable"}]}]}. Use only classification fields. '
+            'Each scope_segments text must concatenate to the complete supplied scope_text. '
+            'Classify every segment including necessary qualifiers and temporary_context. '
+            'Claim-unit ranges inventory substantive meaning; they do not propose edits. '
+            'Allowed semantic_support: supported, partial, contradicted. Allowed source_support: '
+            'supported, unsupported, contradicted, unclear. Allowed source_use: standing_decision, '
+            'reusable_knowledge, explicit_undecided, task_context, unclear. '
+            'Allowed future_scope: durable, session_only, unclear.'
+        )
+    if decision_model is NativeFinalScopeDecision:
+        return common + (
+            'Use this final-only shape: {"points":[{"candidate_index":0,'
+            '"semantic_support":"supported","future_scope":"durable",'
+            '"source_use":"reusable_knowledge","reason":"source-based complete verification",'
+            '"scope_segments":[{"text":"exact complete scope text",'
+            '"source_support":"supported","source_use":"reusable_knowledge",'
+            '"future_scope":"durable","standalone":true,"content_role":"claim"}],'
+            '"update_meaning_judgment":{"relationship":"preserves_applicable_meaning",'
+            '"inventory_complete":true,"condition_spans":[{"successor_index":0,'
+            '"char_start":0,"char_end":12}],"undecided_span":null,'
+            '"basis":"independent complete whole-update judgment"}}]}. '
+            'The span numbers are illustrative; use exact owner-local successor statement '
+            'Unicode-character ranges. No free-text condition or endpoint arrays are allowed. '
+            'With no update_context, update_meaning_judgment is null. Never infer a complete '
+            'inventory from this example; judge all original conditions independently.'
         )
     if decision_model is CandidateVerificationDecision:
         return common + (
@@ -645,6 +747,79 @@ def _hermes_output_contract(decision_model: Any) -> str:
     raise TypeError(f"unsupported Hermes decision model: {decision_model!r}")
 
 
+def _usage_is_exact(result: ProviderResult) -> bool:
+    if isinstance(result.input_tokens, bool) or not isinstance(result.input_tokens, int):
+        return False
+    if isinstance(result.output_tokens, bool) or not isinstance(result.output_tokens, int):
+        return False
+    if isinstance(result.duration_seconds, bool) or not isinstance(result.duration_seconds, (int, float)):
+        return False
+    if type(result.total_tokens) is not int or result.total_tokens != result.input_tokens + result.output_tokens:
+        return False
+    return (
+        result.input_tokens >= 0 and result.output_tokens >= 0
+        and result.duration_seconds >= 0 and math.isfinite(result.duration_seconds)
+    )
+
+
+def _native_result_from_provider(result: ProviderResult) -> NativeDispatchResult:
+    exact = _usage_is_exact(result)
+    return NativeDispatchResult(
+        status="completed" if result.schema_valid and exact else "failed",
+        input_tokens=result.input_tokens if exact else None,
+        output_tokens=result.output_tokens if exact else None,
+        duration_seconds=float(result.duration_seconds) if exact else None,
+        usage_exact=exact,
+    )
+
+
+def _native_result_from_error(exc: ProviderError) -> NativeDispatchResult | None:
+    if not exc.attempt_results:
+        return None
+    last = exc.attempt_results[-1]
+    exact = _usage_is_exact(last)
+    return NativeDispatchResult(
+        status="failed",
+        input_tokens=last.input_tokens if exact else None,
+        output_tokens=last.output_tokens if exact else None,
+        duration_seconds=float(last.duration_seconds) if exact else None,
+        usage_exact=exact,
+    )
+
+
+def _provider_result_from_native(
+    decision: Any,
+    native: NativeDispatchResult,
+    *,
+    provider: str,
+    host_client: str,
+) -> ProviderResult:
+    tokens_known = (
+        isinstance(native.input_tokens, int)
+        and not isinstance(native.input_tokens, bool)
+        and isinstance(native.output_tokens, int)
+        and not isinstance(native.output_tokens, bool)
+    )
+    return ProviderResult(
+        decision=decision,
+        provider=provider,
+        model=None,
+        duration_seconds=float(native.duration_seconds or 0.0),
+        input_sha256="0" * 64,
+        response_sha256="0" * 64,
+        input_tokens=native.input_tokens if native.usage_exact else None,
+        output_tokens=native.output_tokens if native.usage_exact else None,
+        total_tokens=(
+            native.input_tokens + native.output_tokens
+            if native.usage_exact and tokens_known
+            else None
+        ),
+        event_count=0,
+        schema_valid=native.status == "completed",
+        host_client=host_client,
+    )
+
+
 class HostStructuredCliProvider:
     """Run one schema-constrained host CLI turn in authorized agent mode."""
 
@@ -663,6 +838,15 @@ class HostStructuredCliProvider:
         self.name = host_cli_provider_name(host_client)
         self._codex_server: Any = None
         self._native_results: list[ProviderResult] = []
+        self._task_binding: TaskBudgetBinding | None = None
+        self._adapter_binding_key: tuple[Any, ...] | None = None
+        self._budget_phase: Literal["source", "dream"] | None = None
+        self._budget_slice: str = ""
+        self._budget_retry_of: str | None = None
+        self._input_capability: NativeInputCapability | None = None
+        self._output_surface: Any = None
+        self._explicit_fake_transport: Callable[[NativeDispatchRequest], tuple[Any, NativeDispatchResult]] | None = None
+        self._last_budget_call_id: str | None = None
 
     def close(self) -> dict[str, Any] | None:
         """The caller owns this executor; borrowed executors require caller close."""
@@ -670,9 +854,137 @@ class HostStructuredCliProvider:
             return self._codex_server.close()
         return None
 
+    @property
+    def task_budget_binding(self) -> TaskBudgetBinding | None:
+        return self._task_binding
+
+    def last_task_budget_call_id(self) -> str | None:
+        return self._last_budget_call_id
+
+    def attach_maintenance_binding(self, binding: TaskBudgetBinding) -> None:
+        """Remember the persistent scope. Slice and phase are set per call."""
+
+        if not isinstance(binding, TaskBudgetBinding) or binding.host_client != self.host_client:
+            raise TaskBudgetRefusal(
+                "executor host does not match the task binding; native dispatch is closed",
+                code="host_binding_missing",
+                kind="setup",
+            )
+        adapter_key = (
+            binding.task_scope, binding.host_client, str(binding.data_dir.resolve()),
+            binding.config.to_runtime_config(),
+        )
+        if self._adapter_binding_key != adapter_key:
+            self._input_capability = None
+            self._output_surface = None
+            self._explicit_fake_transport = None
+        self._adapter_binding_key = adapter_key
+        self._task_binding = binding
+
+    def bind_task_budget(
+        self,
+        binding: TaskBudgetBinding,
+        *,
+        phase: Literal["source", "dream"],
+        slice_id: str,
+        retry_of: str | None = None,
+        input_capability: NativeInputCapability | None = None,
+        output_limit_surface: Any = None,
+        explicit_fake_transport: Callable[[NativeDispatchRequest], tuple[Any, NativeDispatchResult]] | None = None,
+    ) -> None:
+        """Arm one slice of an already chosen task. This does not start a host.
+
+        A test double, including ``explicit_fake_transport``, is rejected for
+        a production host name. Ordinary production invocations account actual
+        usage; explicitly configured hard caps still need proven capabilities.
+        """
+
+        self.attach_maintenance_binding(binding)
+        if is_production_native_host(self.host_client) and (
+            input_capability is not None
+            or output_limit_surface is not None
+            or explicit_fake_transport is not None
+        ):
+            raise TaskBudgetRefusal(
+                "A test double cannot vouch for a production host",
+                code="host_output_limit_unsupported",
+                kind="setup",
+            )
+        if input_capability is not None and (
+            not isinstance(input_capability, NativeInputCapability)
+            or input_capability.provenance != "test_double"
+            or input_capability.host_client != self.host_client
+        ):
+            raise TaskBudgetRefusal(
+                "complete native input evidence must be an explicit test double "
+                "for this non-production host",
+                code="complete_input_bound_unknown",
+                kind="setup",
+            )
+        if output_limit_surface is not None and (
+            getattr(output_limit_surface, "provenance", None) != "test_double"
+            or getattr(output_limit_surface, "host_client", None) != self.host_client
+        ):
+            raise TaskBudgetRefusal(
+                "output-limit evidence must be an explicit test double for this host",
+                code="host_output_limit_unsupported",
+                kind="setup",
+            )
+        self._budget_phase = phase
+        self._budget_slice = slice_id
+        self._budget_retry_of = retry_of
+        if input_capability is not None:
+            self._input_capability = input_capability
+        if output_limit_surface is not None:
+            self._output_surface = output_limit_surface
+        if explicit_fake_transport is not None:
+            self._explicit_fake_transport = explicit_fake_transport
+
+    def dispatch_with_task_budget(
+        self,
+        binding: TaskBudgetBinding | None,
+        *,
+        transport: Callable[[Any], Any],
+        timeout_seconds: int,
+        phase: Literal["source", "dream"],
+        slice_id: str,
+        clock: Callable[[], float] | None = None,
+        runtime_dir: str | None = None,
+        output_limit_surface: Any = None,
+        input_capability: NativeInputCapability | None = None,
+        retry_of: str | None = None,
+    ) -> TaskBudgetDispatch:
+        """Budget gate in front of one transport.
+
+        ``decide``, ``verify``, and ``assimilate`` call this before native
+        transport. Known cumulative usage stops the next ordinary invocation;
+        strict reservation additionally requires proven native capabilities.
+        The complete prompt and selected host are left unchanged.
+        """
+
+        if binding is not None and binding.host_client != self.host_client:
+            raise TaskBudgetRefusal(
+                "executor host does not match the task binding; native dispatch is closed",
+                code="host_binding_missing",
+                kind="setup",
+            )
+        return _dispatch_with_task_budget(
+            binding,
+            transport=transport,
+            timeout_seconds=timeout_seconds,
+            phase=phase,
+            slice_id=slice_id,
+            clock=clock,
+            runtime_dir=runtime_dir,
+            output_limit_surface=output_limit_surface,
+            input_capability=input_capability,
+            retry_of=retry_of,
+        )
+
     def _run_codex(
         self, *, runtime_dir: Path, heartbeat: Any, decision_model: Any,
         prompt: str, temporary_prefix: str, error_label: str,
+        output_limit_argv: tuple[str, ...] = (),
     ) -> ProviderResult:
         from harness_mem.autonomous.executors.codex_app_server import CodexAppServer
 
@@ -710,6 +1022,7 @@ class HostStructuredCliProvider:
                     overrides=_codex_background_overrides(cwd), instructions=_CODEX_MEMORY_INSTRUCTIONS,
                     prompt=prompt, schema=_strict_output_schema(decision_model.model_json_schema()),
                     deadline=deadline, heartbeat=heartbeat,
+                    output_limit_argv=output_limit_argv,
                 )
                 try:
                     decision = decision_model.model_validate_json(raw)
@@ -753,26 +1066,32 @@ class HostStructuredCliProvider:
         runtime_dir: Path,
         heartbeat: Callable[[], None] | None = None,
     ) -> ProviderResult:
+        coverage = source_coverage_inventory_enabled(manifest)
+        bound = deepcopy(manifest) if coverage else manifest
         result = self._run(
-            manifest,
+            deepcopy(bound) if coverage else bound,
             runtime_dir=runtime_dir,
             heartbeat=heartbeat,
-            decision_model=AgentExtractionDecision,
-            prompt=_build_prompt(manifest),
+            decision_model=(NativeResidualSourceCoverageExtractionDecision
+                if residual_source_coverage_enabled(bound) else
+                NativeSourceCoverageExtractionDecision if coverage else AgentExtractionDecision),
+            prompt=_build_prompt(bound),
             temporary_prefix="distill-",
             error_label="decision",
         )
         try:
             decision = expand_agent_extraction_decision(
                 result.decision,
-                manifest=manifest,
+                manifest=bound,
             )
         except (ValidationError, ValueError) as exc:
             raise ProviderError(
                 f"{self.host_client} provider decision could not be bound to local evidence: {exc}",
                 kind="unrecoverable",
-                attempt_results=(replace(result, schema_valid=False),) if result.native_attempts else (),
+                attempt_results=((replace(result, decision=None, schema_valid=False),) if coverage else
+                                 (replace(result, schema_valid=False),) if result.native_attempts else ()),
                 native_attempts=result.native_attempts,
+                failure_reason="source_coverage_inventory_invalid" if coverage else None,
             ) from exc
         return replace(result, decision=decision)
 
@@ -783,15 +1102,55 @@ class HostStructuredCliProvider:
         runtime_dir: Path,
         heartbeat: Callable[[], None] | None = None,
     ) -> ProviderResult:
-        return self._run(
-            manifest,
+        classification = manifest.get("contract_version") == DREAM_SOURCE_RECHECK_CONTRACT
+        final = manifest.get("contract_version") == "final-knowledge-scope-v1"
+        coverage = (manifest.get("contract_version") == "candidate-semantic-verification-v2"
+                    and source_coverage_inventory_enabled(manifest))
+        # Bind normalization to the exact request, not a mutable caller object
+        # or a later store lookup. The transport receives its own working copy.
+        bound = deepcopy(manifest) if final or coverage else manifest
+        result = self._run(
+            deepcopy(bound) if final or coverage else bound,
             runtime_dir=runtime_dir,
             heartbeat=heartbeat,
-            decision_model=CandidateVerificationDecision,
-            prompt=_build_verification_prompt(manifest),
+            decision_model=(SourceClassificationDecision if classification else
+                            NativeFinalScopeDecision if final else
+                            NativeSourceCoverageVerificationDecision if coverage else CandidateVerificationDecision),
+            prompt=_build_verification_prompt(bound, native_final_transport=final),
             temporary_prefix="verification-",
             error_label="verification",
         )
+        if classification:
+            return replace(result, decision=result.decision.as_verification())
+        if coverage:
+            try:
+                if not isinstance(result.decision, NativeSourceCoverageVerificationDecision):
+                    raise ValueError("native source coverage transport returned the wrong decision type")
+                decision = expand_source_coverage_verification_decision(result.decision, manifest=bound)
+            except (ValidationError, ValueError, TypeError, KeyError) as exc:
+                raise ProviderError(
+                    "source coverage inventory verification does not bind its complete original input",
+                    kind="unrecoverable", failure_reason="source_coverage_inventory_invalid",
+                    attempt_results=(replace(result, decision=None, schema_valid=False),),
+                    native_attempts=result.native_attempts,
+                ) from exc
+            return replace(result, decision=decision)
+        if final:
+            try:
+                if not isinstance(result.decision, NativeFinalScopeDecision):
+                    raise ValueError("native final transport returned the wrong decision type")
+                decision = result.decision.as_verification(bound, isolate_invalid_points=True)
+            except (ValidationError, ValueError) as exc:
+                raise ProviderError(
+                    "native final verification proof does not bind the exact supplied outputs",
+                    kind="unrecoverable", failure_reason="decision_schema",
+                    # Generic hosts may have no native_attempts, but their
+                    # completed result still has actual usage and raw hashes.
+                    attempt_results=(replace(result, decision=None, schema_valid=False),),
+                    native_attempts=result.native_attempts,
+                ) from exc
+            return replace(result, decision=decision)
+        return result
 
     def assimilate(
         self,
@@ -821,6 +1180,108 @@ class HostStructuredCliProvider:
         temporary_prefix: str,
         error_label: str,
     ) -> ProviderResult:
+        """Reserve the task budget, then run the native transport once.
+
+        Missing scope, exhausted cumulative thresholds, an open unknown call,
+        or an explicitly required unproven hard cap raise before ``Popen``
+        and before ``CodexAppServer.run``.
+        """
+
+        if self._task_binding is None or self._budget_phase is None or not self._budget_slice:
+            raise ProviderError(
+                "task binding is missing; native dispatch is closed",
+                kind="setup_required",
+                failure_reason=(
+                    "task_binding_missing"
+                    if self._task_binding is None or self._budget_phase is None
+                    else "slice_binding_missing"
+                ),
+            )
+        holder: dict[str, Any] = {}
+
+        def transport(request: NativeDispatchRequest) -> NativeDispatchResult:
+            if self._explicit_fake_transport is not None:
+                if is_production_native_host(self.host_client):
+                    raise TaskBudgetRefusal(
+                        "A test double cannot vouch for a production host",
+                        code="host_output_limit_unsupported",
+                        kind="setup",
+                    )
+                decision, native = self._explicit_fake_transport(request)
+                holder["result"] = _provider_result_from_native(
+                    decision, native, provider=self.name, host_client=self.host_client,
+                )
+                if native.status in {"failed", "malformed"}:
+                    holder["error"] = ProviderError(
+                        f"{self.host_client} provider returned invalid {error_label} JSON",
+                        kind="unrecoverable",
+                        failure_reason="decision_schema",
+                        attempt_results=(holder["result"],),
+                    )
+                return native
+            try:
+                result = self._run_native_body(
+                    manifest,
+                    runtime_dir=runtime_dir,
+                    heartbeat=heartbeat,
+                    decision_model=decision_model,
+                    prompt=prompt,
+                    temporary_prefix=temporary_prefix,
+                    error_label=error_label,
+                    output_limit_argv=tuple(request.output_limit_argv),
+                )
+            except ProviderError as exc:
+                native = _native_result_from_error(exc)
+                if native is None:
+                    raise
+                holder["error"] = exc
+                return native
+            holder["result"] = result
+            return _native_result_from_provider(result)
+
+        try:
+            dispatched = self.dispatch_with_task_budget(
+                self._task_binding,
+                transport=transport,
+                timeout_seconds=self.timeout_seconds,
+                phase=self._budget_phase,
+                slice_id=self._budget_slice,
+                runtime_dir=str(runtime_dir),
+                output_limit_surface=self._output_surface,
+                input_capability=self._input_capability,
+                retry_of=self._budget_retry_of,
+            )
+        except TaskBudgetRefusal as exc:
+            raise ProviderError(
+                str(exc),
+                kind="setup_required" if exc.kind == "setup" else "unrecoverable",
+                failure_reason=exc.code,
+            ) from exc
+        self._last_budget_call_id = dispatched.call_id
+        error = holder.get("error")
+        if error is not None:
+            raise error
+        result = holder.get("result")
+        if not isinstance(result, ProviderResult):
+            raise ProviderError(
+                "native transport returned no provider result; the reservation stands",
+                kind="unrecoverable",
+                failure_reason="malformed_native_result",
+            )
+        return result
+
+    def _run_native_body(
+        self,
+        manifest: dict[str, Any],
+        *,
+        runtime_dir: Path,
+        heartbeat: Callable[[], None] | None,
+        decision_model: Any,
+        prompt: str,
+        temporary_prefix: str,
+        error_label: str,
+        output_limit_argv: tuple[str, ...] = (),
+    ) -> ProviderResult:
         del manifest
         if not self.executable:
             raise ProviderError(
@@ -832,6 +1293,7 @@ class HostStructuredCliProvider:
             return self._run_codex(
                 runtime_dir=runtime_dir, heartbeat=heartbeat, decision_model=decision_model,
                 prompt=prompt, temporary_prefix=temporary_prefix, error_label=error_label,
+                output_limit_argv=output_limit_argv,
             )
         started = time.monotonic()
         with _temporary_runtime_directory(
@@ -867,6 +1329,11 @@ class HostStructuredCliProvider:
                 prompt=cli_prompt,
                 usage_path=usage_path,
             )
+            if output_limit_argv:
+                invocation = replace(
+                    invocation,
+                    command=[*invocation.command, *output_limit_argv],
+                )
             if self.host_client == "codex":
                 instructions_path = invocation_dir / "instructions.md"
                 instructions_path.write_text(

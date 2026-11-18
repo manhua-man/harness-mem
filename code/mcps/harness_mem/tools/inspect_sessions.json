@@ -1,6 +1,6 @@
 {
   "name": "inspect_sessions",
-  "description": "Read-only device-session inventory, source pages, themes or frozen-batch progress. Missing/absent/multiple workspace roots are valid; directories are optional. Discovery refs are not immutable revisions: prepare fully reads and freezes selected sources. No imports, jobs, memory writes or background work.",
+  "description": "Read-only device-session inventory, source pages, themes or frozen-batch progress. Inventory includes existing batch summaries, actual progress, directly callable inspect/resume/explicit-continue arguments, and none/unique/ambiguous batch_continuation; inspection never clears a pause. Missing/absent/multiple workspace roots are valid; directories are optional. Discovery refs are not immutable revisions: prepare fully reads and freezes selected sources. No imports, jobs, memory writes or background work.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -43,6 +43,11 @@
             "antigravity"
           ]
         }
+      },
+      "archived_only": {
+        "type": "boolean",
+        "default": false,
+        "description": "Filter native inventory to proven archives. Codex archive files and Cursor SQLite archive flags are supported. Unknown state stays out."
       },
       "session": {
         "type": "object",

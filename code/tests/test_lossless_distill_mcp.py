@@ -1066,6 +1066,8 @@ def test_finalize_promotes_answered_candidate_independently_of_session_handoff(
     tmp_path: Path,
     semantic_review: dict,
 ) -> None:
+    from harness_mem.commands.separated_assimilation import target_version
+
     backend = LocalMemoryBackend(tmp_path / "data")
     asyncio.run(backend.init())
     result = asyncio.run(
@@ -1231,14 +1233,60 @@ def test_finalize_promotes_answered_candidate_independently_of_session_handoff(
         )
         assert candidate["entry_id"] == incomplete["entry_id"]
         assert candidate["idempotent_replay"] is True
-        finalized = tool_handlers.tool_finalize_session_distill(
+        missing_judgment = tool_handlers.tool_finalize_session_distill(
             project_name="demo",
             job_id=result.distill_job_id,
             semantic_review=semantic_review,
         )
+        assert missing_judgment["success"] is False
+        assert missing_judgment["reason_codes"] == ["final_scope_judgment_required"]
+        assert asyncio.run(
+            backend.structured_store.knowledge_store.list_entries("demo")
+        ) == [old_entry]
+
+        successor = candidate_arguments["content"]
+        predecessor_version = target_version({
+            "title": old_entry.title,
+            "statement": old_entry.statement,
+            "topic_path": old_entry.module_path,
+        })
+        finalized = tool_handlers.tool_finalize_session_distill(
+            project_name="demo",
+            job_id=result.distill_job_id,
+            semantic_review={
+                **semantic_review,
+                "final_scope_judgment": {
+                    candidate["entry_id"]: {"points": [{
+                        "candidate_index": 0,
+                        "semantic_support": "supported",
+                        "future_scope": "durable",
+                        "source_use": "reusable_knowledge",
+                        "reason": "The repository policy supports the exact command behavior.",
+                        "scope_segments": [{
+                            "text": f"Only hm is generated\n{successor}",
+                            "source_use": "reusable_knowledge",
+                            "future_scope": "durable",
+                            "standalone": True,
+                            "content_role": "claim",
+                            "source_support": "supported",
+                        }],
+                        "update_meaning_judgment": {
+                            "relationship": "preserves_applicable_meaning",
+                            "predecessor_conditions": [],
+                            "predecessor_statements": [old_entry.statement],
+                            "predecessor_versions": [predecessor_version],
+                            "successor_statements": [successor],
+                            "undecided_state": None,
+                            "basis": "The current policy supersedes the old generation claim in full, with no applicable conditions to carry over.",
+                        },
+                    }]},
+                },
+            },
+        )
 
         assert finalized["success"], finalized
         assert finalized["knowledge_changes"][0]["title"] == "Only hm is generated"
+        assert finalized["unfinished_work"] == semantic_review["unfinished_work"]
         audit = _persisted_diagnostics(backend, result.distill_job_id)
         assert audit["completion"] == {
             "disposition": "promoted",
@@ -1274,8 +1322,8 @@ def test_finalize_promotes_answered_candidate_independently_of_session_handoff(
         ]
         assert "promoted_items" not in answer_packet["core_conclusion"]
         note_text = Path(finalized["note"]["path"]).read_text(encoding="utf-8")
-        assert "## Answer Packet" in note_text
-        assert "- 验证状态：已验证" in note_text
+        assert "## 记忆整理与来源核验" in note_text
+        assert "- 记忆内容与来源核验：已验证" in note_text
         assert "- 写入状态：已写入长期记忆" in note_text
         assert "知识类型：" not in note_text
         assert "知识分类：" not in note_text
@@ -1549,8 +1597,7 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Observe the actual internal projection while leaving the public compact
-    # output untouched. Counters/templates belong here, not in normal MCP.
+    # Observe internal projection diagnostics without altering the public packet.
     diagnostic_packets = []
     project_compact = distill_handlers._compact_prepare_result
 
@@ -1633,9 +1680,17 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
         assert evidence["detail_level"] == "compact"
         assert evidence["budget_state"] == "within_budget"
         assert evidence["output_tokens"] <= evidence["budget_tokens"]
-        serialized_tokens, _tokenizer, serialized_chars = serialized_result_tokens(packet)
+        serialized_tokens, _tokenizer, _serialized_chars = serialized_result_tokens(packet)
         assert serialized_tokens < 3000
-        assert serialized_chars < len(source_text) * 0.01
+        # The ready-to-finalize contract has a fixed cost independent of raw size.
+        # Keep the compression check on the packet carrying source evidence and
+        # the token cap above on the complete response sent to the agent.
+        contract = packet["finalize_contract"]
+        assert contract["tool"] == "finalize_session_distill"
+        assert contract["args_template"]["job_id"] == result.distill_job_id
+        evidence_packet = {key: value for key, value in packet.items() if key != "finalize_contract"}
+        _tokens, _tokenizer, evidence_packet_chars = serialized_result_tokens(evidence_packet)
+        assert evidence_packet_chars < len(source_text) * 0.01
         assert "response_budget" not in packet
         windows = packet["semantic_decision_exchanges"]
         assert windows and len(windows) == packet["semantic_evidence"]["output_exchange_count"]

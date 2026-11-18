@@ -1,6 +1,6 @@
 {
   "name": "wake",
-  "description": "Return relevant current memory across all projects and whether current-context maintenance is waiting. Without a task, return availability and a reading call rather than the whole library. Larger task results include a search_memory continuation call.",
+  "description": "Return incomplete lexical memory candidates across all projects and whether current-context maintenance is waiting. Check relevance and source scope; open a selected candidate through search_memory with its read_cursor. Without a task, return availability and a reading call rather than the whole library. Larger task results include a search_memory continuation call.",
   "inputSchema": {
     "type": "object",
     "properties": {

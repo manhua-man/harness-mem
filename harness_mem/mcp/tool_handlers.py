@@ -369,16 +369,32 @@ from harness_mem.mcp.distill_handlers import (  # noqa: E402
 )
 
 
+def _explicit_history(arguments: dict[str, Any]) -> bool:
+    """True when the caller named a frozen selection or a batch control."""
+
+    if arguments.get("batch_sessions") is not None or arguments.get("batch_id") is not None:
+        return True
+    if arguments.get("pause") or arguments.get("continue_batch"):
+        return True
+    return bool(
+        arguments.get("retry_failures")
+        and not arguments.get("session_id")
+        and not arguments.get("distill_job_id")
+        and not arguments.get("target_knowledge")
+    )
+
+
 @wraps(tool_prepare_session_distill)
 def _prepare_memory_review(**arguments: Any) -> dict[str, Any]:
-    """Keep public preparation for review; automatic intake calls the core directly."""
+    """Public review, correction, and explicit historical organization.
+
+    Ordinary agent calls do not discover sessions. Hooks and workers call the
+    core directly. Historical work uses the existing batch owner.
+    """
     if arguments.get("_distill_source", "agent") != "agent":
         return tool_prepare_session_distill(**arguments)
-    if arguments.get("batch_sessions") is not None or arguments.get("batch_id") is not None:
-        return {
-            "success": False,
-            "error": "Manual remembering batches have been removed. Check the automatic recording and background-processing setup instead.",
-        }
+    if _explicit_history(arguments):
+        return tool_prepare_session_distill(**arguments)
     if not arguments.get("target_knowledge"):
         job_id = arguments.get("distill_job_id")
         if not job_id:

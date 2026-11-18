@@ -60,6 +60,17 @@ def test_pending_work_does_not_hide_successfully_saved_knowledge() -> None:
     assert result["unfinished_work"] == ["Check timeout behavior"]
 
 
+@pytest.mark.parametrize("disposition", ["add", "defer"])
+def test_complete_source_review_keeps_project_work_separate_from_organization(disposition):
+    result = project_distill_result(
+        [{"disposition": disposition, "canonical_truth_ids": ["current"]}],
+        {"current": {"module_path": ["cache"], "title": "Current cache", "statement": "Keep valid cache."}},
+        unfinished_work=["Run production validation later."], source_review_complete=True,
+    )
+    assert result["organization_status"] == ("completed" if disposition == "add" else "partial")
+    assert result["unfinished_work"] == ["Run production validation later."]
+
+
 def test_compact_completion_keeps_partial_saved_results_and_note_proof() -> None:
     from harness_mem.mcp.distill_handlers import _compact_finalize_result
 

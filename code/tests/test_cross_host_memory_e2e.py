@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -16,6 +18,7 @@ from harness_mem.core.schemas.knowledge import (
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.schemas.project_knowledge_base import ProjectKnowledgeSourceRef
+from harness_mem.mcp import server
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from tests.support.host_contracts import HOST_NAMES
 
@@ -40,6 +43,7 @@ def test_cross_host_transcript_distill_fact_wake_contract(
     async def run() -> None:
         backend = LocalMemoryBackend(tmp_path / f"data-{client}")
         await backend.init()
+        server.set_backend_override(backend)
         try:
             fact = f"{client} uses the shared lossless distill contract"
             observation = Observation(
@@ -144,12 +148,41 @@ def test_cross_host_transcript_distill_fact_wake_contract(
                 apply_surface_side_effects=False,
                 current_task=fact,
             )
-            assert fact in wake
-            assert "# Current memory" in wake
+            assert "# Memory candidates" in wake
             assert "Shared lossless contract" in wake
+            # The original query is echoed for cursor readback. The candidate
+            # block itself must not contain the complete statement.
+            assert fact not in wake.split("\n## ", 1)[1]
             assert "recent transcript evidence (not facts)" not in wake
             assert "⟨src:" not in wake
+            assert await backend.structured_store.query_retrieval_signals("demo", signal_type="wake_surfaced") == []
+            assert await backend.structured_store.query_retrieval_signals("demo", signal_type="search_hit") == []
+            query = json.loads(re.search(r"^query: (.+)$", wake, flags=re.MULTILINE).group(1))
+            cursors = re.findall(r"^read_cursor: (.+)$", wake, flags=re.MULTILINE)
+            assert query == fact
+            assert len(cursors) == 1
+            for cursor in cursors:
+                full = await asyncio.to_thread(
+                    server.tool_search_memory, query=query, scope="all", detail="full",
+                    cursor=cursor, _include_diagnostics=True,
+                )
+                assert full["detail"] == "full"
+                assert full["memories"] == [{
+                    "title": current.title, "statement": fact, "project_name": "demo",
+                }]
+                call = full["record_outcome_call"]
+                assert call["arguments"]["source_ids"] == [current.id]
+                recorded = await asyncio.to_thread(
+                    server.tool_record_context_outcome, **call["arguments"], outcome="used",
+                )
+                assert recorded["success"] is True
+                assert recorded["truth_mutated"] is False
+            hits = await backend.structured_store.query_retrieval_signals("demo", signal_type="search_hit")
+            assert [hit.target_id for hit in hits] == [current.id]
+            outcomes = await backend.structured_store.query_retrieval_signals("demo", signal_type="context_outcome")
+            assert [outcome.target_id for outcome in outcomes] == [current.id]
         finally:
+            server.set_backend_override(None)
             await backend.close()
 
     asyncio.run(run())

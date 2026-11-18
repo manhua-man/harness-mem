@@ -180,6 +180,7 @@ async def cleanup_processed_source(
     job_id: str,
     native_cleanup: dict[str, Any],
     receipt_id: str | None = None,
+    retained_handoffs: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Clean raw evidence for one completed job and retain sanitized truth.
 
@@ -205,6 +206,7 @@ async def cleanup_processed_source(
             counts={},
             reason_codes=["distill_job_not_completed"],
         )
+    retained_handoffs = dict(retained_handoffs or {})
 
     existing_receipt = (
         _find_deletion_receipt(backend, job.project_name, receipt_id)
@@ -298,8 +300,21 @@ async def cleanup_processed_source(
             reason_codes=reason_codes,
         )
 
+    retention_error = retained_handoff_error(backend, job, retained_handoffs)
+    if retention_error:
+        return _finish_failure(
+            backend, job=job, receipt=receipt, receipt_id=receipt_id,
+            reason_codes=[retention_error], operation="retained_handoffs", counts={},
+        )
+    expected_retained = (receipt.get("preserved_outputs") or {}).get("handoffs")
+    if expected_retained is not None and expected_retained != retained_handoffs:
+        return _finish_failure(
+            backend, job=job, receipt=receipt, receipt_id=receipt_id,
+            reason_codes=["retained_handoff_receipt_mismatch"], operation="retained_handoffs", counts={},
+        )
+
     try:
-        plan = _plan_structured_cleanup(backend, job)
+        plan = _plan_structured_cleanup(backend, job, retained_handoff_ids=set(retained_handoffs))
     except Exception as exc:
         return _finish_failure(
             backend,
@@ -373,10 +388,10 @@ async def cleanup_processed_source(
             )
 
         operation = "transcript_ledger"
-        ledger_counts = backend.transcript_store.prune_completed_distill_evidence(
-            job_id,
-            receipt_id=receipt_id,
-        )
+        prune_options: dict[str, Any] = {"receipt_id": receipt_id}
+        if retained_handoffs:
+            prune_options["retain_unfinished_work"] = True
+        ledger_counts = backend.transcript_store.prune_completed_distill_evidence(job_id, **prune_options)
         counts.update(ledger_counts)
 
         operation = "secure_delete_flush"
@@ -393,6 +408,8 @@ async def cleanup_processed_source(
             retained_truth=plan["retain"],
             deleted_records=plan["delete"],
         )
+        if retained_handoffs:
+            remaining["retained_handoffs_changed"] = int(bool(retained_handoff_error(backend, job, retained_handoffs)))
         passed = not any(remaining.values())
         status = "deleted" if passed else "partial_failure"
         final_job = backend.transcript_store.get_distill_job(job_id) or job
@@ -447,6 +464,8 @@ async def cleanup_processed_source(
 def _plan_structured_cleanup(
     backend: LocalMemoryBackend,
     job: Any,
+    *,
+    retained_handoff_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     verbatim = _verbatim_store(backend)
     structured = _structured_store(backend)
@@ -514,6 +533,7 @@ def _plan_structured_cleanup(
                     not entity_id
                     or entity_id in delete.get(collection, set())
                     or str(payload.get("project_name") or "") != job.project_name
+                    or collection == "task_handoffs" and entity_id in (retained_handoff_ids or set())
                 ):
                     continue
                 if _payload_matches_job(
@@ -542,6 +562,58 @@ def _plan_structured_cleanup(
         },
         "blocking_candidate_ids": sorted(blocking),
     }
+
+
+def retained_handoff_error(backend: LocalMemoryBackend, job: Any, handoffs: dict[str, str]) -> str | None:
+    """Validate retained handoffs against the exact completed job of this source."""
+    store = _structured_store(backend)
+    if handoffs:
+        from harness_mem.commands.session_inventory import completed_job_ids, current_entries
+        jobs = backend.transcript_store.list_distill_jobs()
+        proven, _ = completed_job_ids(jobs, current_entries(backend.data_dir, None))
+        source_jobs = {value.id: value for value in jobs if value.project_name == job.project_name and value.source_id == job.source_id}
+    else:
+        proven, source_jobs = set(), {}
+    for identity, expected_digest in handoffs.items():
+        if not isinstance(expected_digest, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_digest):
+            return "retained_handoff_not_recorded"
+        if not store.record_payload_exists("task_handoffs", identity):
+            return "retained_handoff_missing"
+        payload = store.read_record_payload("task_handoffs", identity)
+        context = payload.get("context") or {}
+        bound = source_jobs.get(context.get("distill_job_id"))
+        if bound is None:
+            return "retained_handoff_scope_changed"
+        if bound.id == job.id:
+            if bound.id not in proven:
+                return "retained_handoff_scope_changed"
+        else:
+            # This proves the retained task's historical source/account binding,
+            # not that every old knowledge row remains current after later edits.
+            audit = bound.structural_audit
+            readback = bound.promotion_summary.get("readback") or {}
+            if (bound.status != "completed" or bound.completion_disposition is None
+                    or audit.get("coverage") != "complete"
+                    or audit.get("expected_chunks") != bound.expected_chunk_count
+                    or audit.get("completed_chunks") != bound.expected_chunk_count
+                    or bound.completed_chunk_count != bound.expected_chunk_count
+                    or readback.get("verified") is not True
+                    or readback.get("source_revision") != bound.source_revision
+                    or bound.promotion_summary.get("pending", 0) or bound.promotion_summary.get("missing", 0)
+                    or any(point.get("disposition") in {"pending", "defer", "conflict", "handoff"}
+                           for point in bound.promotion_summary.get("points", []))):
+                return "retained_handoff_source_review_incomplete"
+        recorded = set((bound.promotion_summary.get("readback") or {}).get("handoff_ids") or [])
+        if identity not in recorded:
+            return "retained_handoff_not_recorded"
+        if (payload.get("project_name") != job.project_name
+                or context.get("source_id", bound.source_id) != bound.source_id
+                or context.get("transcript_source_id", bound.source_id) != bound.source_id
+                or context.get("source_revision", bound.source_revision) != bound.source_revision):
+            return "retained_handoff_scope_changed"
+        if store.record_payload_sha256("task_handoffs", identity) != expected_digest:
+            return "retained_handoff_changed"
+    return None
 
 
 async def _sanitize_truth(

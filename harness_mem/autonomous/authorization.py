@@ -1,4 +1,4 @@
-"""Background memory authorization (distill.autonomous.enabled + host CLI)."""
+"""Background opt-in and read-only CLI/budget scheduling readiness."""
 
 from __future__ import annotations
 
@@ -61,6 +61,9 @@ _REASON_MESSAGES = {
     "host_not_detected": "Background is on, but the current Agent could not be identified.",
     "unsupported_cli": "Background is on, but the selected CLI is not supported.",
     "cli_not_found": "Background is on, but the selected CLI executable was not found.",
+    "bounds_not_configured": "Background is on, but task_model_budget bounds are missing or invalid; scheduling is closed.",
+    "host_output_limit_unsupported": "Background is on, but the explicitly requested strict cap has no proven hard output token cap on this CLI; scheduling is closed.",
+    "complete_input_bound_unknown": "Background is on, but strict reservation has no proven complete input bound on this CLI; scheduling is closed.",
 }
 
 
@@ -109,7 +112,9 @@ def background_status(config: Any, *, client: str | None = None) -> BackgroundSt
             elif not _resolve_executable(selected_cli):
                 reason = "cli_not_found"
             else:
-                reason = "ok"
+                from harness_mem.autonomous.executors.task_budget import task_budget_scheduling_reason
+
+                reason = task_budget_scheduling_reason(view, selected_cli)
     return BackgroundStatus(
         ready=reason == "ok",
         on=on,

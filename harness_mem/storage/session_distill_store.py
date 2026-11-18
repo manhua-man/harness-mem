@@ -33,12 +33,14 @@ class SessionDistillStore:
         get_source: Callable[[str], TranscriptSource | None],
         reconstruct: Callable[..., str],
         manual_job_check: Callable[[SessionDistillJob], bool] | None = None,
+        paused_batch_check: Callable[[SessionDistillJob], bool] | None = None,
     ) -> None:
         self._conn = connection
         self._lock = lock
         self._get_source = get_source
         self._reconstruct = reconstruct
         self._manual_job_check = manual_job_check or (lambda job: job.manual_only)
+        self._paused_batch_check = paused_batch_check or (lambda job: False)
 
     def freeze_manual_selection(self, publish: Callable[[], dict], *,
                                 matches: Callable[[SessionDistillJob], bool]) -> dict:
@@ -251,6 +253,39 @@ class SessionDistillStore:
                     self._upsert_job_locked(job)
                 self._conn.commit()
                 return job
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def release_other_manual_revisions(self, job: SessionDistillJob) -> None:
+        """Let other revisions proceed once this exact revision is bound.
+
+        The frozen batch keeps owning ``job``. A manual mark copied onto an
+        older or later revision of the same source is not a permanent exclusion.
+        Jobs that a manifest still binds or still reserves are left unchanged.
+        """
+
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                rows = self._conn.execute(
+                    """
+                    SELECT data FROM distill_jobs
+                    WHERE source_id = ? AND source_revision != ?
+                    """,
+                    (job.source_id, job.source_revision),
+                ).fetchall()
+                now = datetime.now(timezone.utc)
+                for row in rows:
+                    other = SessionDistillJob.from_dict(json.loads(row["data"]))
+                    if (not other.manual_only or other.client != job.client
+                            or other.session_id != job.session_id
+                            or self._manual_job_check(other)):
+                        continue
+                    other.manual_only = False
+                    other.updated_at = now
+                    self._upsert_job_locked(other)
+                self._conn.commit()
             except Exception:
                 self._conn.rollback()
                 raise
@@ -823,6 +858,11 @@ class SessionDistillStore:
                 if checkpoint.status == "completed":
                     self._conn.rollback()
                     return job
+                # Re-read the pause immediately before accepting the leased write.
+                # The manifest lock is not the ledger transaction.
+                if self._paused_batch_check(job):
+                    self._conn.rollback()
+                    raise ValueError("batch_paused")
                 if (
                     checkpoint.status != "processing"
                     or checkpoint.lease_owner != lease_owner
@@ -887,6 +927,9 @@ class SessionDistillStore:
                     # receipt instead of trying to reconstruct deleted input.
                     self._conn.rollback()
                     return job
+                if self._paused_batch_check(job):
+                    self._conn.rollback()
+                    raise ValueError("batch_paused")
                 active_review_lease = bool(
                     job.review_lease_owner
                     and job.review_lease_until is not None

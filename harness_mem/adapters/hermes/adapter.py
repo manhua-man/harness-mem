@@ -10,6 +10,7 @@ import sqlite3
 import sys
 from contextlib import closing
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -412,6 +413,28 @@ class HermesAdapter:
             and path.resolve(strict=False) == self.state_db.resolve(strict=False)
         )
 
+    def read_session_source(self, path: Path, session_id: str) -> dict[str, Any]:
+        """Export one selected database session with optional cleanup evidence."""
+        if not self._is_state_db(path):
+            raise ValueError("Hermes database source is outside the selected profile")
+        exported = _export_state_db_session(path, session_id, cleanup_evidence=True)
+        uri = source_uri_from_path(path)
+        visible = _state_export_bytes(
+            session_id,
+            {key: exported["session"][key] for key in ("id", "cwd", "git_repo_root", "started_at", "ended_at")
+             if key in exported["session"]},
+            [{key: row[key] for key in ("id", "session_id", "role", "content", "tool_name") if key in row}
+             for row in exported["messages"]],
+        )
+        return {
+            **exported,
+            "capture_bytes": visible,
+            "source_text": visible.decode("utf-8"),
+            "source_uri": f"{uri}#session={quote(session_id, safe='')}",
+            "project_roots": hermes_workspace_roots(exported["session"]),
+            "native_input_digest": sha256(exported["raw_bytes"]).hexdigest(),
+        }
+
     def _source_root(self) -> Path:
         if self.state_db is not None:
             return self.state_db.parent
@@ -427,19 +450,13 @@ class HermesAdapter:
         session = exported["session"]
         lines = [f"# Hermes Session: {session_id}"]
         if session.get("title"):
-            lines.append(f"\nTitle: {session['title']}")
+            lines.append("\nTitle: " + " ".join(str(session["title"]).splitlines()))
         workspace = session.get("git_repo_root") or session.get("cwd")
         if workspace:
-            lines.append(f"\nWorkspace: {workspace}")
-        for message in exported["messages"]:
-            role = str(message.get("role") or "").strip().lower()
-            content = str(message.get("content") or "")
-            tool_name = str(message.get("tool_name") or "")
-            if role == "tool" and tool_name:
-                lines.append(f"\nTool: {tool_name} {content}")
-            elif content:
-                label = "User" if role == "user" else "Assistant" if role == "assistant" else role.title()
-                lines.append(f"\n{label}: {content}")
+            lines.append("\nWorkspace: " + " ".join(str(workspace).splitlines()))
+        rendered = render_hermes_sqlite_messages([_state_message(row) for row in exported["messages"]])
+        if rendered:
+            lines.append("\n" + rendered)
         timestamp = _epoch_seconds(
             session.get("ended_at") or session.get("started_at")
         ) or datetime.fromtimestamp(session_path.stat().st_mtime, tz=timezone.utc)
@@ -630,7 +647,8 @@ def _state_db_metadata_records(path: Path, *, issues: list[Issue] | None) -> lis
 
 
 def _connect_readonly(path: Path) -> sqlite3.Connection:
-    connection = sqlite3.connect(f"file:{path.resolve().as_posix()}?mode=ro", uri=True)
+    connection = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=0.2)
+    connection.execute("PRAGMA query_only=ON")
     connection.row_factory = sqlite3.Row
     return connection
 
@@ -686,22 +704,36 @@ def _state_db_session_records(
     return records
 
 
-def _export_state_db_session(path: Path, session_id: str) -> dict[str, Any]:
+def _export_state_db_session(path: Path, session_id: str, *, cleanup_evidence: bool = False) -> dict[str, Any]:
     with closing(_connect_readonly(path)) as db:
         db.execute("BEGIN")
-        session_row = db.execute(
-            "SELECT * FROM sessions WHERE id = ?",
-            (session_id,),
-        ).fetchone()
-        if session_row is None:
-            raise ValueError(f"Hermes session not found: {session_id}")
-        message_rows = db.execute(
-            "SELECT * FROM messages WHERE session_id = ? "
-            "AND COALESCE(active, 1) = 1 ORDER BY id ASC",
-            (session_id,),
-        ).fetchall()
+        exported = _export_state_session_rows(db, session_id)
+        if cleanup_evidence:
+            from harness_mem.adapters.hermes.sqlite_cleanup import capture_hermes_cleanup_witness
+            exported["hermes_cleanup_sha256"] = capture_hermes_cleanup_witness(db, exported)
+        return exported
+
+
+def _export_state_session_rows(db: sqlite3.Connection, session_id: str) -> dict[str, Any]:
+    """Produce the same selected transcript under an existing SQLite snapshot."""
+    session_row = db.execute(
+        "SELECT * FROM sessions WHERE id COLLATE BINARY = ?",
+        (session_id,),
+    ).fetchone()
+    if session_row is None:
+        raise ValueError(f"Hermes session not found: {session_id}")
+    message_rows = db.execute(
+        "SELECT * FROM messages WHERE session_id COLLATE BINARY = ? "
+        "AND COALESCE(active, 1) = 1 ORDER BY id ASC",
+        (session_id,),
+    ).fetchall()
     session = dict(session_row)
     messages = [dict(row) for row in message_rows]
+    raw = _state_export_bytes(session_id, session, messages)
+    return {"session": session, "messages": messages, "source_text": raw.decode("ascii"), "raw_bytes": raw}
+
+
+def _state_export_bytes(session_id: str, session: dict, messages: list[dict]) -> bytes:
     records = [
         {"format": "harness-mem-hermes-state-db-v1", "session_id": session_id},
         {"row": _encode_sqlite_row(session), "table": "sessions"},
@@ -710,17 +742,57 @@ def _export_state_db_session(path: Path, session_id: str) -> dict[str, Any]:
             for message in messages
         ),
     ]
-    source_text = "".join(
+    return "".join(
         json.dumps(record, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
         + "\n"
         for record in records
-    )
-    return {
-        "session": session,
-        "messages": messages,
-        "source_text": source_text,
-        "raw_bytes": source_text.encode("ascii"),
-    }
+    ).encode("ascii")
+
+
+def _state_message(row: dict[str, Any]) -> dict[str, str]:
+    role = str(row.get("role") or "").strip().lower()
+    content = str(row.get("content") or "")
+    if role == "tool" and row.get("tool_name"):
+        content = f"{row['tool_name']} {content}"
+    return {"role": role, "content": content}
+
+
+def render_hermes_sqlite_messages(messages: list[dict[str, str]]) -> str:
+    """Render native message boundaries without promoting quoted role labels."""
+    rendered = []
+    for message in messages:
+        role = message["role"]
+        content = message["content"].strip()
+        if not content:
+            continue
+        content = "\n".join(
+            "> " + line if line.startswith(("User: ", "Assistant: ", "Tool: ", "## Turn ")) else line
+            for line in content.splitlines()
+        )
+        label = role.title() if role in {"user", "assistant", "tool"} else "Tool"
+        rendered.append(f"{label}: {content}")
+    return "\n\n".join(rendered)
+
+
+def hermes_sqlite_export_messages(raw: bytes, session_id: str) -> list[dict[str, str]]:
+    """Project native roles from a complete frozen Hermes SQLite export."""
+    records = [json.loads(line) for line in raw.decode("utf-8").splitlines() if line.strip()]
+    if (len(records) < 2 or records[0] != {"format": "harness-mem-hermes-state-db-v1", "session_id": session_id}
+            or not isinstance(records[1], dict) or records[1].get("table") != "sessions"
+            or not isinstance(records[1].get("row"), dict) or records[1]["row"].get("id") != session_id):
+        raise ValueError("Hermes frozen export has no verified session identity")
+    messages = []
+    previous_id = 0
+    for record in records[2:]:
+        row = record.get("row") if isinstance(record, dict) and record.get("table") == "messages" else None
+        if (not isinstance(row, dict) or row.get("session_id") != session_id
+                or type(row.get("id")) is not int or row["id"] <= previous_id
+                or not isinstance(row.get("role"), str)
+                or row.get("content") is not None and not isinstance(row["content"], str)):
+            raise ValueError("Hermes frozen export contains an unverified message")
+        previous_id = row["id"]
+        messages.append(_state_message(row))
+    return messages
 
 
 def _encode_sqlite_row(row: dict[str, Any]) -> dict[str, Any]:

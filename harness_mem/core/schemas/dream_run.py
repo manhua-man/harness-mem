@@ -93,6 +93,10 @@ class DreamRun(BaseModel):
     started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: datetime | None = None
     status: DreamStatus = "completed"
+    # Traversal can finish while knowledge stays unresolved. status stays
+    # failed in that case so older readers do not treat it as cleanup.
+    execution_status: Literal["completed", "failed", "continuing"] | None = None
+    resolution_status: Literal["resolved", "unresolved", "failed"] | None = None
     trigger_source: Literal["user", "agent", "ide_hook", "scheduler"] = "agent"
     reflection_job_id: str | None = None
     policy_version: str = "v3.1"
@@ -125,6 +129,8 @@ class DreamRun(BaseModel):
             "started_at": self.started_at.isoformat(),
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "status": self.status,
+            "execution_status": self.execution_status,
+            "resolution_status": self.resolution_status,
             "trigger_source": self.trigger_source,
             "reflection_job_id": self.reflection_job_id,
             "policy_version": self.policy_version,

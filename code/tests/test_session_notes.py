@@ -122,3 +122,21 @@ def test_rejected_point_does_not_invent_pending_work_beside_a_saved_point() -> N
     assert "- 结果：部分内容写入长期记忆" in note
     assert "仍需处理" not in note
     assert "## 未完成工作\n\n- 无。" in note
+
+
+def test_verified_memory_note_does_not_claim_the_original_visual_task_passed():
+    task = "Use existing Qwen to inspect the lighthouse frames without cloud access."
+    pending = "The visual test has not started; preserve text generation and avoid duplicate work."
+    job = SessionDistillJob(id="visual-review", idempotency_key="visual-review", project_name="demo",
+        project_root="F:/demo", client="codex", session_id="visual-session", source_id="visual-source",
+        source_revision="sha256:" + "b" * 64, status="completed", completion_disposition="promoted",
+        semantic_review={"session_summary": "Recorded the limited visual-test request and its unstarted status.",
+            "final_user_request": task, "final_outcome": pending, "unfinished_work": [pending]},
+        promotion_summary={"promoted": 1, "answer_packet": {"question": task, "answer_status": "ANSWERED",
+            "core_conclusion": "The source-supported task boundary was saved as memory.",
+            "promotion_status": "promoted", "promoted_items": []}})
+    note = render_session_note(job)
+    assert task in note and pending in note
+    assert "- 记忆内容与来源核验：已验证" in note
+    assert "原任务的执行与验收状态见“最终结果”和“未完成工作”" in note
+    assert "- 验证状态：已验证" not in note

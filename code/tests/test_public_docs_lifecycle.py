@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 def test_public_docs_and_repo_mirrors_expose_only_one_daily_entry() -> None:
@@ -10,10 +11,14 @@ def test_public_docs_and_repo_mirrors_expose_only_one_daily_entry() -> None:
         assert "harness-mem quickstart" in body
         assert "`$hm`" in body
         assert "`/hm`" in body
-    assert "Remember this session." in readme
-    assert "This memory is wrong." in readme
-    assert "记住这次。" in chinese
-    assert "这条记忆不对。" in chinese
+    assert "$hm distill --project oiioii-studio --cleanup" in readme
+    assert '$hm search "Oii upstream models and local alternatives"' in readme
+    assert '$hm review --replace "<old title or text>" --with "<new text>"' in readme
+    assert "Remember this session." not in readme
+    assert "$hm distill --project oiioii-studio --cleanup" in chinese
+    assert '$hm search "Oii 上游模型与本地替代"' in chinese
+    assert '$hm review --delete "<旧标题或正文>"' in chinese
+    assert "记住这次。" not in chinese
 
     assert Path("code/plugins/harness-mem/commands/hm/hm.md").is_file()
     assert not any(Path("code/plugins/harness-mem/commands/hm/daily").glob("*.md"))
@@ -63,12 +68,12 @@ def test_quickstart_keeps_mcp_connection_out_of_its_install_scope() -> None:
     normalized_chinese = "".join(chinese.split())
     normalized_quickstart = " ".join(quickstart.split())
 
-    assert "scan or import old sessions" in normalized_readme
-    assert "不扫描或导入旧会话" in normalized_chinese
-    assert "scan or import historical sessions" in normalized_quickstart
-    assert "does not inspect or change MCP settings" in normalized_readme
-    assert "不会查看或修改MCP设置" in normalized_chinese
-    assert "inspect or change MCP settings" in normalized_quickstart
+    assert "does not import historical sessions" in normalized_readme
+    assert "不导入旧会话" in normalized_chinese
+    assert "neither imports historical sessions" in normalized_quickstart
+    assert "or inspect or change MCP settings" in normalized_readme
+    assert "不查看或修改MCP设置" in normalized_chinese
+    assert "nor inspects or changes MCP settings" in normalized_quickstart
     assert "codex mcp" not in combined
     assert "adds the installed `harness-mem-mcp`" not in combined
     assert "all seven hosts automatically register MCP" not in combined
@@ -92,21 +97,14 @@ def test_setup_describes_one_agent_setup_not_one_setup_per_project() -> None:
     assert "not once per project" in quickstart
 
 
-def test_plugin_prompts_use_one_plain_daily_entry() -> None:
+def test_plugin_prompts_use_explicit_hm_commands() -> None:
     manifest = json.loads(
         Path("code/plugins/harness-mem/.codex-plugin/plugin.json").read_text(
             encoding="utf-8"
         )
     )
     prompts = manifest["interface"]["defaultPrompt"]
-    combined = " ".join(prompts).lower()
-
-    assert prompts == [
-        "Remember what matters from this session.",
-        "Find how we solved this before.",
-        "Correct the memory I just pointed out.",
-    ]
-    assert not any(term in combined for term in ("wake", "distill", "candidate"))
+    assert prompts == ["$hm help", "$hm status", "$hm review"]
 
 
 def test_unversioned_obsolete_canvases_are_removed() -> None:
@@ -383,13 +381,14 @@ def test_hm_distill_keeps_one_public_flow_without_helper_skills() -> None:
         "smart-search",
         "trellis",
     )
-    assert "写入前只问五件事" in skill
-    assert "先补齐证据再决定" in skill
-    assert "只有本机核对通过的内容才能写入" in skill
+    assert "完整读选中的会话" in skill
+    assert "完整来源、逐点证据、最终实际内容判断、写前重开和目标版本检查" in skill
+    assert "final_scope_judgment" in skill
+    assert "source_report" in skill
     assert not any(term in skill for term in retired_terms)
 
 
-def test_active_docs_do_not_restore_legacy_distill_product_name() -> None:
+def test_active_docs_distinguish_upstream_references_from_retired_local_entry() -> None:
     legacy_name = "session" + "-distill"
     paths = [
         Path("README.md"),
@@ -403,14 +402,12 @@ def test_active_docs_do_not_restore_legacy_distill_product_name() -> None:
 
     for path in paths:
         content = path.read_text(encoding="utf-8")
-        if path == Path("docs/roadmap.md"):
-            # The named upstream is provenance, not a restored product entry.
-            upstream = (
-                "[session-distill-skills]"
-                "(https://github.com/manhua-man/session-distill-skills)"
-            )
-            assert content.count(upstream) == 1
-            content = content.replace(upstream, "")
+        # The user's comparison reference and its pinned source links are
+        # provenance. Local duplicate commands and runtimes remain retired.
+        content = re.sub(
+            r"\[[^\]\n]+\]\(https://github\.com/manhua-man/session-distill-skills(?:[/#][^)\s]*)?\)",
+            "", content,
+        ).replace("`session-distill-skills`", "")
         assert legacy_name not in content, path
 
 
@@ -442,7 +439,8 @@ def test_active_governance_docs_use_single_public_write_surface() -> None:
 
     combined = "\n".join(path.read_text(encoding="utf-8") for path in active_paths)
     assert "govern_memory" in combined
-    assert "写入、修改和交接由现有工具在内部完成" in combined
+    assert "final_scope_judgment" in combined
+    assert "日常输出不展开编号" in combined
 
 
 def test_current_roadmap_is_0_9_x_and_internal_doc_duplicates_are_removed() -> None:
@@ -472,3 +470,18 @@ def test_legacy_storage_cutoff_and_delete_semantics_are_documented() -> None:
         assert "0.9.x" in body
         assert "1.0.0" in body
         assert "2027-01-31" in body
+
+
+def test_write_convergence_guides_advertise_manual_judgment_and_native_limits() -> None:
+    for name in ("code/plugins/harness-mem/commands/hm/hm.md", "code/tools/hm-distill/SKILL.md"):
+        guide = Path(name).read_text(encoding="utf-8")
+        for field in ("final_scope_judgment", "scope_segments", "candidate_index", "update_meaning_judgment", "predecessor_conditions", "predecessor_statements", "predecessor_versions", "successor_statements", "undecided_state", "continue_batch=true"):
+            assert field in guide, (name, field)
+        assert "不要求 `distill.autonomous.enabled`" in guide
+    for name in ("AGENTS.md", "CLAUDE.md", "DESIGN.md", "README.md", "docs/roadmap.md", "docs/memory-adoption.md"):
+        body = Path(name).read_text(encoding="utf-8")
+        assert "task_model_budget" in body or "Cumulative background budgets" in body, name
+    proposal = Path("docs/memory-write-convergence-20261020.md").read_text(encoding="utf-8")
+    assert "最终验收待完成" in proposal
+    assert "**状态：整体设计提案，尚未实施。**" not in proposal
+    assert "本服务未测量/限制全部 ChatGPT 或 Agent 账单" in proposal

@@ -7,6 +7,592 @@ itself; normal runtime paths do not migrate legacy data.
 
 ## Current iteration plan
 
+**Current owner: this chat; updated 2026-11-18.** The user has replaced real-time recording as the priority with two outcomes: (1) absorb completed conversations into useful, verified, organized knowledge and clean processed historical files; (2) retrieve that knowledge reliably. The minimum comparison is the actual implementation of [session-distill-skills](https://github.com/manhua-man/session-distill-skills), inspected locally at a pinned commit. The user wants a tool-level comparison that can expose omissions on sources not used to tune the work.
+
+User-selected constraints: keep the removed runtime disconnected during development; completed-history processing must work without lifecycle Hooks, background executors or project installation. Preserve active/unprocessed sources. Cleanup must follow complete source review, committed knowledge/readback and an exact source-version check. Project labels are optional context; applicable cross-project knowledge remains retrievable.
+
+### Shared memory foundation and simpler organization (2026-11-13, implemented and compared)
+
+The user now explicitly requests a simpler upstream-inspired organization flow,
+retaining source protection and safe cleanup, followed by an actual comparison
+on the same completed conversations. The product goal remains a common memory
+foundation for all Agents. Host Skills guide semantic work; the shared MCP/runtime
+owns sources, current knowledge, retrieval, transactions and cleanup.
+
+Implementation decision: keep the existing prepare/finalize/search owners. A
+current Agent supplies one concise knowledge review with source support, future
+use and the conditions it checked; the runtime binds the exact outputs and
+selected predecessor versions already in its possession. Repeated copies of
+rendered statements, internal hashes and synthetic scope partitions are not
+additional independent semantic verification. Source reopening, attribution,
+target-version checks, complete review, readback and cleanup guards remain.
+
+The concise contract passes 60 targeted public-contract and manual-flow checks,
+covering addition, confirmation, replacement, attributed reports, independent
+point failure, forged-plan rejection, source changes and completed-copy cleanup.
+Scoped Mypy and Ruff pass for the changed owners, and descriptors are synchronized.
+The broader public suite retains an unrelated old project-Hook expectation against
+current user-Hook behavior; the project-wide checks are not reported as passing.
+
+Two fresh Agents actually processed the same two completed Codex conversations
+in chronological order, with byte-identical native copies (2,482,519 bytes per
+arm), original cwd and empty initial knowledge. HM saved 10 entries and reopened
+them through ordinary search, with both Notes and one real followup verified.
+Upstream saved 18 entries and reopened its KB and Notes. A third Agent froze its
+source-based criteria before reading anonymous outputs. Both outputs covered all
+11 core facets, with three partial facets each and no key factual reversal; these
+counts are not a score or proof of equal quality. HM retained more recovery and
+original-work context, while upstream was easier to scan and more explicit about
+the diagnostic script's location-check gap. HM's 3,211-character displayed text
+includes 663 characters of repeated English report framing; upstream's is 2,549
+characters. This sample does not establish an overall quality or cost winner.
+
+The comparison also exposes operational limits. HM required extra native-tool
+evidence reads via the experiment's supplied file paths because its existing
+Codex projection retains only user/assistant messages. Upstream's native KB parser
+read zero entries from its documented verified-date-only format; direct KB readback
+succeeded, but native marking does not establish semantic validation or retrieval.
+Its independent content review occurred after native closing in this experiment.
+All failures and the isolated helper cache cleanup remain recorded. Original
+sources, host connections and real memory were not modified; comparison copies
+were retained. This is source-path and output evidence, not installed, all-host,
+natural-Hook, populated-library deduplication or ranked-retrieval acceptance.
+
+The user's follow-up to improve on-demand evidence location and concise report
+presentation is complete for this source-level scope (2026-11-14). Prepared Codex
+sessions expose read-only, version-bound native tool records through the existing
+tool; other native formats have no new tool-record reader in this change. A
+controlled reopening of the old ten memories preserves every stored row, complete
+report account and session timestamp while reducing displayed Markdown from 3,211
+to 2,725 characters. This isolates presentation savings, not semantic quality or
+model cost. Search, completion and new Notes retain per-item attribution; current
+and old displayed text remain usable for exact correction.
+
+A fresh same-source run completed both sessions with eight memories and one real
+historical handoff; all 128 native tool records were read through the prepared
+entry and independently matched to their original lines. Independent content
+review found useful script-recovery and invalid-input details were compressed
+away. One bounded correction reused the already-read, byte-identical sources and
+saved ten memories, two Notes and the same one handoff. Fresh-process ordinary
+search matches the current rows, both Notes and source versions verify, and the
+255 frozen runtime/instruction files remain unchanged. Independent review of the
+correction confirms the restored script entry/recovery, explicit export, invalid
+import and input-limit details against their source code; the previously accepted
+dates, final corrections, authorization and acceptance boundaries remain intact.
+The first output stays frozen. This was a reviewed correction, not a second blind
+run; the 3,497-character final result restores useful detail and cannot be called
+shorter on the basis of the controlled display experiment.
+
+Focused evidence/Note checks (22), related regressions (96) and four public surface
+checks pass. The report/recall selection has 116 passes and two old wake-expectation
+failures, so it is not reported as a full pass. Scoped Ruff/Mypy and descriptor
+synchronization pass. Tool text may contain nested other-session material; native
+record selection does not grant that text author authority or a new processing
+scope. Installation, host connections, real memory, original-source cleanup,
+populated-library deduplication and ranked-retrieval acceptance remain outside
+this development run. Next work should follow the user-selected completed-history
+and retrieval goals above; this sample does not establish a general quality or
+cost advantage over upstream.
+[Follow-up validation](../.tmp/distill-simplification-comparison/followup-20261113/validation.md),
+[actual final knowledge](../.tmp/distill-simplification-comparison/followup-20261113/revised/actual-knowledge.md),
+[independent correction review](../.tmp/distill-simplification-comparison/followup-20261113/evaluation/revised-review.md)
+and [final integrity](../.tmp/distill-simplification-comparison/followup-20261113/revised-integrity.json).
+[Comparison and receipts](../.tmp/distill-simplification-comparison/comparison.md),
+[frozen inputs](../.tmp/distill-simplification-comparison/run-20261113/frozen-inputs.json)
+and [qualified runtime snapshot](../.tmp/distill-simplification-comparison/run-20261113/runtime-qualified.json).
+
+### Useful knowledge in ordinary search (2026-11-14)
+
+The user asks for a new run of the same two sessions after inspecting the long
+search results. A session can produce several independent memories. Each entry
+answers a later question on its own and retains the conditions that affect the
+action or its verification. Useful incident history goes in the session Note.
+A remaining action from the original task goes in its handoff. A failure that
+reveals a reusable diagnostic rule can become its own memory. The canonical `hm`
+command, shared Skill and prepared finalization instructions now express this
+choice without a target count or length. The 34 focused tests, command mirror
+check and Ruff check passed.
+
+The same frozen conversations ran through the working-tree MCP dispatcher in a
+new empty store. Antigravity yielded five memories and video review yielded six.
+Ordinary search in fresh processes returned all 11 exact statements across two
+pages, matching finalization and SQLite. Both Notes and the original Antigravity
+desktop retry handoff read back. The original and copied source hashes match.
+Two cross-project question searches returned the expected regional verification
+and JSON recovery entries first. The upstream comparison uses the original 18
+saved entries from the same inputs.
+
+The new output retains the regional probe defect and the browser routing
+conditions, and gives JSON recovery and invalid-import handling separate answers.
+Remaining issues include repetition between video entries, old defect details in
+the work-specific preview entry, and lost script entry points and rollback details
+from the previous HM output. See the [content comparison](../.tmp/distill-simplification-comparison/comparison.md#按实际用途重新整理2026-11-14),
+[exact search output](../.tmp/distill-simplification-comparison/quality-20261114/actual-knowledge.md),
+and [run receipt](../.tmp/distill-simplification-comparison/quality-20261114/result.json).
+
+The user's follow-up requests dynamic grouping by each project's actual
+functions, and supplies a historical upstream KB as an example. The shared
+guide, host command and prepared review instruct agents to reuse relevant
+module paths and check related entries together. Existing topic storage and
+ordinary search supply the resulting paths. The example does not define a
+module list for other projects.
+
+The final isolated rerun reads back 13 entries in three functional modules
+with subtopics. Temporary trial, authorized persistent application, and
+targeted disconnect now have separate answers. The video entry owns the
+tool link, while playback, record recovery, import checks and historical
+verification retain their distinct conditions. Five focused questions return
+the intended entry first. The run verifies two Notes, the remaining original
+desktop retry, and identical source hashes. The 34 focused checks, Ruff and
+host command mirror checks passed. [Classified search readback](../.tmp/distill-simplification-comparison/classified-final-20261114/classified-knowledge.md)
+and [final run receipt](../.tmp/distill-simplification-comparison/classified-final-20261114/result.json).
+
+### Existing classification during manual review (2026-11-16)
+
+Manual preparation and batch-id-only resume now read current related memories with
+their module paths and return a bounded catalog of the workspace's existing
+functional paths. Related results and catalog omissions are marked separately.
+The Agent checks the actual established categories before adding a new path and
+uses focused search or a project list when the prepared comparison is insufficient.
+Current knowledge supplies comparison context. The frozen source, evidence,
+write owner and exact target checks still govern persistence.
+
+The same two completed Codex conversations ran consecutively through the public
+manual MCP path against a SQLite backup of the actual 2,259 current memories.
+No classification table or expected path was supplied to the organizer. The
+Antigravity review chose two exact existing workspace paths for three additions.
+After resuming by batch ID alone, the OiiOii review checked the full 359-row
+project list, found no dedicated video-review tool category and filed five
+memories under the new tool path. It also added a work-specific child under
+the existing work-quality category. That child names a work rather than a new
+function. Both jobs use the device-wide `global` write owner, so exact path
+reuse across workspace context does not establish same-project placement.
+A new process read all nine additions via ordinary search. The 2,259 pre-existing
+knowledge payloads, the live store, and both native source files retained their
+hashes. Two Notes and the outstanding desktop retry read back.
+
+The sample still misses operation-level details, including the three exact
+targets for disconnecting old API/OAuth connections. The
+[item-by-item comparison](../.tmp/classification-reuse-20261116/comparison.md)
+checks the actual output against the prior upstream run on the same sources.
+Forty-two focused tests passed. Broader existing failures include stale Hook
+and finalization expectations and a missing test dependency. The
+[run receipt](../.tmp/classification-reuse-20261116/result.json) records the
+readbacks, stopped cold-index rebuild attempts and verified index copies used
+for the successful run. The installed host remains deferred.
+
+### Persist in the source project's existing modules (2026-11-16)
+
+During a device-wide selection, complete native inspection now uses a uniquely
+bound local workspace's existing project label for new source captures. It
+builds the verified preview reference with that owner before a batch can freeze
+it. A pending verified preview is protected by the same identity that a
+subsequent capture uses. Already captured jobs keep their bound owner and
+unbound or ambiguous sources retain the device-wide fallback. Manual review
+uses the job owner's current categories. Work and incident names belong in
+titles rather than new functional paths.
+
+On a fresh clone of the real 2,259-row knowledge store, the selected two
+completed Codex conversations ran through the public MCP preparation,
+finalization, batch-ID-only resume and ordinary project-filtered search.
+Six additions went to the original Antigravity troubleshooting project
+(3→9) under its three existing paths and six went to `oiioii-studio` (359→365).
+The independent video-review tool has its own functional path. The historical
+work preview is in the existing work-quality module. Global stayed at 510
+and all prior knowledge payload hashes matched. A fresh process verified
+12 exact statements, two Notes and the existing desktop follow-up.
+[Full ordinary readback](../.tmp/classification-owner-final-20261116/actual-knowledge.md),
+[same-source upstream comparison](../.tmp/classification-owner-final-20261116/comparison.md)
+and [run receipt](../.tmp/classification-owner-final-20261116/result.json).
+
+The earlier attempt is preserved. Independent review found an unbound complete
+preview could still carry its original global ID, allowing background capture
+to miss its reservation. The final run starts again from the original snapshot
+with preview-state binding corrected. The 143 focused regression tests cover
+the manual path and cleanup, including exact-preview reservation and
+reintroduced-source protection. The wider manual outcome probe fails when its
+background-provider stub receives an optional maintenance-binding lookup.
+The successful two-session run targets an isolated source MCP server. Installed
+command and real host lifecycle execution remain deferred.
+
+### Tool-level comparison and natural-question reading (2026-11-17)
+
+The previous two-session result remains frozen. A fresh consumer received six
+natural questions without the memory titles or expected answers and searched
+the actual 2,271-row knowledge copy through public MCP. With focused follow-up
+and full reads, it could answer three questions. Three still lacked information
+required by the question, including manual negative-input handling and the
+historical video resolution. Some first results were unrelated. The comparison
+of admission code shows that the current write check can bind declared
+conditions to actual stored content. It has no independent list of useful
+conditions to catch an omitted declaration.
+
+This run exposed two generic read-path failures: low-budget candidate responses
+could report matches without an actionable link, and requests reusing a
+preview's `read_cursor` key could silently open the first item. The shared
+reading projection now binds the full-read fallback to the exact result and
+revision. Search and wake keep the link, autopilot retains it for the index
+fallback, and public search accepts the preview field with `detail=full`.
+The six recorded questions now all provide working links at default budget,
+and both recorded wrong-row calls open the selected item on replay. All
+knowledge rows match the original comparison copy. This replay covers the
+interface; it does not establish stable ranking or better extraction.
+
+Fifty-five selected checks passed and one zero-match Hook formatting assertion
+failed. Scoped Ruff, Mypy and descriptor checks passed.
+[Blind recall results and replay receipts](../.tmp/natural-recall-20261117/result.md).
+
+### Fresh matched blind comparison (2026-11-17)
+
+Two previously unprocessed Codex archive copies went through the current HM
+public MCP manual path and upstream Deep Distill at `42fb1c0b`. Independent
+source grading was frozen before either run. HM saved 10 entries and scored
+8/9. Upstream saved 16 and scored 5/9 on the same criteria, including two
+verified adoption and push facts that upstream kept in its Notes. Both
+preserved the negative control as zero writes. Two fresh consumers started
+with the same seven natural questions. HM returned relevant first titles for
+five questions. A structure-mapping question had no candidate until the
+consumer narrowed the query. Upstream's native review returned zero for the
+prescribed date-only Markdown format. Direct Markdown search recovered the
+working methods but could not recover the adoption and push records.
+
+The HM evidence check rejected a verified global skill file outside the
+session's project, and all ten entries were persisted as attributed reports.
+Both organizers omitted the ability to derive a product iteration direction
+when no direction table exists. This batch establishes those specific gaps
+in evidence admission, semantic selection and recall. A broader quality bar
+still needs evidence across sources and an existing knowledge base.
+[Full comparison, outputs and recall receipts](../.tmp/fresh-blind-distill-20261117/result.md).
+
+### Evidence, condition review, and recall with existing knowledge (2026-11-17)
+
+The current manual MCP path admits digest-bound external repository citations
+from user-configured local directories, and rechecks them on reopen. Manual
+finalization can flag explicit missing conditions from the source and checked
+files before staging writes. Natural questions use frequency-weighted topic
+fragments and the optional local semantic channel.
+
+Two fresh OiiOii sessions completed on a real store copy with 2,259 existing
+entries. All seven additions reused six existing module paths. One actual
+omission in the draft was caught before writing and added after source review.
+Two external citations survived reopen. The copy's existing rows matched the
+original row digests. The two sessions shared a general Ref2VA fact and had
+distinct trial outcomes. The run added no duplicate general entry and did not
+exercise equivalent-row consolidation on the real corpus.
+
+The initial seven verbatim questions surfaced new relevant knowledge at rank
+one for only 1/7. After the ranking change, replay reached 5/7 at rank one and
+6/7 in the first three full entries. An independent consumer still lacked the
+specific canvas incident and some necessary conditions from the source. The
+broader natural-question acceptance remains partial.
+[Populated-store receipts and blind answers](../.tmp/hm-fresh-populated-20261117/result.md).
+
+### Source passages and per-session cleanup accounting (2026-11-17)
+
+The user prioritized evidence-bound knowledge and natural-question answers,
+followed by cleanup accounting. The prepared manual write can bind each claim,
+retained condition, or undecided state to exact text from its checked file or
+authored exchange. The runtime checks the version, passage, and coverage before
+staging candidates. Current source metadata stores positions and digests.
+Semantic support remains an Agent judgment. Existing review payloads remain
+compatible.
+
+Two newly selected complete Codex conversations were organized against an
+exact copy of 2,259 existing current knowledge rows and 3,165 source rows. The
+two source workspaces both started without project-local knowledge. An independent
+grader froze eight questions and 24 answer facets before seeing the writes.
+The first run saved eight entries, 13 sources and 56 bindings. Every question
+found related new knowledge in the first three full results. A fresh reader
+answered 2/8 questions completely and met 16/24 facets. Four details were
+omitted or incomplete at writing, three were present in what the reader saw,
+and one DOM readback was overstated as a click. The initial answers and data
+remain sealed. [Independent grading](../.tmp/hm-claim-accounting-20261117/grade-fresh/score.md).
+
+After correcting the four saved details and the DOM attribution, the same
+questions were replayed through a fresh public MCP process and a second reader.
+The directed replay reached 7/8 complete answers and 22/24 facets. The reader
+still omitted two documented parts of a historical architecture question,
+although they appeared in its first full result. This replay validates the
+specific corrections. Fresh blind answer completeness remains partial.
+[Directed replay grading](../.tmp/hm-claim-accounting-20261117/grade-fresh/replay-score.md).
+
+Cleanup uses the existing frozen batch and verification gates. Each selected
+session reports the checked revision, preserved output check, native target
+or record group and actual outcome when available. On copies of actual Codex
+sources, both sessions were ready before an append. One session with zero
+knowledge writes then removed exactly one file after the Note and completion
+readback. The other had received a new completed turn after review. Preview,
+apply and replay retained it with `native_source_changed`. The unselected
+neighbor and the appended copy matched their expected bytes. Reopened
+ordinary search returned the five independently saved items. The original
+knowledge, source rows and native files matched their pre-run hashes.
+[Cleanup and replay](../.tmp/hm-claim-accounting-20261117/cleanup/reopened-verification.json).
+
+### Evidence and ordinary search in populated libraries (2026-11-17)
+
+Manual finalization now surfaces source clauses that may affect reuse, including
+responsibilities, steps and limits. The Agent reviews the actual passage, keeps
+the applicable detail in the knowledge, or records why it does not belong.
+Optional native Codex evidence binds a literal claim phrase to a paired call
+and result. An inspection remains an inspection. Execution and interaction
+bindings require a supported action shape. Reports and later corrections still
+need semantic review. Ordinary search exposes explicit parts of the original
+question when the reading budget permits. Under the default budget it can use a
+shorter continuation that reuses the original query.
+
+Three previously unprocessed, completed Codex conversations were organized in an
+isolated copy with 136 existing harness-mem entries and 126 module paths. All
+seven additions used existing paths. Two overlapping claims in the second
+conversation confirmed the exact current rows from the first. SQLite contained
+one row per claim. Independently frozen questions scored 25.5/32 for written
+coverage and 3/32 for answer coverage. Seven of eight original queries returned
+an invalid budget result without a reading link. The sealed answers remain the
+original result. [Independent grade](../.tmp/hm-blind-coverage-20261117/grade/score.md)
+· [Committed-row checks](../.tmp/hm-blind-coverage-20261117/organize/sealed-output.json).
+
+A different previously unprocessed OiiOii Studio conversation was then tested
+with the shortened continuation path. The isolated copy started with 359 OiiOii
+entries in 264 paths. Four additions reused an existing functional path. Three
+recorded native call/result pairs preserve the HTTP and local-file evidence.
+Five questions were frozen independently before seeing the writes. Original
+default-scope queries returned a reading link and yielded full statements for
+all five. The reader received at most six statements per question through the
+returned links, with up to twelve ordinary calls per question. The independent
+grade was 1/5 questions complete and 7/15 answer facets, with zero material
+reversals. Seven of the eight missed facets had missing or incomplete writes,
+including import validation and failure behavior present in native source tool
+records. One facet was present in the returned text and omitted by the reader.
+The two samples cover different tasks and cannot be used as a matched quality
+comparison. Existing current rows and native sources were checked unchanged.
+The runs used the isolated MCP dispatcher.
+[Independent grade](../.tmp/hm-blind-coverage-video-20261117/grade/score.md)
+· [Retrieval receipts](../.tmp/hm-blind-coverage-video-20261117/organize/retrieval-receipts.json).
+
+### Native review questions and matched blind comparison (2026-11-18)
+
+Manual Codex preparation exposes a read-only question view over the frozen
+native tool records. It locates possible validation, failure and applicability
+details in paired results and captured patches. The Agent also reads the full
+conversation and adds questions missing from that view. Its decisions must
+distinguish an implementation branch, a successful edit, and the outcome of
+an actual execution. Finalization sends related unanswered passages back to
+review before it stages points. The existing call/result binding ties a kept
+detail to exact evidence, and the write check verifies that each retained
+phrase still appears in a current SQLite row after assimilation.
+
+An earlier matched selection exposed a separate input-format gap. Two
+completed Codex Desktop histories carried the delegated task in a
+`create_thread` tool result, without an authored user message for the task.
+HM's inventory found both and preparation classified them as empty drafts.
+Upstream created packets and question tables. This run retains both products'
+source and ingestion receipts. The authored-source comparison uses two
+different completed sessions. [Format observation](../.tmp/hm-evidence-20261118/hm/seal.json).
+
+In the authored-source comparison, both products started with empty knowledge
+stores and byte-identical input copies. Two organizers and two readers worked
+independently. The grader froze six exact questions and 24 required details
+before either write. HM saved eight rows with 33 paired native bindings. The
+upstream CLI and its normal review workflow saved nine Markdown rows and
+completed both sessions. SQLite and ordinary search confirmed all eight HM
+rows. HM scored **22/24 written, 22/24 delivered, 20/24 answered**, with **1/6
+questions complete**. Upstream scored **21.5/24 written**. Its six native queries
+returned zero entries. With Markdown lookup, its reader scored **21/24
+delivered, 19.5/24 answered** and **1/6 complete**. HM needed 59 MCP calls across
+the six questions and all first responses required a follow-on read. The raw
+Controller placeholder condition survived into the independent HM answer.
+Upstream retained the exit code and pre/post write details that HM omitted.
+The two historic projects could not be reopened and both HM reports were
+stored under global in this empty comparison. The result covers historical
+evidence, write completeness and recall on this sample.
+[Independent scoring](../.tmp/hm-evidence-20261118-authored/grade/score.md)
+· [HM seal](../.tmp/hm-evidence-20261118-authored/hm/seal.json)
+· [Upstream seal](../.tmp/hm-evidence-20261118-authored/upstream/seal.json).
+
+The cleanup retrospectives give candidate invariants. Native enumeration
+should report coverage and read failures, while archive state, activity and
+processed revision each need their own evidence. The existing zero-write and
+append tests exercise the per-revision cleanup boundary. Reconciling the
+reported 34 verification packets with 35 Cursor deletions and 48 Codex
+sessions with 56 files requires the original operation ledger. To report net
+released space, include changes in same-volume backups, temporary files and
+SQLite sidecars. Consistent SQLite backup and exact target ownership govern
+deletion. Compaction follows its own maintenance decision.
+[Reference refresh](reference-projects/index.md#evidence-review-refresh-2026-11-18).
+
+### First-page evidence for multipart questions (2026-11-18)
+
+Ordinary `search_memory` ranks the exact original question and its explicit
+parts over one current-knowledge snapshot. It keeps the leading overall match,
+then prioritizes the leading matches for each part. The first automatic page
+returns complete statements where they fit, with numbered relevance hints
+and the original parts for the reader's final check. The hints identify
+potential evidence. The reader checks each requested detail and follows up
+for gaps. The automatic multipart page is bounded to six statements and a
+default 3,600 reading units when no search budget is configured. Explicit
+request and configured budgets still apply. Whole entries and bound cursors
+remain the units of continued reading.
+
+The populated-library blind comparison used two previously unprocessed
+`bazi-apps` Codex archives, identical input bytes for both workflows, and 781
+matching pre-existing titles and statements from two projects. A separate
+grader froze six original questions and 24 scoring facets before each source
+was organized. Both isolated stores reached 792 rows. The HM path used the
+public MCP messages through the source checkout. The upstream path used the
+pinned `42fb1c0` Codex CLI with the documented date-only Markdown format.
+128 focused regression checks passed.
+
+| Result over six questions and 24 scoring facets | HM | Upstream |
+| --- | ---: | ---: |
+| Long-term statements | 21.5/24 | 20/24 |
+| First response to each verbatim question | 16/24, 1/6 questions covered | 0/24, 0/6 |
+| Evidence delivered after follow-up | 17/24 | 19/24 with Markdown lookup |
+| Retrieval calls | 16 MCP calls, up to 6 per question | 18 CLI queries and one shared Markdown read |
+| Independent answers | 17/24, 1/6 fully answered | 18.5/24, 0/6 fully answered |
+
+The HM scores count evidence delivered for its own question. The first page
+covered all four image-board facets. The local Open Design installation checks
+were stored but absent from all six reads for that question. The local HTTP
+check was returned for Q3 and missed by the Q2 answer. Upstream's
+`review-kb` skipped date-only entries carrying no legacy `Source` tag. All
+six original and twelve focused queries returned empty. Its fallback rendered
+89 lines from one Markdown read. One CLI help call is excluded from retrieval
+counts. The documented workspace is the repository root. The upstream answer
+named the prototype subdirectory.
+[Independent scoring and receipts](../.tmp/hm-retrieval-populated-20261118/grade/ac/score.md).
+
+The original selection included a Kaiju archive with three native
+`retained_context` records. HM blocked it as unreadable, while upstream
+bundled it. It was replaced before recall with the second `bazi-apps` archive.
+That archive's last request ended on a stream disconnect. The questions cover
+its earlier completed work, and the unanswered request was kept as open.
+[Selection and native lifecycle](../.tmp/hm-retrieval-populated-20261118/grade/ac/source-selection.json)
+· [HM blocked import](../.tmp/hm-retrieval-populated-20261118/hm/B-block-diagnosis.json).
+
+### Archive capability follow-up (2026-11-13)
+
+The user requested a boost work plan against upstream feature coverage. Core cross-host history distillation is implemented, with a real Codex archive already verified through cleanup and knowledge readback. The follow-up targets archive selection, source formats and cleanup behavior. The upstream comparison was refreshed against remote HEAD `42fb1c0b26c2eeafe38104aae130c7e112f0d75d`. A read-only schema check confirmed that this device's Cursor global database has `composerHeaders.isArchived`, `ItemTable` and `cursorDiskKV`. Its schema is the first candidate for verification. [Existing Codex evidence](../.tmp/completed-history-20261104/real-history/post-cleanup-readback.json) · [Upstream Cursor implementation](https://github.com/manhua-man/session-distill-skills/blob/42fb1c0b26c2eeafe38104aae130c7e112f0d75d/adapters/cursor-session-distill/bin/purge-archived-cursor-sessions.py)
+
+The user authorized implementation in this order. Packages 1–3 have isolated runtime evidence. Package 4 covers the primary Cursor store and the observed local conversation search layout. The existing `hm` command and frozen batch are the entry point. The user requested verification on isolated copies of both local databases. Installation and live history processing remain deferred.
+
+| Order | Work package and owner | Acceptance |
+| --- | --- | --- |
+| 1 | **Fix native file cleanup for Hermes and Antigravity.** Carry the adapter-proven native type through `adapters/snapshot.py` and the existing cleanup planner. Previously imported generic records can use the corrected path only when a fresh read proves the exact original version and ownership. | Through the public manual flow, prepare, finalize and clean one Hermes JSON and one Antigravity brain transcript. Preview leaves files in place. Apply removes exactly the selected source and eligible owned artifacts, and knowledge, Note and handoffs read back after reopening. Shared, changed and unproven sources remain present. |
+| 2 | **Add archive-only selection.** Surface authoritative archive state through `adapters/cursor/sqlite_history.py` and `commands/session_inventory.py`. Add an opt-in `hm distill --archived-only` filter alongside the existing scope arguments. Use the native archive location for Codex and expose unknown state where the host provides no verified marker. | Mixed archived, non-archived and unknown records yield only proven archives under the new filter. An archive-state or version change stops the affected selected source. Existing unfiltered history and batch resumption still work. |
+| 3 | **Read older OpenCode JSON history.** Extend `adapters/opencode/` to read the upstream `storage/session`, message and part layout alongside SQLite. Bind reads to the same workspace and exact source files. Resolve dual-format records by proven identity and content. | One legacy JSON fixture and one SQLite fixture both reach ordinary knowledge search after finalization. A conflicting duplicate or missing source part produces an explicit result and prevents false completion. This package can proceed alongside package 2. |
+| 4 | **Qualify per-session Cursor database cleanup.** Depends on package 2. Use a verified archived session in a database copy to identify the header, index entries and owned keys. Integrate one supported schema into the existing preview/apply flow after proving the deletion set and restoring a consistent backup into a separate copy. | The preview binds database, workspace, archived session and exact revision. Apply rechecks them under a write transaction. Reopen to prove the target is absent, neighboring sessions and unrelated rows are intact, and saved outputs remain readable. Exercise a busy database, unarchive, changed data, interruption and replay. Unknown schemas or ambiguous keys retain the source. |
+
+For package 4, upstream helps locate the data but can select archived **or** distilled records and uses substring matches for some keys. Our proposed implementation requires both verified completion and archived state and deletes only keys proven to belong to the selected session. Use a consistent SQLite backup and account for interruption between native commit and the local receipt. Independent review compares actual row changes with the frozen selection before enabling the supported write path. [Upstream deletion code](https://github.com/manhua-man/session-distill-skills/blob/42fb1c0b26c2eeafe38104aae130c7e112f0d75d/adapters/cursor-session-distill/bin/purge-archived-cursor-sessions.py#L75) · [SQLite transactions](https://sqlite.org/lang_transaction.html) · [SQLite Backup API](https://sqlite.org/backup.html)
+
+Package 1 passed with isolated native-format files for both hosts. Each successful fixture saves the verified rule “Each retention run saves a separate verification receipt,” one final Note and the handoff “Check the rollback copy before the next release.” Preview leaves the source intact. Apply removes the selected Hermes JSON or Antigravity brain transcript. Reopening verifies the rule through ordinary search, the Note bytes and the full handoff. The test covers new captures, rechecked legacy records and changed-source protection. The legacy path derives cleanup type in memory after rechecking the original bytes and scope. The immutable ledger revision stays intact until the authorized cleanup. [Public MCP acceptance fixture](../code/tests/test_manual_native_file_cleanup.py)
+
+Packages 2 and 3 passed through the existing MCP path on isolated data. Archive selection is frozen with the batch and rechecks the native state and revision before finalization and cleanup. Cursor's selected body and archive flag come from the same read transaction. OpenCode reads both legacy JSON and SQLite. It retains sources when format copies conflict or required parts are missing.
+
+Package 4 first passed exact row removal, prefix-neighbor preservation, rollback, lock contention, backup restoration after interruption, and receipt replay checks for a single isolated WAL database. A read-only comparison then found the local search store held a same-ID record for each of the 22 archived entries with proven workspace ownership. Both observed stores use WAL. [SQLite ATTACH transaction limits](https://sqlite.org/lang_attach.html)
+
+The follow-up freezes the exact primary and search records when preparing the archive. Preview checks those records and the committed Note, knowledge and any handoffs. Apply preserves verified backups, commits the supported search records first and then commits the primary records. If the primary write fails and its pre-image still matches, the retryable operation restores the selected search records. A restart resumes from an acknowledged commit. An interruption with uncertain commit status retains the backups and the source captured by `hm` for recovery. Other profiles, unsupported companion schemas, ambiguous ownership and native copies that have changed remain protected.
+
+Completed Cursor cleanup replays use the receipt's exact primary, search and companion checks. Device-copy testing found that an absent exported-history directory and an unrelated workspace schema warning could suppress a valid replay even when every target record was gone. Replaying those three completed batches after the correction returned `already_deleted`. A same-ID export or a reappearing FTS document still blocks a positive replay. [Reopen and replay regression](../code/tests/test_archived_history_selection.py)
+
+The final source-MCP run on isolated copies of the device's two databases reviewed one real archived conversation. The user submission contained creative reference examples, so finalization saved a Note and admitted zero current knowledge. The read-only preview listed seven changes. Apply removed one header and three key-value records from `state.vscdb`, plus one conversation, one candidate and one FTS document from `conversation-search.db`. The checked non-target rows and both schemas matched their original fingerprints. SQLite and FTS integrity checks passed. Reopening verified the completed batch and the Note hash, and replay returned `already_deleted` with both stores unchanged. The original archive and both of its native representations were verified separately through read-only connections. [Normal copy run](../.tmp/cursor-cross-store-acceptance/real-copy-success.json) · [Read-only original check](../.tmp/cursor-cross-store-acceptance/live-selected-read-only.json)
+
+The same real archive was tested on two fresh sets of copies with injected faults. A primary write failure after the search commit restored the selected search records and matched the logical pre-images in both stores. A final receipt write failure after both native commits retained the two backups and kept the job out of the deleted state until retry. Both retries completed the same batch and passed the reopened Note, integrity and replay checks. [Primary failure](../.tmp/cursor-cross-store-acceptance/real-copy-primary-failure.json) · [Receipt failure](../.tmp/cursor-cross-store-acceptance/real-copy-receipt-failure.json) · [Copy isolation and runtime fingerprint](../.tmp/cursor-cross-store-acceptance/real-copy-isolation.json)
+
+The focused history and cleanup regression passed 111 tests. It covers positive current-knowledge, Note and handoff readback as well as changed archives, recovery and replay. Scoped Ruff and Mypy checks passed. [Focused regression receipt](../.tmp/cursor-cross-store-acceptance/focused-final.xml)
+
+Before the cross-store follow-up, the archive work passed 236 history regression checks and 55 focused checks after the single-store replay and public RPC changes. The wider MCP contract suite still has failures in older status and schema cases. Native host dispatch and release acceptance remain pending. [Earlier archive receipt](../.tmp/archive-capability-20261113/final-focused.xml) · [Existing outcome checks](../.codex/outcomes.json)
+
+### Hermes and Antigravity native databases (2026-11-13)
+
+The user requested native database coverage after the independent-file acceptance. Use the existing `hm` fixed batch for selected finished sessions and leave live user databases read-only during acceptance. The authorized acceptance is source MCP on isolated copies of actual local databases.
+
+- **Hermes `state.db`.** Manual reading exports permitted typed message content and seals the complete native selection and related rows with hashes. Explicit cleanup verifies the session has ended, checks its exact version and dependencies, backs up the database, then removes the selected session and its owned messages, model usage and FTS records in one transaction. The shared database remains in place. Both observed internal-content and external-content FTS layouts are supported. Active sessions, unresolved lineage, incomplete message history and ambiguous companion copies remain protected.
+- **Antigravity native conversation.** Manual inventory uses the supported SQLite trajectory ahead of the same profile's display transcript. Explicit cleanup seals the trajectory, owned brain and annotation, selected SQLite summary and FTS records, and any supported legacy summary entry. It preserves the shared stores and their other entries. A display transcript with a same-ID SQLite database or sidecar requires native review before cleanup. Unsupported trajectory or summary formats, active and nested sessions, and ambiguous extra copies remain protected.
+
+The public MCP flow passed complete source reading, Agent-led organization, read-only preview, apply, fresh backend reopen and idempotent replay on three actual finished-session copies:
+
+| Sample | Saved result after reopen | Verified native cleanup |
+| --- | --- | --- |
+| Hermes internal-content FTS | One final Note and one searchable user-attributed report about the `js-anti-reverse` file-header experiment. | One session, 20 messages, two model-usage rows, and 20 entries in each of two FTS indexes. [Receipt](../.tmp/native-store-acceptance/hermes-receipt.json) |
+| Hermes Windows default path, external-content FTS | One final Note about the single-turn `OK` check and zero admitted knowledge. | One session, two messages, two model-usage rows, and two entries in each of two FTS indexes. [Receipt](../.tmp/native-store-acceptance/hermes-legacy-receipt.json) |
+| Antigravity desktop SQLite | One final Note and one searchable fact on the `image-research` scope and hardware baseline, checked against the current repository README. | One trajectory DB, the matching six-file generated brain folder, one annotation, one SQL summary row, two FTS rows and one protobuf map entry. [Receipt](../.tmp/native-store-acceptance/antigravity-receipt.json) |
+
+Preview fingerprints matched before and after. Non-target records and checked companion files matched, each copied database passed integrity checks, and each reopened batch returned `already_deleted` on replay. The selected Antigravity trajectory copy was made using SQLite backup and tested without active WAL/SHM sidecars. A live session with those sidecars stays protected. The native desktop UI, opaque standalone protobuf trajectories and whole-library cleanup remain outside this verification.
+
+Read-only checks confirmed that all three original selections and their target records still matched the copied pre-images. The live Antigravity shared protobuf file as a whole changed during the work, with the selected entry still matching. The isolated protobuf file after cleanup exactly matched the original copy with only the selected entry removed. [Hermes originals](../.tmp/hermes-native-acceptance/originals-read-only-final.json) · [Antigravity original and protobuf comparison](../.tmp/native-store-acceptance/antigravity-original-read-only.json)
+
+The initial regression selection had 336 passes and four failures in `test_lossless_distill_mcp.py`. Three replacement cases now assert refusal without the final judgment and then submit the complete judgment with the predecessor version. The compact-response case now checks evidence compression independently of the fixed finalize template, with the existing token cap still applied to the complete response. All four targeted cases passed. [Targeted results](../.tmp/native-store-regression-final-20261113/four-fixes.xml)
+
+The related compact-output and device-flow regressions exposed an unconditional project-root check at finalization. Complete native user evidence and frozen predecessor evidence now reach the existing verifiers for rootless sessions. Repository evidence still requires a verifiable workspace. The device and compact-output suite passed all 18 cases, including rootless, missing-directory and mixed-directory sessions. [Device-flow results](../.tmp/native-store-regression-final-20261113/device-flow.xml)
+
+The final expanded selection passed all 372 cases, including the original 340 and the prepare/finalize contract and compact-output suites. [Expanded regression results](../.tmp/native-store-regression-final-20261113/focused.xml)
+
+Fresh copies of all three samples passed public MCP organization, preview, cleanup, reopened search and replay under the corrected runtime. Both positive memory statements and the exact deletion sets matched the earlier run. SQLite and FTS integrity checks passed, and a read-only comparison verified the selected records still matched in the original stores. [Hermes](../.tmp/native-store-regression-final-20261113/hermes-receipt.json) · [Hermes Windows default](../.tmp/native-store-regression-final-20261113/hermes-legacy-receipt.json) · [Antigravity](../.tmp/native-store-regression-final-20261113/antigravity-receipt.json) · [Originals](../.tmp/native-store-regression-final-20261113/originals-read-only.json)
+
+### Existing implementation and evidence
+
+Execution and acceptance, maintained here rather than in a second plan:
+
+1. **Source review complete:** reference pinned at `42fb1c0b26c2eeafe38104aae130c7e112f0d75d` (MIT); [implementation comparison and eight outcome criteria](memory-write-convergence-20261020.md#closed-history-reference-20261104) distinguish its Agent-led organization/Notes from its heuristic extraction and unsafe cleanup shortcuts. Primary `hm` guidance now prioritizes completed history rather than background activation.
+2. **Implemented; isolated and selected real-history paths verified:** the existing preparation tool exposes batch cleanup preview/apply, exact-source and current-knowledge readback checks, receipt-bound retry and post-cleanup progress. An Agent-led seven-source fictional run exposed a real Cursor bare-turn-heading author mismatch; fixing the common projection makes consecutive native user rules writable without accepting assistant role spoofing or stripping ordinary quoted headings. A separate source review found a missed rollback-evidence retention obligation, now retained independently of its security-review task. The run also exposed that interactive finalization wrote unfinished work only into Notes; the common finalizer now persists and reads back job-bound handoffs, reusing existing coverage and distinguishing committed undecided states from actions. **Selected cleanup behavior:** original project work may remain unfinished after conversation absorption is complete. Keep and hash-verify final Notes and self-contained handoffs, then clean raw/intermediate material. Pending semantic judgments, missing evidence, active/changed sources and failed readback still block deletion. [The actual final isolated run](../.tmp/completed-history-20261104/final-actual-run.json) saves eight current knowledge entries, removes all seven native raw files, preserves all seven final Notes and three handoffs containing four unfinished obligations, and reopens storage to verify unchanged knowledge, Note bytes and full handoff payloads. Earlier four-delete/three-retain runs remain snapshots of the rejected task-completion coupling. This is not real user-history, native-host installation or retrieval-quality acceptance.
+3. **Implemented; bounded retrieval acceptance passed, installation deferred:** the existing search tool accepts explicit complete `task_context` over current knowledge. Context-aware calls use the optional offline local encoder's order, preserve exact literal readback priority, and bind context/store/model to strict selected reads; ordinary calls remain lexical. No legacy memory index, shared chat task, new model service or automatic download participates. The first semantic run failed the known Oii target and a six-case consumer exposed three same-request cursor failures. Actual diagnosis found that weak lexical interleaving demoted discovered targets, and int8 document vectors changed with encoding batch/cache history. Removing interleaving and independently encoding each complete token window fixes those causes; 2,267 equal final rows now produce byte-identical cold/warm vectors, order and cursor fingerprints. The new original-question blind consumer autonomously found and used the existing whole-tool-flow decision (19 calls, 12 full reads, 24,771 returned tokens, zero failures). Independent scoring of the unchanged six-case set amid 2,259 real-scale current distractors accepts the semantic consumer 6/6; the lexical consumer is 5/6 because its hold-release advice omits two required approval roles. Both found all 13 labelled must-find full texts and used all 12 must-use points; finding facts alone does not prove complete final use. Semantic used 33 calls / 22 full reads / 28,506 returned tokens versus lexical 36 / 21 / 24,373, so this is an optional task-context route, not a general cost or accuracy win. [Final scoped evidence](agent-memory-retrieval-research-2026.md#closed-history-recall-20261104) records the independent grades, actual-current follow-up, failures and measurement limits. Focused context/JSON-RPC/docs and encoder checks pass; the full repository/release gate is not claimed.
+4. **Selected actual source accepted and cleaned; not whole-history acceptance:** complete reading of one actual archived Oii Desktop conversation distinguishes eleven human requests from one UI control block. Its sixty-five current knowledge entries have been consolidated into sixteen through the common finalizer; all other 2,243 knowledge payloads remain unchanged (2,308 to 2,259 current entries). Independent full-source review accepts the outputs, and corrected final Notes explicitly distinguish knowledge verification from original project work. Actual native cleanup removed that one archived file, eight stored raw revisions/chunks/checkpoints and the semantic projection. Reopening confirms all sixteen complete ordinary search reads, all four task handoff payload hashes, three historical Notes and the current final Note are unchanged. The bounded Qwen follow-up remains unfinished. [Actual cleanup/readback](../.tmp/completed-history-20261104/real-history/post-cleanup-readback.json) and [semantic audit](../.tmp/completed-history-20261104/real-history/actual-output-audit.json) preserve the earlier Note failure. Fourteen task-local raw/redundant review copies (10,643,440 bytes) were also removed and prepared source windows discarded, with only hashes, final outputs and operation evidence retained. This run repaired delegated-source authorship, moved-native locator refresh, multi-report preservation/topic judgments, resumption after a legacy partial commit and cleanup across old source revisions. Clearing original project tasks is not a prerequisite for retaining complete handoffs and cleaning absorbed raw history. A fresh natural-follow-up consumer then found and correctly used three of these actual newly organized entries without a supplemental search (one candidate request plus three full reads, 3,422 returned tokens), preserving user requirements and the dated assistant-report boundary. This accepts the selected operator-led construction and bounded retrieval cases; it does not claim every historical source is processed, general production accuracy, or natural installed-host acceptance.
+
+5. **User-selected command-entry follow-up, source assets updated:** the user clarifies that the primary interaction is a command with fixed actions and arguments. The single native entry is `$hm <action> [args]` in Codex and `/hm <action> [args]` elsewhere. The canonical guide now defines help/status/distill/search/clean/review/pause/continue; bare entry only shows help, history work requires explicit scope, and cleanup remains preview-before-apply under the same verified selection. Repo mirrors, plugin suggested prompts and public usage examples follow the command contract. This is Agent instruction routing to existing MCP owners, with no new terminal CLI or public MCP tool. Twenty-six focused asset/documentation/mirror checks passed in the offline container; host invocation/argument following is still uninstalled and untested. No memory processing, deletion, global entry synchronization or connection restoration occurred for this follow-up.
+
+6. **Implemented; same-plan delivery-cost replay verified:** actual receipts split the nineteen calls into seven candidate queries/pages and twelve distinct full reads, with no duplicate full read. Ten complete entries cost less than their preview-plus-cursor cards. Manual `search_memory` auto mode with explicit task context now directly returns those complete statements; expensive entries remain previews. Explicit candidate mode and automatic Hook/scheduler consumers are unchanged. Projection is computed progressively per page, retaining the final-page case where omitting continuation lets all facts fit. Against the same recorded queries, scope, context, page budget and all twelve selected complete statements, actual handler replay uses **9 calls (7 discovery + 2 separate full reads), 17,835 returned tokens versus 19 / 24,771**, a 28% returned-text reduction. All twelve original bodies, author boundaries and final conditions are exact. The progressive version returns identical page payloads to the eager cost-aware version while avoiding full-library card generation. The current cursor/context/budget regression passes 102 cases; separate report/docs checks pass. [Cost audit and actual replay](../.tmp/completed-history-20261104/retrieval-optimization/final-checks.json) preserve both original and intermediate receipts. This is a known-plan delivery comparison, not a new blind consumer, installed-host latency or billing claim. All 2,259 current knowledge payloads and protected host hashes remain unchanged; runtime stays uninstalled.
+
+The original core construction and bounded acceptance completed before these entry/cost follow-ups. [Its final read-only checks](../.tmp/completed-history-20261104/final-checks.json) retain that dated source and tool-descriptor seal, unchanged knowledge/Notes/handoffs, a consistent dependency lock and an uninstalled host/project package. Those old projection hashes do not verify subsequent retrieval changes. The full repository suite is not claimed green; old status-mock/schema/dependency failures remain outside this train.
+
+Deferred: automatic per-turn intake, automatic host injection, background Dream cost optimization, release and global installation. Existing implementation remains available for inspection; none of these deferred items is a prerequisite for the user's two selected outcomes. Suggested architecture choices remain proposals until their outcome evidence supports adoption.
+
+Independent [complete-source review of the final isolated outputs](../.tmp/completed-history-20261104/final-source-audit.json) accepts all eight retained meanings, final Notes and four preserved obligations for that seven-source fictional sample; the source/output hashes have been rechecked. Thirty-two focused cleanup cases cover the real interactive finalizer, source protection, preserved outputs, partial retry and handoff-write/readback failures. The Cursor/parser/authorship lane has 31 passing cases. These separate scopes are not a full-repository or real-history acceptance claim. Current global and project Python metadata both show the package remains uninstalled. The primary AGENTS entry was reduced from 1,273 to 367 lines by relocating 910 dated snapshots to the linked historical record; original narrative and evidence remain available.
+
+The preceding recall investigation remains useful evidence: recurring irrelevant recall interfered with other projects; suppression and useful recall must be measured separately. No foreground latency cause is established. Earlier dated entries below describe their original, narrower scope and do not supersede this plan.
+
+Latest follow-up, **2026-11-04, partial and uninstalled**: [aspect, scope and negative-case evidence](agent-memory-retrieval-research-2026.md#recall-aspect-followup-20261104) records preserved project identity for equal-text memories, empty-result guidance and independent blind reviews. Two Agents did not find the original Oii whole-flow decision through the existing consumer after 8 searches each. A separate unintegrated explicit-context prototype then presented it for one of those actual short queries; another Agent selected and fully read it, but also opened two indirect items. A frozen 8-case elliptical-query blind review found only 2 of 14 labelled relevant records and left 7 cases empty, so the prototype is not accepted or installed. A 10-case synthetic blind review of the existing consumer also found unrelated candidates and required 32 follow-up searches; its labels and Agent choices have specific caveats. A clause-fanout experiment added noise and was not adopted. The final guidance wording has not received a fresh blind review. Next, resolve task-aspect discovery and relevance without losing necessary conditions or applicable cross-project rules; any explicit-context design must bind that context to its read cursor and avoid shared chat state. Keep the runtime uninstalled and do not substitute fixture checks for natural-host acceptance.
+
+Earlier recall repair, **2026-11-04, partial and uninstalled**: [evidence and reference decisions](agent-memory-retrieval-research-2026.md#recall-compound-followup-20261104) record bounded candidate previews, strict selected full reads, a narrower named-subject/compound-topic channel and medium-length Chinese question discovery. Automatic previews and manual candidate mode do not establish relevance. A diagnostic `oii 局部优化` search finds and fully reads the original whole-workflow entry; independent Agents using the original request still did not find it. An earlier Agent reported six searches and 15 full reads, but one retained call receipt cannot be bound to its log. With 2,290 other records mixed into the fictional backup case, the global rule is absent from the full-request results; a blind Agent independently chose a focused query and opened its full body after six follow-ups. That accepts this one selected backup outcome, not automatic first-page discovery or general low-noise recall.
+
+In a new frozen 12-case synthetic blind review, the initial pages displayed 16/23 expected useful items, 14 irrelevant and two explicitly excluded items; 19 follow-up searches led the reviewer to read 22 useful and two irrelevant items, use the 22 useful items and miss one. No out-of-project item was opened in a project-restricted case. After that review, a deterministic replay of the narrowed source adds one relevant initial candidate and changes one ordering; it is not a new blind acceptance. A discarded unrestricted two-character channel added far more noise than useful candidates. The installed/real-host outcome remains untested. Next, address task-aspect and paraphrase discovery on the original and scaled cross-project cases while measuring excluded and unrelated results, query count and total context; do not add a model service, global project filter or broad short-token fanout without evidence that it improves both sides.
+
+During an expanded test, two old status tests accidentally registered six pytest fixture commands in the actual Codex user Hook. Those six commands were removed; the current user Hook is empty and its hash remained stable after a targeted isolation test. A log search found no matching fixture path during the affected window, but cannot establish that no Hook triggered. That suite now redirects user Hook installation to a temporary home. The package remains uninstalled; this correction does not establish that the overall recall work is accepted.
+
+Earlier recall and background-cost follow-up, **2026-11-04, before the candidate repair above**: [the evidence](agent-memory-retrieval-research-2026.md#recall-isolation-and-background-20261104) records a limited Codex query-boundary heuristic, removal of report attribution boilerplate from ranking, honest candidate and sufficiency wording, and a taskless Hook that does not offer an empty-query library browse. Report attribution remains in returned content, and explicit complete-title/body lookup and MCP browsing remain available. The raw task remains unchanged; wrapper origin cannot be proven from the flat native payload. The earlier isolated replay of the original task returned five candidates; independent review found one unrelated and four adjacent, none directly useful, while a useful current record was absent from the entire candidate list. A four-character containment heuristic failed independent positive and negative examples and was removed; an offline CPU embedding experiment improved some rankings but remained insufficient and was not integrated. Long-query retrieval, automatic precision and natural-host acceptance remain unresolved. An actual Oii session has twelve source revisions, eleven of which append to the preceding revision, and twelve distinct background accounts; their completed calls used 2,737,360 input / 415,483 output tokens and 8,911.07 native request seconds, with eleven failed calls of unknown usage. Current source and structural receipts support repeated complete-source processing, but historical prompts and installed bytes were not retained. Incremental reuse and cross-task resource behavior need safe verification.
+
+Earlier recall proposal, now partly implemented as described above: evaluate task-focused queries and relevance review by the current Agent without adding a separate model call for every recall. Candidate review alone cannot discover entries the search never returned. The removed runtime remains disconnected as requested.
+
+Original Oii recall root-cause follow-up, **2026-11-03**: the [dated investigation](agent-memory-retrieval-research-2026.md#recall-root-cause-20261103) binds the native user turn, actual eleven returned items and original continuation cursor. Current-source ranking over current rows unchanged since the event reproduces the cursor fingerprint for all 1,450 candidates and the original first eleven; this does not establish historical installation bytes or historical per-term scores. The exact input contains ambient browser boilerplate, and the Chinese long-query gate suppresses useful partial evidence. Request-only and focused-query controls show both failures. Source-level comparisons with Lemma, Mem0 and Graphiti and concrete acceptance criteria were recorded; that dated investigation itself did not implement a runtime repair or establish new native acceptance.
+
+Recall quality feedback and provenance audit, **2026-11-03**: the operator reports eleven recalled items for the Oii three-minute production-pipeline question, with zero direct support and one indirectly useful governance item. The [dated supplement](agent-memory-retrieval-research-2026.md#recall-quality-20261103) records per-sample precision separately from project share and unknown recall. A live read-only audit binds all eleven current entries to exact original commits: eight autonomous-worker entries and three interactive-Agent entries; the three App Studio topics are stored as global. Returned-count wording does not establish relevance. At that audit stage, retrieval replay had not occurred; the later root-cause follow-up above records the subsequent fingerprint-matched reconstruction. Implementation, installation and cleanup remain undone; the selected two-feature adoption remains unimplemented.
+
+Usability review and external research, **2026-11-02**: the operator limits Lemma adoption to recall explanation and failure-experience organization, and asks to assess existing usefulness first. The [current research supplement](agent-memory-retrieval-research-2026.md#usability-review-20261102) separates current source, the retained 2026-10-21 natural failures, isolated checks, and primary research through 2026-11-02. It recommends scoped diagnosis and conditional-experience preservation on existing paths. Analysis/documentation is complete; implementation, new native semantic acceptance, installation and real-memory maintenance are not performed by this review. Earlier receipts keep their original dates and verdicts.
+
+Actual installed native Stop follow-up (UTC2026-10-20 19:41:46): a pure native heartbeat with a same-turn AGENTS refresh returned native_heartbeat_turn_excluded, background=false and spawned=false, without a dispatch generation. Independent replay matches the exact31,782,043-byte native prefix, header/session/project, native lifecycle and metadata, both user kinds, final reply hash and installed fingerprint. This accepts only the AGENTS-plus-heartbeat Stop exclusion. There is no environment-refresh record in this sample, no new genuine-human intake and no natural proof yet that a heartbeat preserves a pending human idle request. Original Dream1403 remains continuing at12/23 with four changes, its account retains17 completed calls and zero active/unknown, the lost user constraint is unrestored and cleanup remains unaccepted. Evidence: `.tmp/report-literal-projection-closure-20261020/native-idle-closure/native-agents-heartbeat-exclusion-acceptance.json`.
+
+Native idle-activity follow-up (2026-10-21, unreleased): the v15 human Stop queued normally atUTC19:22:42, but automatic wake activity before its native heartbeat body appeared made the previous scalar predicate cancel the human idle request. The specific cancellation is a strong causal reconstruction without a retained terminal cancellation receipt. Shared strict native-turn classification now distinguishes a bounded pending prefix, pure heartbeat and ordinary/unknown activity; exact AGENTS/environment refreshes are neutral only. Existing activity/ready owners preserve human cancellation watermarks under same-session OS serialization, retain the fixed30-second bound and freeze consumed cancellation without persisting that transient flag. Native record time is not measured append time.90 focused cases pass in2.15seconds,442 sealed Python files remain unchanged; expanded checks retain the same8 failures/42 passes in the previous installed baseline and new source. Independent review and Ruff pass. Four owners were synchronized in guarded backup passes endingUTC19:38:48; all source/installed Python bytes match and the runtime fingerprint, now including the new shared helper, is sha256:7538d4a5a1257f66b2f49b2f1c09f055df21c337c8e653201905fdc0980093b2. Codex is ready and fresh installed ordinary MCP search succeeds. No model/manual event, retired-request recreation, live-memory edit or other-worker restart occurred. There is still no new v15 genuine-human source/cleanup receipt; the original17-call account and12/23 run persist, the lost constraint is unrestored and cleanup remains incomplete. Evidence: `.tmp/report-literal-projection-closure-20261020/native-idle-closure/`.
+
+Complete user-context recheck and semantic agreement (2026-10-21, unreleased): genuine-human v14 actually made four replacements before its finite worker stopped at the existing lease boundary. Independent source audit rejects overall quality: one replacement lost a still-applicable user constraint present in complete native exchange 47 but absent from the three cited windows supplied to verification. One of the sixteen mixed reports changed; fifteen remain unchanged. The original run remains continuing after 12/23 targets with 17 completed calls /426,055 tokens /1,670.300129 native seconds and zero active or unknown usage; its task identity and limits are retained. v15 verifies the original window anchor, then supplies all strictly proved authored-user exchanges from the same immutable revision, separately binding the original anchor and complete context hashes. Ordinary and subsequent Dream reopening verify the same effective source; captured role=user is not proof of human approval, and reports retain their existing authority. Whole-update consensus now compares all ordered semantic fields and bindings while permitting independently worded explanations; every output still supplies complete proof and gets its own basis hash. Final isolated checks pass 552 cases in 120.09 seconds with 440 sealed Python files unchanged, scoped Ruff and independent review pass. Six runtime owners were backed up and synchronized at UTC19:19:08; complete source/installed fingerprints match, Codex scheduling is ready and fresh installed MCP ordinary search succeeds. Fresh text readback also finds the third/fourth v14 successors, without granting semantic acceptance. No extra model test, manual event or direct memory edit was dispatched. The lost constraint has not been restored and safe old-memory cleanup remains incomplete. Evidence: `.tmp/report-literal-projection-closure-20261020/v15-source-context-and-meaning/` and the independent natural-v14 audits in its parent folder.
+
+Native final-proof transport and bounded corrective proposals (2026-10-21, unreleased): exact v12 receipt replay reproduces mixed final partitions independently of its 13 nonliteral condition descriptions. One partition incorrectly labels the source-backed diagnostic-only/no-mutation boundary temporary. The v13 run completed all 23 frozen targets at UTC18:43:05 with 23 rejections and zero actual content changes, retaining its original 19 completed calls /469,088 tokens /1,746.498887 native seconds and zero unknown usage; report proposals also failed because retained qualifiers were absent from their output bodies. v14 binds proof identity and literal conditions from strict ranges of the frozen final statements, while leaving independent semantic inventories and all canonical source/report/scope/meaning/transaction gates intact. The original proposal owner receives safe group-local structural failures and final rejections together for at most one corrective round under the same cumulative task account. Accepted components, complete original comparison/source context, mutation scope, nonwriting decisions and unresolved failures remain protected. Draft feedback is ephemeral; receipts retain static reasons and bindings. Final isolated checks pass 357 cases in 45.65 seconds with 438 sealed Python source/test files unchanged; scoped Ruff and independent safety review pass. After v13 terminated, four runtime owners were backed up and synchronized at UTC18:43:24; all source/installed Python bytes and complete fingerprints match, Codex scheduling is ready, and fresh installed MCP ordinary search succeeds. Existing host entries and other workers were untouched. Actual old-memory simplification and independent readback are still unaccepted. Evidence: `.tmp/report-literal-projection-closure-20261020/native-proof-and-repair-closure/` and the real receipt replay in the parent folder.
+
+Literal-condition proof contract repair (2026-10-21, unreleased): the new genuine-human v12 run completed all23 frozen targets but failed unresolved:22 rejections,1 verification refresh and zero content simplifications; all32 historical cohort semantic hashes remain unchanged. Its original account retains25 completed calls /535,253 tokens /2,081.216913 native seconds, with zero terminal unknown usage. Exact native source, author roles, references and Notes independently match. Three final report judgments said preservation was supported, but their13 condition strings were not literal spans of the exact hash-bound final statements, violating the existing proof contract. v13 makes that literal requirement explicit in both proposal and independent final verification, forbids omissions or empty inventories to force acceptance, and preserves all scope/source/report/meaning/commit gates. Rejection receipts now retain only the owner and static reason code. Final focused checks pass173 cases in7.74seconds with435 sealed Python source/test files unchanged; the existing prompt-length ceiling remains5500 characters. Three Python owners are backed up and synchronized at UTC18:02:44 with matching complete fingerprints, ready Codex scheduling and fresh installed MCP search. Existing workers and host entries were not restarted or rewritten. No extra model/manual event or real-memory edit was dispatched. Natural v13 content cleanup remains pending. See `.tmp/report-literal-projection-closure-20261020/literal-condition-contract/`.
+
+Native heartbeat environment follow-up (2026-10-21, unreleased): the first post-install Stop was still queued because a same-turn native environments.environment_context record followed user.heartbeat. The existing Stop reader now treats only that exact, independently turn-bound native environment kind as neutral; it cannot establish automatic origin. Human, unknown, mixed or unbound user records prevent exclusion even if followed by a heartbeat. Focused checks pass 42 cases in 0.79 seconds; the broader host checks have the same seven failures with the prior installed helper (78 passed after versus 40 baseline, including 38 new-suite passes). One Hook owner is backed up and synchronized at UTC 16:15:25, source/installed fingerprints match and fresh installed MCP search succeeds. A real native pure-heartbeat Stop at UTC16:16:57 now returns native_heartbeat_turn_excluded with no background dispatch; native session/turn/kind and reply hash independently match. The environment-follow-up branch still lacks a separate native execution receipt, and genuine-human cleanup remains pending. See `.tmp/report-literal-projection-closure-20261020/heartbeat-environment/`.
+
+Exact report projection and native heartbeat exclusion (2026-10-21, unreleased): the preceding v11 natural task completed all 28 targets but failed with 23 current unresolved outcomes and five verification refreshes; all 32 historical semantic payloads remain unchanged. Its original account retains 28 calls / 554,126 tokens / 2,628.140778 native seconds, with zero unknown usage. A separate four-call / 104,514-token source was caused by a native heartbeat Stop and is not a new human intake acceptance sample. v12 keeps typed report text, complete rendered scope and all final/source/account/whole-update gates. A noncontiguous report must exactly equal the original-order remainder after uniquely located, nonoverlapping typed temporary omissions; rewriting, missing characters, ambiguity and reordering remain blocked. The existing Codex Stop owner excludes only a precisely bound pure native user.heartbeat turn before dispatch; ordinary text, missing/conflicting metadata and human turns retain normal handling. Waiting cancellation, already-started finite continuation and original accounting owners remain. Final requested isolated checks pass 872 cases in 195.16 seconds with 451 sealed runtime/test/fixture files unchanged. Four changed Python owners are backed up and synchronized; full source/installed fingerprints match, Codex scheduling is ready and fresh stdio/Router searches succeed. Actual installed heartbeat-exclusion receipts, genuine-human natural cleanup and old-content readback remain pending. See `.tmp/report-literal-projection-closure-20261020/`.
+
+Dream proposal isolation and continuation repair (2026-10-20, unreleased): the v10 natural main-source job and its complete native author/source/Note bindings are independently verified, with zero durable source writes. Its 28-target Dream passed the narrow classification schema, then rejected four targets without mutation. One shared proposal normalization failure proves at least one non-writing point carried handles; no original response bytes establish that all three proposal targets were malformed. v11 explicitly requires empty non-writing targets, isolates structural errors by original comparison group and revalidates all survivors through the complete common owner. Final verification remains mandatory; failed confirmations remain unresolved and cannot inherit older positive coverage. A changed contract reopens prior rejected groups without replaying applied changes or resetting the same task account. Activity still cancels an idle request, while an already-started finite Dream retains continuation across ordinary new input; exclusive maintenance and lease loss still stop it. Current natural source plus Dream usage is 7 calls / 139,765 tokens / 629.464849 native seconds, unknown usage zero. Final scoped checks pass 813 cases in 64.81 seconds with 432 repository runtime/test files unchanged; 17 additional fixtures match their prior seal. An expanded fixture run retains 15 identical preexisting failures, separately documented. Five changed Python owners are synchronized with matching full runtime fingerprints; installed readiness and fresh stdio/Router search succeed. The old mixed cohort is unchanged and semantic cleanup is not accepted. See `.tmp/dream-proposal-isolation-20261020/` and `docs/background-memory.md`.
+
+Dream source-classification schema repair (2026-10-20, unreleased): the installed v9 natural run failed on three exact validator errors: two retained-text projection mismatches and one claim unit crossing a temporary segment. The complete reflection-job error and native hashes/usage bind those errors; original response bytes and individual unit indexes remain unavailable. v10 uses a classification-only native schema that cannot emit literal edit fields. Unselected source inventory may include a claim and qualifier around explicitly classified temporary content; selected or literal-edit proofs still reject such a bridge. Final output and whole-update verification remain mandatory. The shared host adapter normalizes classifications to the existing planner, including the Hermes envelope. New contract identity rechecks old v9 unresolved fingerprints. Final isolated checks pass 790 cases in 65.10 seconds with 447 source/test files unchanged. Four changed Python owners are synchronized locally, full runtime fingerprints match, installed Codex scheduling is ready and fresh installed plus Router MCP searches succeed after reload. The old mixed-memory cohort is not yet cleaned; continuing natural cleanup acceptance is still required. See `.tmp/decision-schema-closure-20261020/`.
+
+Dream proposal execution repair (2026-10-20, unreleased): the preceding natural v8 run completed traversal of 43 targets but left 32 unresolved, with 11 verification refreshes and no refinement or deletion. Source classification alone had no required proposal stage. v9 now classifies complete source-bound originals, calls the existing assimilation owner for exact updates, independently verifies actual final outputs and whole-update preservation, then commits through the existing canonical transaction. Reports retain their original account and complete qualifiers; one retained report is permitted, while partial original report support remains blocked. Supported durable report confirmations separately verify rendered attribution. Comparison groups retain all verified neighbors, and successful joint replacements clear every covered unresolved target. Classification checkpoints contain no proposal prose; proposals are verified and committed before yielding. All phases share the original cumulative budget. Final isolated checks pass 765 cases in 60.35 seconds with 446 source/test files unchanged; nine Python owners are installed locally with matching full runtime fingerprints and ready Codex scheduling. Fresh installed MCP readback succeeds. Natural semantic acceptance remains pending. Evidence is reported separately in `.tmp/dream-proposal-closure-20261020/result.md`.
+
+Write-path convergence (2026-10-20, unreleased source implementation; 667 scoped checks passed, native acceptance pending): automatic intake, current-Agent manual review and Dream now use shared final-content judgment and the existing canonical commit owner. Explicit history uses the existing 20-tool surface: inspect sessions and persisted batch progress, freeze a selection, pause, explicitly continue, or retry eligible failures. Fresh inventory exposes Agent-usable batch references without user-managed IDs. Manual work needs no background CLI permission. Source fixtures and static checks do not establish installed entries, natural host execution, semantic quality, or real-memory cleanup.
+
+Background task budgets cover native executor invocations dispatched by this runtime across source processing, Dream slices and retries under one maintenance task identity. Defaults are 64 invocations, 3,600 cumulative native seconds, 2,000,000 input tokens and 128,000 output tokens. Actual terminal usage is accumulated and checked before subsequent dispatch; the final invocation may cross a token threshold and may contain multiple model responses. Unknown usage blocks later invocations. These thresholds do not cap returned context, total user wait or the current Agent conversation. An explicit `task_model_budget.host_max_output_tokens` requests strict native bounds; unsupported or unproved bounds refuse before transport. Ordinary background execution does not require this optional hard cap. Local installation and readiness have fresh receipts; natural semantic acceptance remains pending.
+
+See [the convergence contract](memory-write-convergence-20261020.md) for the five-module ownership map, implementation obligations and remaining acceptance. The 44 old unresolved items remain a known regression subset, not the construction scope or a new cleanup result. Historical entries below retain their original evidence dates; blanket manual-batch removal is superseded.
+
 Continuous learning integration, **2026-10-18** (unreleased): Quickstart installs
 user lifecycle Hooks with dynamic workspace attribution and explicit one-time
 background authorization. User policy is inherited across workspaces; explicit

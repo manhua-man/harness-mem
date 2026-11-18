@@ -95,18 +95,53 @@ def _dream_run_summary(run_payload: dict[str, Any] | None) -> dict[str, Any]:
         for row in source_reviews.values())
     failed = int(summary.get("failed", 0) or 0)
     applied = int(summary.get("applied", 0) or 0)
-    return _maintenance_summary(
+    continuation = run_payload.get("continuation") or {}
+    unresolved_scope = continuation.get("unresolved_scope") or {}
+    unresolved_count = len(unresolved_scope) if isinstance(unresolved_scope, dict) else 0
+    execution_status = run_payload.get("execution_status") or continuation.get("execution_status")
+    resolution_status = run_payload.get("resolution_status") or continuation.get("resolution_status")
+    cleanup_complete = (
+        execution_status == "completed"
+        and resolution_status == "resolved"
+        and failed == 0
+        and unresolved_count == 0
+        and not retained_review
+    )
+    if execution_status == "completed" and resolution_status == "unresolved":
+        message = (
+            "Dream finished traversing current knowledge with unresolved items; "
+            "this is not successful cleanup."
+        )
+    elif execution_status == "failed" or resolution_status == "failed" or failed:
+        message = "Dream reported an actual maintenance failure."
+    elif retained_review:
+        message = (
+            "Source-unavailable memory remains recallable and awaits human judgment; "
+            "no deletion was authorized."
+        )
+    elif applied:
+        message = "Dream updated current knowledge."
+    else:
+        message = "No maintenance was applied in this dream run."
+    payload = _maintenance_summary(
         candidate_counts=summary,
         risk_level=risk_level,
-        auto_applied=applied > 0,
-        needs_human_review=failed > 0 or retained_review,
-        message=(
-            "Source-unavailable memory remains recallable and awaits human judgment; no deletion was authorized."
-            if retained_review else "Dream updated current knowledge."
-            if applied
-            else "No maintenance was applied in this dream run."
-        ),
+        auto_applied=applied > 0 and cleanup_complete,
+        needs_human_review=failed > 0 or retained_review or unresolved_count > 0,
+        message=message,
     )
+    payload.update({
+        "execution_status": execution_status,
+        "resolution_status": resolution_status,
+        "cleanup_complete": cleanup_complete,
+        "unresolved_count": unresolved_count,
+        "failure_count": failed,
+    })
+    if continuation.get("task_budget") is not None:
+        payload["task_budget"] = continuation["task_budget"]
+    if continuation.get("failure_reason"):
+        payload["failure_reason"] = continuation["failure_reason"]
+    return payload
 
 
 def _resolve_project_for_dream(project_name: str | None) -> str | None:

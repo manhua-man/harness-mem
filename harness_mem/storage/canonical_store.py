@@ -421,6 +421,8 @@ class CanonicalStoreRuntime:
         and ``entity_id``. Upserts also require ``payload`` and may provide
         ``source_relpath``. If ``expected_sha256`` is present, its value must
         match current canonical truth; ``None`` explicitly requires absence.
+        Knowledge-entry mutations may also bind ``expected_source_ids`` to
+        check their complete source membership before any payload is changed.
 
         The idempotency record commits in the same SQLite transaction as every
         payload mutation. Replaying the same key and request is a no-op; reusing
@@ -467,6 +469,16 @@ class CanonicalStoreRuntime:
                     return replay_result
 
                 for item in normalized:
+                    if "expected_source_ids" in item:
+                        actual_ids = sorted(str(row[0]) for row in self._conn.execute(
+                            "SELECT entity_id FROM knowledge_sources "
+                            "WHERE collection = 'knowledge_sources' AND project_id = ? "
+                            "AND json_extract(payload_json, '$.knowledge_id') = ?",
+                            (str(item["project_name"]), str(item["entity_id"])),
+                        ))
+                        if actual_ids != item["expected_source_ids"]:
+                            raise CanonicalTransactionPreconditionError(
+                                "knowledge source membership changed before confirmation")
                     if "expected_sha256" not in item:
                         continue
                     current = self.get_row(
@@ -2171,6 +2183,16 @@ def _normalize_payload_mutation(mutation: dict[str, Any]) -> dict[str, Any]:
 
     if operation == "assert" and not normalized.get("expected_sha256"):
         raise ValueError("assert operation requires an existing payload SHA-256")
+
+    if "expected_source_ids" in mutation:
+        source_ids = mutation["expected_source_ids"]
+        if (collection != "knowledge_entries" or not normalized.get("expected_sha256")
+                or not isinstance(source_ids, (list, tuple))
+                or any(not isinstance(value, str) or not value.strip() for value in source_ids)
+                or len(set(source_ids)) != len(source_ids)):
+            raise ValueError("expected_source_ids requires unique source IDs and an existing knowledge entry SHA")
+        allowed.add("expected_source_ids")
+        normalized["expected_source_ids"] = sorted(source_ids)
 
     if operation == "upsert":
         allowed.update({"payload", "source_relpath", "project_name"})

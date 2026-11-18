@@ -1,7 +1,8 @@
-"""Background JSON decisions must not inherit an interactive coding agent."""
+"""Below-dispatch protocol tests: fake JSON peers never imply production budget readiness."""
 from __future__ import annotations
 
 from contextlib import nullcontext
+from dataclasses import replace
 import copy
 import importlib
 import io
@@ -14,6 +15,30 @@ import pytest
 
 from harness_mem.autonomous.executors import codex_app_server, host_cli, host_structured_cli
 from harness_mem.autonomous.provider import ProviderError
+
+
+
+def run_protocol_body(provider, method, manifest, *, runtime_dir, heartbeat=None):
+    """Exercise only native command/RPC parsing with an explicitly fake peer.
+
+    Production decide/verify/assimilate keep their real pre-dispatch budget
+    guard. These transport fixtures call the separately owned protocol body
+    directly and make no claim about permission to dispatch a real host.
+    """
+    from harness_mem.autonomous.models import AgentExtractionDecision, AssimilationDecision, CandidateVerificationDecision
+
+    model, builder, prefix, label = {
+        "decide": (AgentExtractionDecision, host_structured_cli._build_prompt, "distill-", "decision"),
+        "verify": (CandidateVerificationDecision, host_structured_cli._build_verification_prompt, "verification-", "verification"),
+        "assimilate": (AssimilationDecision, host_structured_cli._build_assimilation_prompt, "assimilation-", "assimilation"),
+    }[method]
+    result = provider._run_native_body(
+        manifest, runtime_dir=runtime_dir, heartbeat=heartbeat, decision_model=model,
+        prompt=builder(manifest), temporary_prefix=prefix, error_label=label,
+    )
+    if method == "decide":
+        result = replace(result, decision=host_structured_cli.expand_agent_extraction_decision(result.decision, manifest=manifest))
+    return result
 
 
 @pytest.fixture
@@ -223,7 +248,7 @@ def test_codex_decision_replaces_base_instructions_only_for_this_invocation(tmp_
     monkeypatch.setenv("CODEX_HOME", str(home))
     provider = host_structured_cli.HostStructuredCliProvider(host_client="codex", executable="fixture")
     captured = fake_codex_rpc()
-    result = provider.assimilate({}, runtime_dir=tmp_path / "runtime")
+    result = run_protocol_body(provider, "assimilate", {}, runtime_dir=tmp_path / "runtime")
     assert "Do not call tools" in captured["body"]
     assert "memory" in captured["body"]
     start, = [request["params"] for request in captured["requests"] if request["method"] == "thread/start"]
@@ -252,7 +277,7 @@ def test_json_decision_rejects_unexpected_tools_before_accepting_output(tmp_path
 
     captured = fake_codex_rpc(tool=kind)
     with pytest.raises(ProviderError, match="tool") as raised:
-        provider.assimilate({}, runtime_dir=tmp_path / "runtime")
+        run_protocol_body(provider, "assimilate", {}, runtime_dir=tmp_path / "runtime")
     assert raised.value.kind == "unrecoverable"
     assert raised.value.attempt_results[-1].schema_valid is False
     assert raised.value.native_attempts[-1]["model_dispatched"] is True

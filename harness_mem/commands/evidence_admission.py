@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, Sequence, cast
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlencode, urlparse, urlunparse
 from uuid import NAMESPACE_URL, uuid5
 
 from harness_mem.adapters.parser import (
@@ -20,6 +21,7 @@ from harness_mem.adapters.parser import (
     sanitize_archived_user_text,
 )
 from harness_mem.adapters.projection_repair import repair_source_observation_projection
+from harness_mem.adapters.source_metadata import codex_origin_allows_user_statements, codex_session_origin
 from harness_mem.core.schemas import EvidenceRef, KnowledgeSource
 from harness_mem.core.schemas.source_report import SourceReport
 from harness_mem.mcp.distill_projection import (
@@ -31,6 +33,7 @@ from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 _SAFE_REASON = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_COMPLETE_USER_CONTEXT = "complete-authored-user-v1"
 
 AnswerGateStatus = Literal[
     "ANSWERED",
@@ -353,9 +356,14 @@ async def reopen_dream_knowledge_sources(
                 tuple(effective_sources),
             )
         current_digest: str | None = None
+        effective_source = source
         if source.source_kind == "repository":
             outcome, reason, content, truncated, current_digest = _reopen_repository_source(
                 source, project_root=root, complete=True,
+            )
+        elif source.source_kind == "user_statement":
+            outcome, reason, content, truncated, effective_source = _reopen_complete_user_context(
+                backend, source,
             )
         else:
             outcome, reason, content, truncated = await _reopen_knowledge_source(
@@ -397,7 +405,7 @@ async def reopen_dream_knowledge_sources(
                 tuple(reopened),
                 tuple(effective_sources),
             )
-        effective_sources.append(source)
+        effective_sources.append(effective_source)
     return (
         EvidenceValidation(
             "mixed" if len({item.source_kind for item in sources}) > 1 else sources[0].source_kind,
@@ -490,6 +498,57 @@ def answer_gate_status(candidate: Any) -> AnswerGateStatus:
     return "UNANSWERED"
 
 
+_DURABLE_SOURCE_USE_CODES = {
+    "source_use_standing_decision",
+    "source_use_reusable_knowledge",
+    "source_use_explicit_undecided",
+}
+_NON_DURABLE_ADMISSION_CODES = {
+    "source_scope_session_only",
+    "future_scope_session_only",
+    "session_only_not_durable",
+    "source_use_task_context",
+    "source_scope_unclear",
+    "future_scope_unclear",
+    "source_scope_mixed",
+    "source_scope_support_inconsistent",
+    "semantic_support_incomplete",
+    "semantic_support_contradicted",
+}
+
+
+def content_admission_allows_durable_write(candidate: Any) -> bool:
+    """Verified or source_report alone is not lasting value.
+
+    Rows that never recorded the shared admission contract stay compatible.
+    A row that carries source use, future scope, or final-scope obligation
+    must show durable use. Progress, single-run scope, partial support and
+    an unclear future stay out of current knowledge. An explicit undecided
+    state is durable only when the verifier recorded that use.
+    """
+
+    reasons = set(getattr(candidate, "verification_reason_codes", None) or [])
+    contracted = "autonomous_final_scope_required" in reasons or any(
+        code.startswith("source_use_")
+        or code.startswith("future_scope_")
+        or code.startswith("source_scope_")
+        for code in reasons
+    )
+    if not contracted:
+        return True
+    if reasons.intersection(_NON_DURABLE_ADMISSION_CODES):
+        return False
+    if any(code.startswith("source_use_") for code in reasons) and not reasons.intersection(
+        _DURABLE_SOURCE_USE_CODES
+    ):
+        return False
+    return bool(reasons.intersection({
+        "future_utility_verified",
+        "future_scope_durable",
+        "source_scope_durable",
+    }))
+
+
 def _validate_repository_refs(
     backend: LocalMemoryBackend,
     candidate: Any,
@@ -499,9 +558,6 @@ def _validate_repository_refs(
 ) -> tuple[str, list[str]]:
     job = _candidate_job(backend, candidate)
     root_value = project_root or (job.project_root if job is not None else None)
-    if not root_value:
-        return "unverified", ["repository_project_root_unavailable"]
-    root = Path(root_value).expanduser().resolve(strict=False)
     for ref in refs:
         content_sha256 = str(ref.content_sha256 or "").lower()
         if not ref.locator or not _SHA256.fullmatch(content_sha256):
@@ -511,12 +567,9 @@ def _validate_repository_refs(
         ).hexdigest()
         if ref.locator_sha256 != expected_locator_sha256:
             return "unverified", ["repository_locator_digest_mismatch"]
-        locator = Path(ref.locator)
-        if locator.is_absolute():
-            return "unverified", ["repository_ref_not_relative"]
-        path = (root / locator).resolve(strict=False)
-        if not _is_relative_to(path, root) or path == root:
-            return "unverified", ["repository_ref_outside_project"]
+        path, reason = resolve_repository_evidence_path(ref.locator, root_value)
+        if path is None:
+            return "unverified", [reason]
         if not path.is_file():
             return "unverified", ["repository_ref_missing"]
         try:
@@ -526,6 +579,157 @@ def _validate_repository_refs(
         if digest != content_sha256:
             return "contradicted", ["repository_digest_changed"]
     return "verified", ["repository_refs_current"]
+
+
+def _resolve_additional_evidence_path(path: Path) -> Path | None:
+    from harness_mem.config.merge import load_merged_config
+    from harness_mem.config.errors import ConfigError
+
+    if not path.is_absolute() or path.drive.startswith("\\\\"):
+        return None
+    try:
+        roots = load_merged_config().evidence_repository_roots
+    except (ConfigError, OSError):
+        return None
+    for value in roots:
+        try:
+            root = Path(value).expanduser()
+            if not root.is_absolute() or root.drive.startswith("\\\\"):
+                continue
+            resolved_root = root.resolve()
+            if resolved_root.drive.startswith("\\\\") or not resolved_root.is_dir():
+                continue
+            if not (_is_relative_to(path, root) or _is_relative_to(path, resolved_root)):
+                continue
+            resolved = path.resolve()
+            if resolved != resolved_root and _is_relative_to(resolved, resolved_root):
+                return resolved
+        except (OSError, RuntimeError, ValueError):
+            continue
+    return None
+
+
+def resolve_repository_evidence_path(
+    locator: str, project_root: str | Path | None,
+) -> tuple[Path | None, str]:
+    """Resolve relative project evidence or explicit authorized external evidence."""
+    try:
+        path = Path(locator)
+        if path.is_absolute():
+            authorized = _resolve_additional_evidence_path(path)
+            if authorized is not None:
+                return authorized, ""
+            return None, "repository_ref_not_relative"
+        if not project_root:
+            return None, "repository_project_root_unavailable"
+        root = Path(project_root).expanduser().resolve()
+        path = (root / path).resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None, "repository_ref_unreadable"
+    if path == root or not _is_relative_to(path, root):
+        return None, "repository_ref_outside_project"
+    return path, ""
+
+
+def _reopen_complete_user_context(
+    backend: LocalMemoryBackend, source: KnowledgeSource,
+) -> tuple[str, str, str | None, bool, KnowledgeSource]:
+    """Keep an exact original anchor while reopening all proved user authors.
+
+    An exchange digest attests only that exchange. The effective descriptor
+    separately binds the complete same-revision user context actually supplied
+    to semantic maintenance. Neither missing cited text nor unproved role labels
+    can establish absence from the original user's account.
+    """
+    invalid = ("unverified", "knowledge_source_user_context_invalid", None, False, source)
+    parsed = urlparse(source.locator)
+    if (source.source_kind != "user_statement" or parsed.scheme != "file"
+            or _file_uri_path(parsed) != Path(backend.transcript_store.db_path).resolve(strict=False)):
+        return invalid
+    query = parse_qs(parsed.fragment, keep_blank_values=True)
+    base_keys = {"source_id", "source_revision", "exchange"}
+    marked = "context" in query or "anchor_sha256" in query
+    expected = base_keys | ({"context", "anchor_sha256"} if marked else set())
+    if "role" in query:
+        expected.add("role")
+        if _single_query_value(query, "role") != "user":
+            return invalid
+    if set(query) != expected or any(len(values) != 1 for values in query.values()):
+        return invalid
+    if marked and _single_query_value(query, "context") != _COMPLETE_USER_CONTEXT:
+        return invalid
+    source_id = _single_query_value(query, "source_id")
+    revision_id = _single_query_value(query, "source_revision")
+    exchange = _query_int(query, "exchange")
+    anchor_digest = _single_query_value(query, "anchor_sha256") if marked else source.content_sha256
+    if (not source_id or not revision_id or exchange is None
+            or not _SHA256.fullmatch(str(anchor_digest or ""))
+            or not _SHA256.fullmatch(str(source.content_sha256 or ""))):
+        return invalid
+    try:
+        revision, rendering, raw = _source_report_context(
+            backend, project_name=source.project_name,
+            source_id=source_id, source_revision=revision_id,
+        )
+        native_text = raw.decode("utf-8-sig")
+        if revision.client in {"codex", "codex-archive"} and native_text.lstrip().startswith("{"):
+            # When native headers are retained, their explicit identity cannot
+            # disagree with the immutable source's capture identity.
+            native = scan_jsonl(native_text)
+            if native.errors:
+                return invalid
+            for record in native.records:
+                if record.get("type") != "session_meta":
+                    continue
+                header = record.get("payload")
+                if not isinstance(header, dict) or any(
+                    header.get(key) is not None and header[key] != revision.session_id
+                    for key in ("id", "session_id")
+                ):
+                    return invalid
+                cwd = header.get("cwd")
+                if cwd is not None and (
+                    not isinstance(cwd, str) or not cwd
+                    or Path(cwd).resolve(strict=False) != Path(revision.project_root).resolve(strict=False)
+                ):
+                    return invalid
+        if revision.client == "claude-code":
+            proved = _source_report_author_indexes(revision, rendering, raw, "user")
+        else:
+            proved = _frozen_user_exchange_indexes(
+                backend, source_id=source_id, source_revision=revision_id,
+                rendering=rendering, allow_legacy_explicit=False,
+            )
+        if not proved or exchange not in proved:
+            return "unverified", "knowledge_source_user_author_unproved", None, False, source
+        windows = render_distill_exchange_windows(rendering, [exchange])
+        if not windows or windows[0]["content_sha256"] != anchor_digest:
+            return "contradicted", "knowledge_source_anchor_digest_changed", None, False, source
+        exchanges = _parse_exchanges(rendering)[1]
+        # No assistant prose is relabelled as user evidence. The existing strict
+        # author check has proved the complete rendered user inventory above.
+        content = json.dumps({
+            "context_scope": _COMPLETE_USER_CONTEXT,
+            "project_name": revision.project_name,
+            "source_id": source_id, "source_revision": revision_id,
+            "session_id": revision.session_id, "role": "user",
+            "authored_exchanges": [
+                {"exchange_index": index, "messages": list(item["user"])}
+                for index, item in enumerate(exchanges, 1) if index in proved
+            ],
+        }, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    except (KeyError, ValueError, OSError, UnicodeError):
+        return invalid
+    context_digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    if marked and source.content_sha256 != context_digest:
+        return "contradicted", "knowledge_source_context_digest_changed", None, False, source
+    effective_query = {key: values[0] for key, values in query.items()}
+    effective_query.update(context=_COMPLETE_USER_CONTEXT, anchor_sha256=anchor_digest)
+    effective = source.model_copy(update={
+        "locator": urlunparse(parsed._replace(fragment=urlencode(effective_query))),
+        "content_sha256": context_digest,
+    })
+    return "verified", "knowledge_source_complete_user_context", content, False, effective
 
 
 async def _reopen_knowledge_source(
@@ -551,7 +755,7 @@ async def _reopen_knowledge_source(
     transcript_db = Path(backend.transcript_store.db_path).resolve(strict=False)
     if path != transcript_db:
         return "unverified", "knowledge_source_transcript_store_mismatch", None, False
-    query = parse_qs(parsed.fragment, keep_blank_values=False)
+    query = parse_qs(parsed.fragment, keep_blank_values=True)
     source_id = _single_query_value(query, "source_id")
     source_revision = _single_query_value(query, "source_revision")
     if not source_id or not source_revision:
@@ -564,6 +768,9 @@ async def _reopen_knowledge_source(
     if source.source_kind == "source_report":
         return _reopen_source_report(backend, source, query, digest)
     if source.source_kind == "user_statement":
+        if "context" in query or "anchor_sha256" in query:
+            outcome, reason, content, truncated, _effective = _reopen_complete_user_context(backend, source)
+            return outcome, reason, content, truncated
         exchange = _query_int(query, "exchange")
         if exchange is None:
             return "unverified", "knowledge_source_exchange_missing", None, False
@@ -647,11 +854,21 @@ def _reopen_repository_source(
     parsed = urlparse(source.locator)
     if parsed.scheme != "file":
         return "unverified", "knowledge_source_scheme_unsupported", None, False, None
-    path = _file_uri_path(parsed)
-    if project_root is None or not project_root.is_dir():
-        return "unverified", "repository_project_root_unavailable", None, False, None
-    if not _is_relative_to(path, project_root) or path == project_root:
-        return "unverified", "knowledge_source_outside_project", None, False, None
+    locator_path = _file_uri_path(parsed, resolve=False)
+    project_available = project_root is not None and project_root.is_dir()
+    path = None
+    if project_available and project_root is not None and _is_relative_to(locator_path, project_root):
+        try:
+            resolved = locator_path.resolve()
+            if resolved != project_root and _is_relative_to(resolved, project_root):
+                path = resolved
+        except (OSError, RuntimeError, ValueError):
+            return "unverified", "knowledge_source_unreadable", None, False, None
+    if path is None:
+        path = _resolve_additional_evidence_path(locator_path)
+    if path is None:
+        reason = "knowledge_source_outside_project" if project_available else "repository_project_root_unavailable"
+        return "unverified", reason, None, False, None
     if not path.is_file():
         return "unverified", "knowledge_source_missing", None, False, None
     try:
@@ -720,13 +937,14 @@ def _bounded_source_content(
     return normalized[:limit] + "\n[truncated by trusted runtime]", True
 
 
-def _file_uri_path(parsed: Any) -> Path:
+def _file_uri_path(parsed: Any, *, resolve: bool = True) -> Path:
     path_text = unquote(parsed.path or "")
     if parsed.netloc and parsed.netloc not in {"", "localhost"}:
         path_text = f"//{parsed.netloc}{path_text}"
     if re.match(r"^/[A-Za-z]:/", path_text):
         path_text = path_text[1:]
-    return Path(path_text).resolve(strict=False)
+    path = Path(path_text)
+    return path.resolve(strict=False) if resolve else path
 
 
 def _single_query_value(query: dict[str, list[str]], name: str) -> str | None:
@@ -742,6 +960,21 @@ def _query_int(query: dict[str, list[str]], name: str) -> int | None:
         return int(value)
     except ValueError:
         return None
+
+
+def _native_sqlite_conversation(revision: Any, raw: bytes) -> str | None:
+    """Reconstruct native speaker boundaries from the frozen typed records."""
+    if revision.client == "hermes" and revision.source_kind == "sqlite-session-export":
+        from harness_mem.adapters.hermes.adapter import hermes_sqlite_export_messages, render_hermes_sqlite_messages
+
+        return render_hermes_sqlite_messages(hermes_sqlite_export_messages(raw, revision.session_id))
+    if revision.client == "antigravity" and revision.source_kind == "antigravity-sqlite":
+        from harness_mem.adapters.antigravity.sqlite_history import (
+            antigravity_sqlite_export_messages, render_antigravity_sqlite_messages,
+        )
+
+        return render_antigravity_sqlite_messages(antigravity_sqlite_export_messages(raw, revision.session_id))
+    return None
 
 
 def _frozen_user_exchange_indexes(
@@ -800,11 +1033,23 @@ def _frozen_user_exchange_indexes(
     rendered_user_indexes = {
         index for index, exchange in enumerate(exchanges, 1) if exchange["user"]
     }
+    try:
+        native_sqlite = _native_sqlite_conversation(revision, raw)
+    except (ValueError, TypeError, UnicodeError):
+        return None
+    if native_sqlite is not None:
+        if _parse_exchanges(native_sqlite)[1] != exchanges:
+            return None
+        return rendered_user_indexes
     structured = text.lstrip().startswith(("{", "[")) or (
         revision.client in {"codex", "codex-archive", "cursor"}
         and "jsonl" in revision.parser_version
     )
     if not structured:
+        if revision.client in {"codex", "codex-archive"} and not codex_origin_allows_user_statements(
+            revision.metadata.get("codex_session_origin")
+        ):
+            return set()
         # Codex deliberately captures permitted conversation, not host prompts
         # or tool logs. Its adapter binds native user texts to this immutable
         # rendering at capture time. Never infer authors from role labels alone.
@@ -834,6 +1079,10 @@ def _frozen_user_exchange_indexes(
     scanned = scan_jsonl(text)
     if scanned.errors or not scanned.records:
         return None
+    if revision.client in {"codex", "codex-archive"} and not codex_origin_allows_user_statements(
+        codex_session_origin(scanned.records)
+    ):
+        return set()
     users: list[str] = []
     for record in scanned.records:
         payload = record.get("payload", record)
@@ -974,6 +1223,10 @@ def _source_report_context(backend: LocalMemoryBackend, *, project_name: str,
         if native_rendering is None:
             raise ValueError("source_report_speaker_unproved")
         rendering = native_rendering
+    else:
+        native_sqlite = _native_sqlite_conversation(revision, raw)
+        if native_sqlite is not None:
+            rendering = native_sqlite
     return revision, rendering, raw
 
 
@@ -983,6 +1236,15 @@ def _source_report_author_indexes(revision: Any, rendering: str, raw: bytes,
     from harness_mem.adapters.snapshot import _native_claude_rendering, _native_codex_authored_texts
     from harness_mem.mcp.distill_projection import _ENTRY_RE
 
+    try:
+        native_sqlite = _native_sqlite_conversation(revision, raw)
+    except (ValueError, TypeError, UnicodeError):
+        return None
+    if native_sqlite is not None:
+        exchanges = _parse_exchanges(rendering)[1]
+        if _parse_exchanges(native_sqlite)[1] != exchanges:
+            return None
+        return {index for index, exchange in enumerate(exchanges, 1) if exchange[speaker]}
     if revision.client not in {"codex", "codex-archive", "cursor", "claude-code"}:
         return None
     try:
@@ -1205,7 +1467,12 @@ async def _validate_user_statement_refs(
     observation_id = str(uuid5(NAMESPACE_URL, f"{job.source_id}:observation"))
     observation = await backend.verbatim_store.get(observation_id)
     if observation is None or observation.metadata.get("source_revision") != job.source_revision:
-        return "unverified", ["user_statement_source_unavailable"]
+        # A completed historical job keeps its immutable source even when a
+        # newer ingest replaces the shared search projection. Reopen that
+        # exact source in memory; never overwrite today's Observation.
+        observation = _completed_user_statement_projection(backend, job, refs)
+        if observation is None:
+            return "unverified", ["user_statement_source_unavailable"]
     revision = backend.transcript_store.get_revision(job.source_id, job.source_revision)
     if revision is not None and revision.client in {"codex", "codex-archive"} and "jsonl" in revision.parser_version:
         # Native legacy observations can predate the current parser. Rebuild
@@ -1256,6 +1523,48 @@ async def _validate_user_statement_refs(
         ).lower():
             return "contradicted", ["user_statement_digest_changed"]
     return "verified", ["user_statement_refs_current"]
+
+
+def _completed_user_statement_projection(
+    backend: LocalMemoryBackend, job: Any, refs: list[EvidenceRef],
+) -> Any | None:
+    if job.status != "completed" or not refs:
+        return None
+    first = refs[0]
+    if (first.exchange_index is None or first.role not in {None, "user"}
+            or not _SHA256.fullmatch(str(first.content_sha256 or ""))):
+        return None
+    try:
+        revision, rendering, _raw = _source_report_context(
+            backend, project_name=job.project_name, source_id=job.source_id,
+            source_revision=job.source_revision,
+        )
+        if (revision.session_id != job.session_id or revision.client != job.client
+                or revision.project_root != job.project_root
+                or not _frozen_user_exchange_indexes(
+                    backend, source_id=job.source_id, source_revision=job.source_revision,
+                    rendering=rendering, allow_legacy_explicit=False,
+                )):
+            return None
+        anchor = KnowledgeSource(
+            project_name=job.project_name, knowledge_id="historical-candidate-source",
+            source_kind="user_statement", content_sha256=first.content_sha256,
+            verified_at=datetime.now(timezone.utc),
+            locator=Path(backend.transcript_store.db_path).resolve().as_uri() + "#" + urlencode({
+                "source_id": job.source_id, "source_revision": job.source_revision,
+                "exchange": first.exchange_index,
+            }),
+        )
+        if _reopen_complete_user_context(backend, anchor)[0] != "verified":
+            return None
+        from harness_mem.core.schemas.observation import Observation
+
+        return Observation(
+            session_id=job.session_id, client=job.client, raw_content=rendering,
+            content_type="transcript", metadata={"source_revision": job.source_revision},
+        )
+    except (KeyError, ValueError, OSError, UnicodeError):
+        return None
 
 
 def _validate_transcript_refs(

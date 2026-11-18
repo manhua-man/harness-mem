@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from harness_mem.adapters.protocol import SessionRecord
+from harness_mem.adapters.source_metadata import codex_session_origin
 from harness_mem.rust_core import scan_jsonl
 
 # ---------------------------------------------------------------------------
@@ -792,6 +793,7 @@ def parse_codex_archive_jsonl_session(
         )
         archive_scan = scan_jsonl(raw_content)
         session_meta["invalid_json_lines"] = len(archive_scan.errors)
+        session_meta["codex_session_origin"] = codex_session_origin(archive_scan.records)
         for record in archive_scan.records:
             top_level_type = record.get("type")
             payload = record.get("payload")

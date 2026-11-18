@@ -56,7 +56,13 @@ def _verify_all_candidates(self, manifest, *, runtime_dir, heartbeat=None):
                         "candidate_index": item["candidate_index"],
                         "semantic_support": "supported",
                         "future_scope": "durable",
-                        "reason": "The fixture source directly supports a reusable project point.",
+                        "source_use": "reusable_knowledge",
+                        "scope_segments": [{
+                            "text": item.get("scope_text", item["statement"]),
+                            "source_use": "reusable_knowledge", "future_scope": "durable",
+                            "standalone": True, "content_role": "claim", "source_support": "supported",
+                        }],
+                        "reason": "The fixture source directly supports this complete reusable project point.",
                     }
                     for item in manifest["candidates"]
                 ]
@@ -425,6 +431,9 @@ def _snapshot(
 ):
     transcript = str(fixture(fixture_id)["transcript"])
     selected_session = session_id or fixture_id
+    root.mkdir(parents=True, exist_ok=True)
+    source = root / f"{selected_session}.fixture-transcript.txt"
+    source.write_text(transcript, encoding="utf-8")
     return asyncio.run(
         persist_session_snapshot(
             backend,
@@ -441,7 +450,7 @@ def _snapshot(
             client="codex",
             session_id=selected_session,
             source_kind="jsonl",
-            source_uri=f"file:///{selected_session}.jsonl",
+            source_uri=source.resolve().as_uri(),
             source_text=transcript,
         )
     )
@@ -476,8 +485,8 @@ def _prepare(
     return snapshot, packet
 
 
-def _preference_review(*, partial: bool = False) -> dict:
-    return {
+def _preference_review(*, partial: bool = False, candidate_id: str | None = None) -> dict:
+    result = {
         "session_summary": (
             "The explicit performance preference was verified while one fixed "
             "measurement remained." if partial else
@@ -495,6 +504,18 @@ def _preference_review(*, partial: bool = False) -> dict:
         "evidence_status": "partial" if partial else "answered",
         "promotion_decision": "partial" if partial else "promote",
     }
+    if candidate_id is not None:
+        result["final_scope_judgment"] = {candidate_id: CandidateVerificationDecision.model_validate({"points": [{
+            "candidate_index": 0, "semantic_support": "supported", "future_scope": "durable",
+            "source_use": "reusable_knowledge",
+            "reason": "The fixture user's explicit continuing preference supports the complete title and condition.",
+            "scope_segments": [{
+                "text": "Keep distillation efficient\nUse less time and fewer tokens without reducing distill result quality.",
+                "source_use": "reusable_knowledge", "future_scope": "durable", "standalone": True,
+                "content_role": "claim", "source_support": "supported",
+            }],
+        }]}).model_dump(mode="json")}
+    return result
 
 
 def _suggest_preference(
@@ -635,7 +656,7 @@ def test_b1_f2_user_preference_promotes_once_and_is_retrievable(tmp_path: Path) 
             finalized = tool_handlers.tool_finalize_session_distill(
                 project_name="acceptance",
                 job_id=snapshot.distill_job_id,
-                semantic_review=_preference_review(),
+                semantic_review=_preference_review(candidate_id=candidate["entry_id"]),
             )
             readable = read_search_handlers.tool_search_memory(
                 query="tokens result quality",
@@ -717,16 +738,24 @@ def test_b2_autonomous_partial_creates_handoff_and_only_one_truth(
             self.verified_statements = []
 
         def verify(self, manifest, *, runtime_dir, heartbeat=None):
-            self.verified_statements = [item["statement"] for item in manifest["candidates"]]
+            if manifest.get("contract_version") != "final-knowledge-scope-v1":
+                self.verified_statements = [item["statement"] for item in manifest["candidates"]]
             result = _verify_all_candidates(self, manifest, runtime_dir=runtime_dir, heartbeat=heartbeat)
             # The source does say the unnamed old approach was superseded,
             # but this fixture grants it no continuing utility. The semantic
             # stage must make that decision; a word filter must not hide it.
             points = [
-                point.model_copy(update={
+                type(point).model_validate({
+                    **point.model_dump(mode="json"),
                     "future_scope": "session_only",
+                    "source_use": "task_context",
+                    "scope_segments": [{
+                        "text": "The older truncate-first approach is superseded.",
+                        "source_use": "task_context", "future_scope": "session_only", "standalone": False,
+                        "content_role": "temporary_context", "source_support": "supported",
+                    }],
                     "reason": "Only an unnamed old approach's session state; no reusable successor decision.",
-                }) if self.verified_statements[point.candidate_index]
+                }) if manifest["candidates"][point.candidate_index]["statement"]
                 == "The older truncate-first approach is superseded." else point
                 for point in result.decision.points
             ]
@@ -1049,11 +1078,11 @@ def test_e1_finalize_replay_keeps_note_hash_and_truth_count(tmp_path: Path) -> N
     try:
         with _bound(backend):
             snapshot, packet = _prepare(backend, root=tmp_path, fixture_id="F2")
-            _suggest_preference(snapshot, packet)
+            candidate = _suggest_preference(snapshot, packet)
             first = tool_handlers.tool_finalize_session_distill(
                 project_name="acceptance",
                 job_id=snapshot.distill_job_id,
-                semantic_review=_preference_review(),
+                semantic_review=_preference_review(candidate_id=candidate["entry_id"]),
             )
             first_job = backend.transcript_store.get_distill_job(snapshot.distill_job_id)
             assert first_job is not None
@@ -1062,7 +1091,7 @@ def test_e1_finalize_replay_keeps_note_hash_and_truth_count(tmp_path: Path) -> N
             second = tool_handlers.tool_finalize_session_distill(
                 project_name="acceptance",
                 job_id=snapshot.distill_job_id,
-                semantic_review=_preference_review(),
+                semantic_review=_preference_review(candidate_id=candidate["entry_id"]),
             )
         truths = asyncio.run(
             backend.structured_store.knowledge_store.list_entries("acceptance")

@@ -36,6 +36,45 @@ copies can expose duplicate tools and may use different working directories.
 ## Session inspection and memory review (unreleased)
 
 These interfaces describe the working tree, not the published 0.9.28 package.
+
+For a question that depends on preceding task context, `search_memory` accepts
+optional `task_context` separately from `query`. Supply the complete necessary
+background, conditions and exclusions. It remains a search input, not proof of
+user approval. Reuse the exact text when opening a candidate or following its
+continuation; `reuse_arguments` names fields to copy from the original request.
+The cursor contains hashes rather than the context text and rejects a different
+context, store or retrieval/model version. Every selected full read still returns
+the complete stored entry, including report attribution and final conditions.
+
+Manual searches with `task_context` and `detail="auto"` compare the actual token
+cost of a complete entry object with its preview-plus-cursor card. When the
+complete form is cheaper, it is returned directly as `statement`; the page may
+contain complete statements and previews together, marked `detail="mixed"`.
+`mixed` is an output marker, not an input detail value. Only `statement` contains
+the full stored content; reuse it without another full-read request. Only a
+preview needs its strict `read_cursor`. Relevance remains unassessed in both
+forms, and the entire final response stays under the same page budget.
+Explicit `detail="candidates"` and automatic Hook/scheduler paths keep previews
+only. Search-hit feedback counts only complete entries actually returned.
+
+The optional `semantic-onnx` dependency extra supports an offline BGE small
+Chinese candidate channel over current knowledge, without a model service or
+legacy memory-table index. An operator must explicitly point the process at
+`HARNESS_MEM_CURRENT_SEMANTIC_MODEL_DIR`, containing `model_int8.onnx`,
+`tokenizer.json`, `config.json` and `tokenizer_config.json` from the same pinned
+artifact. No model is downloaded or bundled automatically.
+`HARNESS_MEM_DISABLE_EMBEDDINGS` still takes precedence. Missing dependencies,
+unconfigured/corrupt files or encoding failure leave lexical retrieval available
+and context-aware calls return an explicit semantic-unavailable notice. With
+semantic discovery available, context-aware calls retain its order and exact
+literal readback priority. Ordinary natural questions also use the configured
+model for additional candidates above a similarity floor. Without the model,
+long questions can match multiple distinct shared fragments when their phrases
+have no direct match. Short literal lookups still take the lexical path.
+Candidate similarity never establishes relevance or an answer; the current Agent
+must read and assess the selected complete entries. Development/acceptance status
+is recorded in [the current plan](roadmap.md#current-iteration-plan).
+
 Completed `finalize_session_distill` responses now include `knowledge_changes`
 (change, natural module, title and statement), ordinary `not_written` reasons,
 and `unfinished_work`. These come from current SQLite rows after write/readback
@@ -46,11 +85,38 @@ all current knowledge with modules. It does not read raw sources, create a job,
 or start background processing. Nonempty search queries keep title/statement
 results. The Agent renders these fields in the user's language through `hm`.
 
-`inspect_sessions` requires an absolute `project_root` and supports:
+Evidence can come from a different local maintenance directory. In the user
+configuration `~/.harness-mem/config.toml`, list the directories you want the
+runtime to read as repository evidence. Example Windows configuration:
+
+```toml
+[evidence]
+repository_roots = ["F:/project-reference/docs"]
+```
+
+Use an absolute `repository` locator under a configured directory and submit
+the SHA-256 of the checked file. The runtime binds the file to the original
+knowledge owner and rechecks scope and bytes when it reopens the citation.
+Project configuration cannot grant this permission. Project-local references
+still use their existing relative paths. Ordinary search displays the knowledge
+statement without the raw citation or source text.
+
+Manual `finalize_session_distill` may return `source_conditions_need_review`
+before staging any write. It shows explicit condition clauses from the session
+and checked text files that appear related to a writing point. Retain relevant
+conditions in the statement and `review.conditions`. Explain exclusions for
+session-only, superseded or out-of-scope material with `condition_exclusions`,
+using the returned IDs. The organizer still checks implicit conditions,
+applicability and conflicts.
+
+`inspect_sessions` defaults to device scope; absolute `project_root` is an optional explicit source filter. It supports:
 
 - `action="inventory"`: read project ownership, source readability and processing
   state without importing sources, creating jobs, writing memory or starting
-  background work. With `batch_id`, read the existing frozen batch's progress.
+  background work. Inventory also returns existing batches, persisted progress,
+  directly callable inspect/resume/explicit-continue arguments and none/unique/ambiguous
+  `batch_continuation`. With `batch_id`, read that frozen batch's progress; inspection
+  never clears a pause.
 - `action="source"`: pass a returned `session` reference and follow `next_offset`
   with `offset`/`page_chars` to read the complete permitted source revision.
   Respect capture exclusions and private-content redaction.
@@ -60,18 +126,24 @@ results. The Agent renders these fields in the user's language through `hm`.
   sessions are valid. Themes do not replace per-point extraction or verification.
 
 Daily session intake and organization belong to the Hook and automatic worker.
-The public `prepare_session_distill` entry accepts exact `target_knowledge`
-from search for a correction, or an existing `distill_job_id` for review.
-It no longer offers ordinary remember requests or new manual batches.
-The same internal preparation/finalization core remains available to the Hook
-and worker; this change does not remove complete-source verification.
+The public `prepare_session_distill` entry also accepts exact `target_knowledge`
+for correction, an existing `distill_job_id` for review, or explicit history
+selection via `batch_sessions`. `batch_id` resumes that same selection;
+`pause=true` stops progress, `continue_batch=true` requires an explicit request
+to continue a user pause, and `retry_failures=true` retries only eligible active
+failures. Source/revision/ownership failures retain their stopped state.
 
-Existing manifests under `manual-batches` and their immutable sources remain
-available for internal recovery and inspection. They are temporary processing
-state, not knowledge history or a required user workflow. Recovery does not
-authorize source deletion, change the selected scope, or turn a failed job
-into a completed result. Review reports distinguish persisted changes from
-work that remains unfinished.
+The Agent follows references returned by read-only inventory; users describe
+scope and do not copy internal IDs. Manifests under `manual-batches` are temporary
+processing state. They neither authorize source deletion nor permit changing a
+frozen scope or reporting unfinished work as complete. Current-Agent processing
+needs no background CLI authorization or task budget. New writes require the
+structured `final_scope_judgment` object at finalize (top level or semantic_review)
+or govern decide arguments, complete source reopening, target-version checks,
+canonical commit and normal readback. See the [judgment contract and complete
+example](memory-write-convergence-20261020.md#13-公开最终语义判断合同与调用例).
+
+Background task budgets cover native executor invocations dispatched by this runtime across source processing, Dream slices and retries under one maintenance task identity. Defaults are 64 invocations, 3,600 cumulative native seconds, 2,000,000 input tokens and 128,000 output tokens. Actual terminal usage is accumulated and checked before subsequent dispatch; the final invocation may cross a token threshold and may contain multiple model responses. Unknown usage blocks later invocations. These thresholds do not cap returned context, total user wait or the current Agent conversation. An explicit `task_model_budget.host_max_output_tokens` requests strict native bounds; unsupported or unproved bounds refuse before transport. Ordinary background execution does not require this optional hard cap. Local installation and readiness have fresh receipts; natural semantic acceptance remains pending.
 
 Cursor SQLite support is limited to the layouts covered by the isolated native
 store fixtures, not every live Cursor database format. The original 12 outcome

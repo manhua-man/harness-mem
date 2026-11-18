@@ -20,7 +20,7 @@
   "interface": {
     "displayName": "harness-mem",
     "shortDescription": "Remember useful project knowledge locally and find it later.",
-    "longDescription": "Use one hm entry to remember a session, find how earlier work was done, or correct a memory. Project knowledge stays on the local machine.",
+    "longDescription": "Use one hm command with explicit distill, search, clean, status and review actions. Organize completed conversations and keep current knowledge on the local machine.",
     "developerName": "harness-mem",
     "category": "Developer Tools",
     "capabilities": [
@@ -29,9 +29,9 @@
       "Write"
     ],
     "defaultPrompt": [
-      "Remember what matters from this session.",
-      "Find how we solved this before.",
-      "Correct the memory I just pointed out."
+      "$hm help",
+      "$hm status",
+      "$hm review"
     ],
     "brandColor": "#0F766E"
   }

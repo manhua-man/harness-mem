@@ -9,7 +9,11 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from harness_mem.commands.session_inventory import session_reference
+from harness_mem.core.schemas.session_distill import SessionDistillJob
+from harness_mem.core.schemas.transcript import TranscriptSourceRevision
 from harness_mem.storage.manual_batch_store import ManualBatchStore
+from harness_mem.transcript_chunking import transcript_source_id
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows delete-sharing race")
@@ -394,3 +398,138 @@ def test_failure_escalation_is_atomic_on_interruption(batch, monkeypatch, failur
     assert store.record_failure(
         batch_id, "project", root, "ref-0", "readback failed", stop_batch=True,
     ) == dict(before, state="stopped")
+
+
+def test_pause_and_continue_keep_failures_and_block_new_binds(batch, monkeypatch):
+    store, root, batch_id = batch
+    store.bind_job(batch_id, "project", root, "ref-0", "job-0")
+    failed = store.record_failure(batch_id, "project", root, "ref-0", "kept")
+    paused = store.pause(batch_id, "project", root)
+    assert paused["state"] == "paused"
+    assert paused["failures"] == {"ref-0": "kept"}
+    assert paused["bindings"] == {"ref-0": "job-0"}
+    assert paused["sessions"] == failed["sessions"]
+    with monkeypatch.context() as patch:
+        patch.setattr(store, "_write", lambda *_: pytest.fail("paused batch wrote"))
+        assert store.pause(batch_id, "project", root)["state"] == "paused"
+        with pytest.raises(ValueError, match="paused"):
+            store.retry_failures(batch_id, "project", root)
+        with pytest.raises(ValueError, match="paused"):
+            store.bind_job(batch_id, "project", root, "ref-1", "job-1")
+    resumed = store.resume_paused(batch_id, "project", root)
+    assert resumed["state"] == "active"
+    assert resumed["failures"] == {"ref-0": "kept"}
+    assert resumed["bindings"] == {"ref-0": "job-0"}
+    with monkeypatch.context() as patch:
+        patch.setattr(store, "_write", lambda *_: pytest.fail("active resume wrote"))
+        assert store.resume_paused(batch_id, "project", root)["state"] == "active"
+    stopped = store.record_failure(batch_id, "project", root, "ref-1", "redline", True)
+    path = store.root / f"{batch_id}.json"
+    held = path.read_bytes()
+    for action in (
+        lambda: store.pause(batch_id, "project", root),
+        lambda: store.resume_paused(batch_id, "project", root),
+        lambda: store.retry_failures(batch_id, "project", root),
+    ):
+        with pytest.raises(ValueError, match="stopped"):
+            action()
+    assert path.read_bytes() == held
+    assert store.load(batch_id, "project", root) == stopped
+
+
+def test_legacy_active_and_stopped_manifests_load_without_rewrite(batch):
+    store, root, batch_id = batch
+    path = store.root / f"{batch_id}.json"
+    active = path.read_bytes()
+    loaded = store.load(batch_id, "project", root)
+    assert loaded["state"] == "active"
+    assert path.read_bytes() == active
+    assert set(json.loads(path.read_text(encoding="utf-8"))) == set(loaded) - set()
+    payload = json.loads(active)
+    payload["state"] = "stopped"
+    path.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
+    held = path.read_bytes()
+    stopped = store.load(batch_id, "project", root)
+    assert stopped["state"] == "stopped"
+    assert path.read_bytes() == held
+    assert "paused" not in json.loads(held)
+
+
+def _job(**overrides):
+    fields = dict(
+        id="job-bound", idempotency_key="job-bound", project_name="global", project_root="",
+        client="codex", session_id="conversation", source_id="source-bound",
+        source_revision="sha256:" + "a" * 64, manual_only=False,
+    )
+    fields.update(overrides)
+    return SessionDistillJob(**fields)
+
+
+def _revision(job, *, raw, uri):
+    return TranscriptSourceRevision(
+        source_id=job.source_id, source_revision=job.source_revision,
+        project_name=job.project_name, project_root=job.project_root,
+        client=job.client, session_id=job.session_id, source_kind="codex", source_uri=uri,
+        raw_sha256=raw, normalized_sha256=raw, raw_size_bytes=4, normalized_size_bytes=4,
+    )
+
+
+def test_bound_revision_does_not_keep_later_revisions_manual(tmp_path):
+    absent = ManualBatchStore(tmp_path / "absent")
+    assert absent.owns_job(_job(manual_only=True), None)
+    assert absent.owns_job(_job(manual_only=False), None) is False
+
+    uri = "file:///fictional/device-session.jsonl"
+    meta = transcript_source_id(
+        client="codex", project_name="metadata-source", session_id="conversation", source_uri=uri,
+    )
+    hint = session_reference("codex", "conversation", meta, "metadata:native")
+    store = ManualBatchStore(tmp_path / "device")
+    manifest = store.create("global", "", [hint], scope="all")
+    batch_id = manifest["batch_id"]
+    selected = _job()
+    selected_revision = _revision(selected, raw="a" * 64, uri=uri)
+    later = _job(
+        id="job-later", idempotency_key="job-later", source_revision="sha256:" + "b" * 64,
+        manual_only=True,
+    )
+    later_revision = _revision(later, raw="b" * 64, uri=uri)
+    assert store.owns_job(selected, selected_revision)
+    assert store.owns_job(later, later_revision)
+    store.record_failure(batch_id, "global", "", hint["reference_id"], "fixture_stop", stop_batch=True)
+    assert store.owns_job(selected, selected_revision)
+    assert store.load(batch_id, "global", "")["state"] == "stopped"
+
+    exact = session_reference("codex", "conversation", selected.source_id, selected.source_revision)
+    project = ManualBatchStore(tmp_path / "project")
+    root = str(tmp_path / "workspace")
+    reference = session_reference("cursor", "sess", "source-1", "sha256:" + "c" * 64)
+    created = project.create("project", root, [reference])
+    project_root = created["project_root"]
+    bound = _job(
+        id="project-job", idempotency_key="project-job", project_name="project",
+        project_root=project_root, client="cursor", session_id="sess", source_id="source-1",
+        source_revision="sha256:" + "c" * 64,
+    )
+    bound_revision = _revision(bound, raw="c" * 64, uri="file:///fictional/project.jsonl")
+    sibling = _job(
+        id="project-later", idempotency_key="project-later", project_name="project",
+        project_root=project_root, client="cursor", session_id="sess", source_id="source-1",
+        source_revision="sha256:" + "d" * 64, manual_only=False,
+    )
+    sibling_revision = _revision(sibling, raw="d" * 64, uri="file:///fictional/project.jsonl")
+    assert project.owns_job(bound, bound_revision)
+    assert project.owns_job(sibling, sibling_revision) is False
+    project.bind_job(created["batch_id"], "project", project_root, reference["reference_id"], bound.id)
+    sibling.manual_only = True
+    assert project.owns_job(bound, bound_revision)
+    assert project.owns_job(sibling, sibling_revision) is False
+    project.pause(created["batch_id"], "project", project_root)
+    assert project.owns_job(bound, bound_revision)
+    assert project.owns_job(sibling, sibling_revision) is False
+    project.record_failure(
+        created["batch_id"], "project", project_root, reference["reference_id"], "redline", stop_batch=True,
+    )
+    assert project.owns_job(bound, bound_revision)
+    assert project.owns_job(sibling, sibling_revision) is False
+    assert exact["source_revision"].startswith("sha256:")

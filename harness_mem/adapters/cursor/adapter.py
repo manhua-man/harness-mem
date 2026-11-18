@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -354,12 +355,28 @@ class CursorAdapter:
         source = self._selected_sqlite_source(path, session_id)
         if source is not None:
             raw = read_pinned_source(source)
+            cleanup_search_sha256 = None
+            index = source.database.with_name("conversation-search.db")
+            if (source.cleanup_primary_sha256 and source.database.parent.name == "globalStorage"
+                    and index.is_file() and index.resolve() == index):
+                from harness_mem.adapters.cursor.search_cleanup import search_rows_sha256, select_search_rows
+                from harness_mem.adapters.cursor.sqlite_history import _read_db
+                try:
+                    with _read_db(index) as search:
+                        selected = select_search_rows(search, session_id)
+                        if selected is not None:
+                            cleanup_search_sha256 = search_rows_sha256(selected)
+                except (OSError, ValueError, sqlite3.Error):
+                    # Search cleanup evidence is optional for reading history.
+                    pass
             return {
                 "raw_bytes": raw, "source_text": raw.decode("utf-8"),
                 "source_uri": source.source_uri,
                 "project_roots": [str(source.owner)] if source.owner is not None else [],
                 "source_kind": "cursor_sqlite", "parser_version": "cursor-sqlite-v1",
-                "readability": source.readability,
+                "readability": source.readability, "archive_state": source.archive_state,
+                "cursor_cleanup_primary_sha256": source.cleanup_primary_sha256,
+                "cursor_cleanup_search_sha256": cleanup_search_sha256,
             }
         if path.suffix.lower() != ".jsonl":
             raise ValueError("Cursor SQLite source not pinned; enumerate before reading")

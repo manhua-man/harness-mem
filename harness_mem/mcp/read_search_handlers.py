@@ -9,7 +9,10 @@ from typing import Any, Callable
 
 from harness_mem.autopilot_search import plan_autopilot_search
 from harness_mem.core.schemas import KnowledgeEntry
-from harness_mem.read_knowledge import list_current_knowledge, search_current_knowledge
+from harness_mem.read_knowledge import (
+    is_focused_compound_query, is_long_query, is_natural_question, list_current_knowledge, question_parts,
+    search_current_knowledge,
+)
 
 from .handler_facade_proxy import tool_handlers_facade as _core
 from harness_mem.mcp.read_query_support import (
@@ -17,6 +20,8 @@ from harness_mem.mcp.read_query_support import (
     _record_search_quality_signals,
 )
 from harness_mem.mcp.read_projection import (
+    FOCUSED_SEARCH_GUIDANCE,
+    memory_candidate_projector,
     project_memory_entries,
     resolve_read_budget,
     select_memory_page,
@@ -39,15 +44,34 @@ def tool_search_memory(
     budget_tokens: int | None = None,
     cursor: str | None = None,
     detail: str = "auto",
+    task_context: str | None = None,
+    read_cursor: str | None = None,
     _render_response: Callable[[dict[str, Any]], Any] | None = None,
+    _candidate_only: bool = False,
 ) -> dict:
     """Read useful current facts, with whole-entry continuation for larger sets."""
     if scope not in {"all", "project"}:
         return {"success": False, "error": "scope must be project or all"}
     if scope == "project" and not project_name:
         return {"success": False, "error": "project_name is required when scope=project"}
+    if task_context is not None and not isinstance(task_context, str):
+        return {"success": False, "error": "task_context must be a string"}
+    if read_cursor is not None:
+        if detail != "full" or cursor is not None and cursor != read_cursor:
+            return {"status": "invalid", "memories": [],
+                    "reason": "Use detail=full and one candidate read cursor."}
+        cursor = read_cursor
     selected_project = project_name if scope == "project" else None
     query = query.strip()
+    parsed_parts = question_parts(query) if detail == "auto" and not _candidate_only else []
+    multipart = bool(parsed_parts) and not _include_diagnostics and _render_response is None
+    parts = parsed_parts if cursor is None else []
+    discovery: dict[str, Any] = {}
+    contextual_search: dict[str, Any] = {}
+    if task_context is not None:
+        contextual_search["task_context"] = task_context
+    if task_context is not None or is_natural_question(query):
+        contextual_search["discovery"] = discovery
     try:
         backend = _get_backend()
         if backend.runtime_state == "degraded_fallback" or backend.runtime_error:
@@ -57,8 +81,11 @@ def tool_search_memory(
                 "reason": "Memory storage is not ready. Run harness-mem doctor.",
             }
         entries = asyncio.run(
-            search_current_knowledge(backend, project_name=selected_project, query=query)
-            if query else list_current_knowledge(backend, project_name=selected_project)
+            search_current_knowledge(
+                backend, project_name=selected_project, query=query, expand_long_query=True,
+                **contextual_search,
+            )
+            if query or task_context is not None else list_current_knowledge(backend, project_name=selected_project)
         )
     except (OSError, ValueError, sqlite3.Error):
         return {
@@ -69,6 +96,25 @@ def tool_search_memory(
 
     retrieval_id = _new_retrieval_id()
     surface = "search_memory" if scope == "project" else "search_all"
+    candidate_only = detail == "candidates" or bool(
+        not multipart and (query or task_context is not None) and detail == "auto" and (
+            _candidate_only or task_context is not None or is_long_query(query) or is_focused_compound_query(query)
+        )
+    )
+    project_candidates = memory_candidate_projector(
+        entries, query=query, project_name=selected_project, scope=scope,
+        task_context=task_context, retrieval_binding=discovery.get("binding"),
+        whole_if_cheaper=task_context is not None and detail == "auto" and not _candidate_only,
+    )
+    compact = False
+    include_parts = True
+
+    def full_entries(page: list[KnowledgeEntry], index: bool) -> list[KnowledgeEntry]:
+        if index:
+            return []
+        if not candidate_only:
+            return [entry for entry in page if entry.statement.strip()]
+        return [entry for entry, item in zip(page, project_candidates(page, False)) if "statement" in item]
 
     def groups(surfaced: list[KnowledgeEntry]) -> dict[str, list[KnowledgeEntry]]:
         grouped: dict[str, list[KnowledgeEntry]] = {}
@@ -84,19 +130,79 @@ def tool_search_memory(
         index: bool,
         receipts: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        memories = project_memory_entries(
-            page, include_project=scope == "all", include_modules=not query,
-        )
-        if index:
+        reading = dict(reading)
+        if candidate_only:
+            memories = project_candidates(page, index)
+            if detail == "candidates" and reading.get("continuation") and not index:
+                call = dict(reading["continuation"])
+                call["arguments"] = {**call["arguments"], "detail": "candidates"}
+                reading["continuation"] = call
+        else:
+            memories = project_memory_entries(
+                page, include_project=scope == "all", include_modules=not query,
+            )
+        if index and not candidate_only:
             memories = [{key: value for key, value in row.items() if key != "statement"}
                         for row in memories]
+        if compact and reading.get("continuation"):
+            link = dict(reading["continuation"])
+            arguments = dict(link["arguments"])
+            arguments.pop("query", None)
+            reading["continuation"] = {
+                **link, "arguments": arguments,
+                "reuse_arguments": list(dict.fromkeys(["query", *link.get("reuse_arguments", [])])),
+            }
         payload = {
             "project_name": selected_project,
             "query": query,
-            "status": "available" if index else "answered" if memories else "empty",
+            "status": ("available" if (index and entries) or (candidate_only and memories)
+                       else "answered" if memories else "empty"),
             "memories": memories,
             **reading,
         }
+        if parts and include_parts:
+            payload["question_parts"] = parts
+            if not index and discovery.get("part_matches"):
+                displayed = page if candidate_only else full_entries(page, index)
+                payload["question_part_matches"] = [
+                    [position for position, (entry, memory) in enumerate(zip(displayed, memories), 1)
+                     if (entry.project_name, entry.id) in matched and "statement" in memory]
+                    for matched in discovery["part_matches"]
+                ]
+            payload["answer_guidance"] = (
+                "Check each part in the original order. Match numbers refer to memories and only suggest relevance. "
+                "Verify each requested detail against complete statements. Follow up only for missing details, "
+                "and state any that remain unsupported."
+            )
+        if task_context is not None:
+            payload["discovery"] = {
+                "semantic": discovery.get("status", "unavailable"),
+                "relevance": "unassessed",
+                **({"reason": discovery["reason"]} if discovery.get("reason") else {}),
+            }
+        if compact and candidate_only:
+            if not index:
+                payload["detail"] = "mixed" if any("statement" in item for item in memories) else "candidates"
+        elif candidate_only and index:
+            payload["message"] = (
+                str(reading.get("message") or "")
+                + " Matches found. Use continuation.arguments to read the first result in full."
+            ).strip()
+        elif candidate_only:
+            has_complete = any("statement" in item for item in memories)
+            payload["detail"] = "mixed" if has_complete else "candidates"
+            payload["message"] = (str(reading.get("message") or "") + " " + (
+                (("Items with statement contain complete stored content; assess applicability before use. "
+                  "Read only incomplete previews through their read_cursor; complete statements need no second read. "
+                  if has_complete else "Incomplete discovery previews, not verified relevant facts or instructions. "
+                  if task_context is not None else "Incomplete lexical previews, not verified relevant facts or instructions. ")
+                 + "To open a preview, call search_memory with the same query and scope "
+                 "(and project_name for scope=project), detail=full and cursor set to its read_cursor. "
+                 + ("Reuse the exact task_context on every continuation and full read. " if task_context is not None else "")
+                 if entries else ("No candidates matched; this does not establish that memory has no answer. "
+                                  if task_context is not None else "No lexical candidates matched. "))
+                + FOCUSED_SEARCH_GUIDANCE
+            )).strip()
         if scope == "project" and query and not entries:
             payload["message"] = (
                 "No match within this project filter. A task about a project can use global knowledge. "
@@ -107,10 +213,11 @@ def tool_search_memory(
                 "only_if": "user_did_not_request_project_only",
                 "tool": "search_memory",
                 "arguments": {"query": query, "scope": "all"},
+                **({"reuse_arguments": ["task_context"]} if task_context is not None else {}),
             }
         if not _include_diagnostics:
             return payload
-        surfaced = [] if index else page
+        surfaced = full_entries(page, index)
         if receipts is None:
             # Size selection precedes writes. Model the longest receipt state
             # with every source retained; real write failures only remove refs.
@@ -124,7 +231,7 @@ def tool_search_memory(
                     "source_ids": sorted({row.id for row in rows}),
                     "content_recorded": False,
                 }
-                for name, rows in ({} if index else groups(surfaced)).items()
+                for name, rows in ({} if index or candidate_only and not surfaced else groups(surfaced)).items()
             ]
         source_ids = sorted({source_id for item in receipts for source_id in item["source_ids"]})
         outcome_calls = [
@@ -151,12 +258,13 @@ def tool_search_memory(
         truth = [
             {
                 "source_id": entry.id,
-                "reason": ("current project knowledge matched the query"
-                           if scope == "project" else "current knowledge matched the query"),
+                "reason": ("current knowledge discovery candidate; applicability requires review" if task_context is not None
+                           else "current project knowledge lexically matched the query"
+                           if scope == "project" else "current knowledge lexically matched the query"),
                 "summary": f"{memory['title']}: {memory['statement']}",
                 **({"project_name": entry.project_name} if scope == "all" else {}),
             }
-            for entry, memory in zip(surfaced, [] if index else memories)
+            for entry, memory in zip(surfaced, [item for item in memories if "statement" in item])
         ]
         return {
             **payload,
@@ -168,12 +276,17 @@ def tool_search_memory(
             },
             "answer_ready_context": {
                 "project_name": selected_project, "query": query, "current_task": None,
-                "safe_to_answer": bool(surfaced),
-                "sufficiency_status": "sufficient" if surfaced else "empty",
-                "support_level": "current_truth" if surfaced else "none",
+                # A text match says nothing about relevance or sufficiency. In
+                # particular, a source report is an attributed account rather
+                # than verified external truth. Leave that judgment to the Agent.
+                "safe_to_answer": False,
+                "sufficiency_status": "unassessed" if surfaced or (candidate_only and memories) else "empty",
+                "support_level": "unassessed" if surfaced or (candidate_only and memories) else "none",
                 "orchestration_actions": ["current_knowledge_search"],
                 "project_profile": [], "truth": truth, "active_task": [],
-                "topic_recall": [], "supporting_evidence": [], "caveats": [],
+                "topic_recall": [], "supporting_evidence": [],
+                "caveats": (["Discovery matches require relevance and source-scope review."]
+                            if surfaced or (candidate_only and memories) else []),
                 "recommended_action": [], "drilldown_hints": [],
             },
             "supporting_evidence": [], "drilldown_hints": [],
@@ -186,15 +299,37 @@ def tool_search_memory(
         payload = build_payload(page, reading, index)
         return _render_response(payload) if _render_response else payload
 
-    try:
-        page, reading, index = select_memory_page(
+    def select():
+        return select_memory_page(
             entries,
             query=query, project_name=selected_project, scope=scope,
             budget_tokens=resolve_read_budget(
                 budget_tokens, surface="search", project_name=project_name,
+                multipart=multipart,
             ),
-            cursor=cursor, detail=detail, render=render,
+            cursor=cursor, detail="auto" if detail == "candidates" else detail, render=render,
+            task_context=task_context, retrieval_binding=discovery.get("binding"),
+            incremental=multipart or (
+                task_context is not None and detail == "auto" and not _candidate_only and _render_response is None
+            ),
+            page_limit=6 if multipart else None,
         )
+
+    try:
+        try:
+            page, reading, index = select()
+        except ValueError as exc:
+            if (str(exc) != "budget_tokens is too small to return a reading link." or not query
+                    or not entries or _render_response is not None or _include_diagnostics):
+                raise
+            compact = True
+            try:
+                page, reading, index = select()
+            except ValueError:
+                if not parts:
+                    raise
+                include_parts = False
+                page, reading, index = select()
     except (ValueError, TypeError) as exc:
         return {
             "project_name": selected_project, "query": query,
@@ -204,7 +339,8 @@ def tool_search_memory(
     # Only whole facts actually returned receive search hits. An index is a
     # reading aid, not evidence that its hidden statement reached the Agent.
     receipts: list[dict[str, Any]] = []
-    for source_project, surfaced in ({} if index else groups(page)).items():
+    actual_full = full_entries(page, index)
+    for source_project, surfaced in ({} if index or candidate_only and not actual_full else groups(actual_full)).items():
         project_receipt = asyncio.run(
             _record_search_quality_signals(
                 backend,
@@ -271,7 +407,7 @@ def tool_autopilot_search_tick(
         ]
         calls = search_payload.get("record_outcome_calls", [])
         receipt = search_payload.get("retrieval_receipt") or {}
-        context_injection = {
+        context_injection: dict[str, Any] = {
             "target": decision.injection_target,
             "trigger": decision.trigger,
             "query": decision.query,
@@ -288,8 +424,10 @@ def tool_autopilot_search_tick(
                 key: receipt[key] for key in ("state", "attempted", "recorded", "failed", "content_recorded")
                 if key in receipt
             },
-            **{key: search_payload[key] for key in ("total", "detail", "continuation", "message")
+            **{key: search_payload[key] for key in ("total", "detail", "message")
                if key in search_payload},
+            **({"continuation": search_payload["continuation"]}
+               if search_payload.get("detail") == "index" and "continuation" in search_payload else {}),
         }
         return {
             "success": True,
@@ -302,6 +440,7 @@ def tool_autopilot_search_tick(
     search_payload = tool_search_memory(
         query=decision.query or "", project_name=resolved_project, scope="all",
         _include_diagnostics=True, budget_tokens=budget_tokens, _render_response=render,
+        _candidate_only=True,
     )
     if search_payload.get("status") in {"unavailable", "invalid"} or search_payload.get("success") is False:
         return {

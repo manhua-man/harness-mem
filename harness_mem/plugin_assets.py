@@ -23,7 +23,7 @@ PLUGIN_MANIFEST_RELATIVE = PLUGIN_RELATIVE_ROOT / ".codex-plugin" / "plugin.json
 PLUGIN_PRIMARY_COMMAND_RELATIVE = PLUGIN_COMMAND_SOURCE_RELATIVE / "hm.md"
 
 PRIMARY_COMMAND = "hm"
-# These names are not supported commands. They are listed only so a sync can
+# These names are not supported standalone host entries. They are listed so a sync can
 # remove files created by older harness-mem releases without touching any
 # unrelated user-owned command or skill.
 REMOVED_COMMANDS = (

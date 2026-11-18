@@ -20,7 +20,7 @@ jobs:
       - name: Install tooling
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pytest ruff maturin PyYAML
+          python -m pip install pytest ruff maturin PyYAML jsonschema
 
       - name: Build and install native package wheel
         run: |

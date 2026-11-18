@@ -14,8 +14,8 @@ from uuid import uuid4
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from harness_mem.core.schemas.assimilation import AssimilationDisposition
-from harness_mem.core.schemas.evidence import EvidenceBasis, EvidenceRef, VerificationOutcome
-from harness_mem.core.schemas.source_report import SourceReport
+from harness_mem.core.schemas.evidence import EvidenceBasis, EvidenceBinding, EvidenceRef, VerificationOutcome
+from harness_mem.core.schemas.source_report import ReportTopicJudgment, SourceReport
 
 
 KnowledgeCandidateStatus = Literal[
@@ -128,6 +128,7 @@ class KnowledgeSource(BaseModel):
     locator: str = Field(min_length=1)
     content_sha256: str | None = None
     verified_at: datetime
+    bindings: list[EvidenceBinding] = Field(default_factory=list)
 
     model_config = {"extra": "forbid"}
 
@@ -149,7 +150,7 @@ class KnowledgeSource(BaseModel):
         return normalized
 
     def to_dict(self) -> dict:
-        return {
+        result: dict = {
             "id": self.id,
             "knowledge_id": self.knowledge_id,
             "project_name": self.project_name,
@@ -158,6 +159,9 @@ class KnowledgeSource(BaseModel):
             "content_sha256": self.content_sha256,
             "verified_at": self.verified_at.isoformat(),
         }
+        if self.bindings:
+            result["bindings"] = [binding.to_dict() for binding in self.bindings]
+        return result
 
     @classmethod
     def from_dict(cls, data: dict) -> "KnowledgeSource":
@@ -279,13 +283,16 @@ class AssimilationDecision(BaseModel):
     canonical_truth_ids: list[str] = Field(default_factory=list)
     predecessor_truth_ids: list[str] = Field(default_factory=list)
     predecessor_entries: list[KnowledgeEntry] = Field(default_factory=list)
+    report_topic_judgment: ReportTopicJudgment | None = None
+    report_topic_judgments: list[ReportTopicJudgment] = Field(default_factory=list)
+    report_split: dict[str, Any] | None = None
     reason: str = Field(min_length=1)
     decided_at: datetime = Field(default_factory=_utc_now)
 
     model_config = {"extra": "forbid"}
 
     def to_dict(self) -> dict:
-        return {
+        payload = {
             "id": self.id,
             "project_name": self.project_name,
             "candidate_id": self.candidate_id,
@@ -296,6 +303,13 @@ class AssimilationDecision(BaseModel):
             "reason": self.reason,
             "decided_at": self.decided_at.isoformat(),
         }
+        if self.report_topic_judgment is not None:
+            payload["report_topic_judgment"] = self.report_topic_judgment.model_dump(mode="json")
+        if self.report_topic_judgments:
+            payload["report_topic_judgments"] = [item.model_dump(mode="json") for item in self.report_topic_judgments]
+        if self.report_split is not None:
+            payload["report_split"] = dict(self.report_split)
+        return payload
 
     @classmethod
     def from_dict(cls, data: dict) -> "AssimilationDecision":
@@ -304,6 +318,17 @@ class AssimilationDecision(BaseModel):
             item if isinstance(item, KnowledgeEntry) else KnowledgeEntry.from_dict(item)
             for item in normalized.get("predecessor_entries") or []
         ]
+        raw_judgment = normalized.get("report_topic_judgment")
+        if raw_judgment is None:
+            normalized["report_topic_judgment"] = None
+        elif not isinstance(raw_judgment, ReportTopicJudgment):
+            normalized["report_topic_judgment"] = ReportTopicJudgment.model_validate(raw_judgment)
+        normalized["report_topic_judgments"] = [
+            item if isinstance(item, ReportTopicJudgment) else ReportTopicJudgment.model_validate(item)
+            for item in normalized.get("report_topic_judgments") or []
+        ]
+        if normalized.get("report_split") is None:
+            normalized["report_split"] = None
         return cls(**normalized)
 
 

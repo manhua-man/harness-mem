@@ -4,7 +4,7 @@
   "claims": [
     {
       "id": "bounded_current_memory_reading",
-      "description": "Current memory is relevant and concise, while complete facts remain readable through continuation and explicit full reading.",
+      "description": "Reading output is bounded and complete facts remain accessible through continuation and explicit full reading; relevance requires separate task-based evaluation.",
       "required": true,
       "checks": [{
         "id": "isolated_stdio_and_hook_reading",

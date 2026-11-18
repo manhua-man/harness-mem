@@ -17,7 +17,7 @@ from harness_mem.adapters.parser import (
 from harness_mem.adapters.protocol import Issue, SessionRecord
 from harness_mem.adapters.scan_scheduler import sync_sessions_fairly
 from harness_mem.adapters.snapshot import TranscriptSyncResult, persist_session_snapshot
-from harness_mem.adapters.source_metadata import metadata_record, read_jsonl_metadata
+from harness_mem.adapters.source_metadata import codex_session_origin, metadata_record, read_jsonl_metadata
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.transcript_chunking import source_uri_from_path
@@ -95,6 +95,7 @@ class CodexAdapter:
                     record = metadata_record(
                         path, session_id, project_roots=roots, source_kind=source_kind,
                         metadata_paths=[path],
+                        codex_session_origin=header["codex_session_origin"],
                     )
                     if len(roots) != 1 or not Path(roots[0]).is_absolute():
                         record["metadata_status"] = "unknown"
@@ -205,6 +206,9 @@ class CodexAdapter:
                     "mtime_ns": stat_result.st_mtime_ns,
                     "cwd": cwd,
                     "source_kind": source_kind,
+                    "codex_session_origin": codex_session_origin([
+                        {"type": "session_meta", "payload": header},
+                    ]),
                 })
         except OSError as exc:
             self._append_issue(
@@ -266,6 +270,7 @@ class CodexAdapter:
             "sessions_dir": str(self.sessions_dir),
             "archive_dir": str(self.archive_dir),
             "original_id": meta.get("session_id"),
+            "codex_session_origin": meta.get("codex_session_origin"),
             "source_kind": (
                 "codex-archive"
                 if _is_path_within(session_path, self.archive_dir)

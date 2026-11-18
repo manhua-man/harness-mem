@@ -183,13 +183,20 @@ Use this comparison order: explicit temporal replacement (`replace`),
 incompatible current claims without proven order (`conflict`), semantic
 equivalence (`confirm`), compatible precision/completeness improvement
 (`refine`), then no meaningful match (`add`). Assign a functional module/topic
-to every canonical statement so human-readable views do not group by session or
-platform.
+to every canonical statement. Use the project's actual functional modules and
+reuse matching paths from current knowledge. Create a subtopic when it helps
+find a distinct answer. Review related items together for overlap and missing
+conditions. Session, platform, date and batch belong to source metadata.
 
 ## Candidate Quality
 
-- Rewrite the claim as a concise normalized statement, not a session story.
-- Keep one candidate to one durable claim.
+- Name the later question the candidate answers. A useful result gives the
+  reader a decision, entry point, reusable method, failure diagnosis, or
+  acceptance check they can apply when they retrieve that item alone.
+- Keep one candidate to one durable claim. Keep the details that change an
+  action or its safety or acceptance. Put one-time incident chronology and
+  measurements in the session Note when they help explain the outcome. Turn a
+  failed attempt into memory when it reveals a reusable diagnostic rule.
 - A single session may promote several candidates. Do not collapse unrelated
   facts into one omnibus memory and do not force a one-memory-per-session shape.
 - Narrow environment-specific claims instead of pretending they are universal.

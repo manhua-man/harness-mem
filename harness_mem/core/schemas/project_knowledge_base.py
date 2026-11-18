@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field, field_validator
 
+from harness_mem.core.schemas.evidence import EvidenceBinding
+
 
 def _single_line(value: str, *, field_name: str) -> str:
     normalized = value.strip()
@@ -26,6 +28,7 @@ class ProjectKnowledgeSourceRef(BaseModel):
     target: str = Field(min_length=1)
     kind: str | None = None
     digest: str | None = None
+    bindings: list[EvidenceBinding] = Field(default_factory=list)
 
     model_config = {"extra": "forbid"}
 

@@ -210,12 +210,16 @@ def test_antigravity_brain_cleanup_removes_exact_bundle_and_companions(
         source_kind="brain-jsonl",
     )
 
+    blocked = cleanup_native_source(source, quiet_seconds=60)
+    assert blocked["reason_codes"] == ["antigravity_sqlite_requires_native_review"]
+    assert bundle.exists() and annotation.exists() and conversation.exists()
+    conversation.unlink()
+
     result = cleanup_native_source(source, quiet_seconds=60)
 
     assert result["status"] == "deleted"
     assert not bundle.exists()
     assert not annotation.exists()
-    assert not conversation.exists()
     assert neighbor.exists()
 
 

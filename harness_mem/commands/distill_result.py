@@ -7,6 +7,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from harness_mem.core.schemas.session_distill import RetainedStateRef, SessionDistillJob
+from harness_mem.core.schemas.source_report import readable_knowledge_statement
 
 
 _NO_WRITE_REASONS = {
@@ -28,12 +29,22 @@ def _retained_state_items(job: SessionDistillJob) -> set[str]:
     if (getattr(job, "status", None) != "completed"
             or job.promotion_summary.get("readback", {}).get("verified") is not True):
         return set()
+    return retained_state_items(job.semantic_review, job.promotion_summary.get("points") or [])
+
+
+def retained_state_items(review: Mapping[str, Any], settled_points: Iterable[Mapping[str, Any]]) -> set[str]:
+    """Project explicit state bindings after the caller verifies their writes.
+
+    Finalize uses this after its actual commit/readback and before saving the
+    original task handoff; completed-result display uses its checked receipt.
+    This does not classify prose or establish source/commit evidence.
+    """
     points: dict[str, list[Mapping[str, Any]]] = {}
-    for point in job.promotion_summary.get("points") or []:
+    for point in settled_points:
         if isinstance(point, Mapping):
             points.setdefault(str(point.get("candidate_id") or ""), []).append(point)
     retained: set[str] = set()
-    for raw in job.semantic_review.get("retained_state_refs") or []:
+    for raw in review.get("retained_state_refs") or []:
         try:
             ref = RetainedStateRef.model_validate(raw)
         except (TypeError, ValueError):
@@ -109,6 +120,7 @@ def project_distill_result(
     *,
     empty_reasons: Iterable[str] = (),
     unfinished_work: Iterable[str] = (),
+    source_review_complete: bool = False,
 ) -> dict[str, Any]:
     """Use one current snapshot for single-session and batch result prose.
 
@@ -118,8 +130,10 @@ def project_distill_result(
     changes: dict[str, dict[str, Any]] = {}
     removed: set[str] = set()
     no_write: Counter[str] = Counter(empty_reasons)
+    unresolved_points = False
     for point in points:
         disposition = str(point.get("disposition") or "")
+        unresolved_points = unresolved_points or disposition in {"defer", "handoff", "conflict", "pending"}
         if disposition in {"add", "refine", "replace"}:
             for entry_id in point.get("canonical_truth_ids") or []:
                 entry = entries.get(entry_id)
@@ -129,16 +143,17 @@ def project_distill_result(
                     "change": "added" if disposition == "add" else "replaced",
                     "module": list(entry.get("module_path") or []),
                     "title": str(entry["title"]),
-                    "statement": str(entry["statement"]),
+                    "statement": readable_knowledge_statement(
+                        str(entry["statement"]), entry.get("source_report")
+                    ),
                 }
             removed.update(point.get("replaced_truth_ids") or [])
         else:
             no_write[_NO_WRITE_REASONS.get(disposition, "未写入")] += 1
     unfinished = list(dict.fromkeys(unfinished_work))
-    unresolved = bool(
+    unresolved = bool(unresolved_points or not source_review_complete and (
         unfinished or no_write.get("暂缓处理") or no_write.get("存在待解决冲突")
-        or no_write.get("保留为未完成事项")
-    )
+        or no_write.get("保留为未完成事项")))
     return {
         "organization_status": "partial" if unresolved else "completed",
         "knowledge_changes": sorted(
@@ -178,4 +193,8 @@ async def current_distill_result(backend: Any, job: SessionDistillJob) -> dict[s
     return project_distill_result(
         points, entries, empty_reasons=[reason] if not points else (),
         unfinished_work=distill_unfinished_work(job),
+        source_review_complete=(getattr(job, "status", None) == "completed"
+            and job.promotion_summary.get("readback", {}).get("verified") is True
+            and job.semantic_review.get("evidence_status") == "answered"
+            and job.semantic_review.get("promotion_decision") == "promote"),
     )

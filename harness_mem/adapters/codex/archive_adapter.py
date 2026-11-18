@@ -16,6 +16,7 @@ from harness_mem.adapters.parser import (
 from harness_mem.adapters.protocol import Issue, SessionRecord
 from harness_mem.adapters.scan_scheduler import normalize_source_root, sync_sessions_fairly
 from harness_mem.adapters.snapshot import TranscriptSyncResult, persist_session_snapshot
+from harness_mem.adapters.source_metadata import codex_session_origin
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
 from harness_mem.transcript_chunking import source_uri_from_path
@@ -102,6 +103,9 @@ class CodexArchiveAdapter:
                     "mtime": datetime.fromtimestamp(stat_result.st_mtime, tz=timezone.utc),
                     "mtime_ns": stat_result.st_mtime_ns,
                     "cwd": cwd,
+                    "codex_session_origin": codex_session_origin([
+                        {"type": "session_meta", "payload": header},
+                    ]),
                 })
             except OSError as exc:
                 self._append_issue(
@@ -170,6 +174,7 @@ class CodexArchiveAdapter:
         metadata = {
             "source_archive": str(self.archive_dir),
             "original_id": meta.get("session_id"),
+            "codex_session_origin": meta.get("codex_session_origin"),
         }
         if project_name:
             metadata["project_name"] = project_name

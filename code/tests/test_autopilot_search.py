@@ -169,16 +169,38 @@ def test_mcp_autopilot_tick_executes_search_on_tool_failure(backend) -> None:
     assert payload["decision"]["trigger"] == "tool_failure"
     assert len(payload["context_injection"]["memories"]) == 1
     assert "search" not in payload
-    assert str(payload).count(entry.statement) == 1
+    injection = payload["context_injection"]
+    assert injection["detail"] == "candidates"
+    assert entry.statement not in str(payload)
     assert "obsolete pytest timeout instruction" not in str(payload)
-    assert payload["context_injection"]["target"] == "next_context"
-    assert payload["context_injection"]["record_outcome_call"]["tool"] == "record_context_outcome"
-    feedback = payload["context_injection"]["record_outcome_call"]["arguments"]
+    assert injection["target"] == "next_context"
+    assert injection["source_ids"] == []
+    assert injection["record_outcome_call"] is None
+    assert asyncio.run(backend.structured_store.query_retrieval_signals("demo", signal_type="search_hit")) == []
+    candidate = injection["memories"][0]
+    assert candidate["title"] == entry.title
+    assert candidate["project_name"] == "demo"
+    assert "statement" not in candidate
+    full = server.tool_search_memory(
+        query=injection["query"], scope="all", detail="full",
+        cursor=candidate["read_cursor"], _include_diagnostics=True,
+    )
+    assert full["detail"] == "full"
+    assert full["memories"] == [{
+        "title": entry.title, "statement": entry.statement, "project_name": "demo",
+    }]
+    signals = asyncio.run(backend.structured_store.query_retrieval_signals("demo", signal_type="search_hit"))
+    assert [signal.target_id for signal in signals] == [entry.id]
+    assert full["record_outcome_call"]["tool"] == "record_context_outcome"
+    feedback = full["record_outcome_call"]["arguments"]
     assert feedback["source_ids"] == [entry.id]
-    assert feedback["retrieval_id"] == payload["context_injection"]["retrieval_id"]
+    assert feedback["retrieval_id"] == full["retrieval_id"]
     assert feedback["surface"] == "search_all"
     recorded = server.tool_record_context_outcome(**feedback, outcome="used")
     assert recorded["success"] is True
+    assert recorded["truth_mutated"] is False
+    outcomes = asyncio.run(backend.structured_store.query_retrieval_signals("demo", signal_type="context_outcome"))
+    assert [signal.target_id for signal in outcomes] == [entry.id]
 
 
 def test_mcp_autopilot_tick_skips_session_start_even_with_recall_words(backend) -> None:

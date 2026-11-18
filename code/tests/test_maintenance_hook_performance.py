@@ -232,3 +232,126 @@ def test_stop_maintenance_reports_lossless_job_from_transcript_store(
     assert payload["distill_job"] == {"id": "distill-1", "status": job_status}
     assert payload["summary"]["distill_queued"] is queued
     assert payload["summary"]["distill_job_id"] == "distill-1"
+
+
+@pytest.mark.parametrize("scenario", ("new_activity", "exclusive", "lease_lost", "finite", "unstaged"))
+def test_started_natural_dream_continuation_keeps_ownership_boundaries(
+    tmp_path: Path, monkeypatch, scenario: str,
+) -> None:
+    import harness_mem.autonomous.worker as worker
+    import harness_mem.commands.maintenance as maintenance
+    import harness_mem.data_lifecycle as lifecycle
+    import harness_mem.hook_background as background
+    import harness_mem.maintenance_lock as locks
+
+    monkeypatch.setenv("HARNESS_MEM_HOOK_BACKGROUND_WORKER", "1")
+    monkeypatch.setenv("HARNESS_MEM_CLIENT", "codex")
+    monkeypatch.setenv("HARNESS_MEM_HOOK_BACKGROUND_GENERATION", "original-generation")
+    calls: list[dict] = []
+    recorded: list[dict] = []
+    lease_checks: list[bool] = []
+    scope = {"task_scope": "original-maintenance-task", "known_usage": ["source-call"]}
+
+    async def retain_sources(*_args, **_kwargs):
+        return {"deleted": 0}
+
+    monkeypatch.setattr(lifecycle, "enforce_transcript_retention", retain_sources)
+    monkeypatch.setattr(tool_handlers, "tool_prepare_session_distill", lambda **_kwargs: {
+        "success": scenario != "unstaged", "observation_count": 1,
+        "distill_job_id": "distill-1" if scenario != "unstaged" else None,
+        "reason_codes": ["session_not_found"] if scenario == "unstaged" else [],
+    })
+    monkeypatch.setattr(locks, "maintenance_is_locked", lambda *_args, **_kwargs:
+        scenario == "exclusive" and bool(calls))
+    monkeypatch.setattr(worker, "record_post_turn_maintenance_outcome",
+                        lambda *_args, **kwargs: recorded.append(kwargs))
+
+    def heartbeat(*_args, **_kwargs):
+        lease_checks.append(True)
+        return scenario != "lease_lost"
+
+    monkeypatch.setattr(background, "heartbeat_background_worker", heartbeat)
+
+    async def tick(*_args, **kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1 and scenario == "new_activity":
+            background.record_background_activity(
+                tmp_path, project_root=tmp_path, client="codex",
+                session_id="natural-session", now=101.0,
+            )
+            # The same marker must still cancel a not-yet-started idle request.
+            assert background.background_request_cancelled(tmp_path, background.BackgroundRequest(
+                generation="original-generation", project_root=str(tmp_path),
+                client="codex", source="ide_hook", trigger_id="natural-session", requested_at=100.0,
+            ))
+        elif len(calls) > 1:
+            assert kwargs["resume_run_id"] == "original-dream-run"
+            assert kwargs["trigger_job_id"] is None
+        return {
+            "status": "completed" if scenario == "new_activity" and len(calls) == 2 else "continuing",
+            "run_id": "original-dream-run",
+            "continuation": {"max_slices": 2, "task_budget": scope},
+        }
+
+    monkeypatch.setattr(maintenance, "dream_auto_tick", tick)
+    payload = asyncio.run(run_post_turn_maintenance(
+        _Backend(tmp_path, _Job("completed")), project_name="demo", project_root=str(tmp_path),
+        config=MergedConfig(), source="ide_hook", trigger_id="natural-session",
+        background_requested_at=100.0,
+    ))
+    result = payload["dream_tick"]
+    assert len(recorded) == 1
+    assert recorded[0]["dream"] == result
+    if scenario == "unstaged":
+        assert calls == []
+        assert lease_checks == []
+        assert result["reason"] == "triggering_session_not_staged"
+        return
+    assert calls[0]["trigger_job_id"] == "distill-1"
+    assert all(call["trigger_id"] == "natural-session" for call in calls)
+    assert result["continuation"]["task_budget"] is scope
+    if scenario == "new_activity":
+        assert len(calls) == 2
+        assert result["status"] == "completed"
+        assert "continuation_paused" not in result
+    elif scenario == "finite":
+        assert len(calls) == 3  # Initial slice plus exactly the finite continuation allowance.
+        assert len(lease_checks) == 2
+        assert result["status"] == "continuing"
+    else:
+        assert len(calls) == 1
+        assert result["continuation_paused"] is True
+        assert result["reason"] == (
+            "exclusive_maintenance_run_active" if scenario == "exclusive"
+            else "background_worker_lease_lost"
+        )
+
+
+def test_new_activity_still_cancels_idle_request_before_dispatch(tmp_path, monkeypatch, capsys):
+    import json
+    import harness_mem.hook_background as background
+    import harness_mem.host_entry.__main__ as host_entry
+    import harness_mem.storage.local_memory_backend as backend_module
+
+    request = background.BackgroundRequest(
+        generation="idle-generation", project_root=str(tmp_path), client="codex",
+        source="ide_hook", trigger_id="idle-session", requested_at=100.0,
+    )
+    background.record_background_activity(
+        tmp_path, project_root=tmp_path, client="codex", session_id="idle-session", now=101.0,
+    )
+    retired = []
+    monkeypatch.setenv("HARNESS_MEM_HOOK_BACKGROUND_WORKER", "1")
+    monkeypatch.setattr(backend_module, "DEFAULT_DATA_DIR", tmp_path)
+    monkeypatch.setattr(background, "wait_for_background_request", lambda *_args, **_kwargs: request)
+    monkeypatch.setattr(background, "finish_background_worker",
+                        lambda *_args, **kwargs: retired.append(kwargs["processed_generation"]))
+    monkeypatch.setattr(host_entry, "_run_request", lambda *_args: pytest.fail(
+        "cancelled idle request must not stage sources or dispatch any work"))
+    code = host_entry.main([
+        "--action", "post-turn-maintenance", "--source", "ide_hook",
+        "--project-root", str(tmp_path), "--client", "codex",
+    ])
+    assert code == 0
+    assert json.loads(capsys.readouterr().out)["reason"] == "new_user_input"
+    assert retired == ["idle-generation"]

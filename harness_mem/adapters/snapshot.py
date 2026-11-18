@@ -12,6 +12,7 @@ from harness_mem.core.interfaces.memory_backend import MemoryBackend
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.schemas.transcript import TranscriptSource
 from harness_mem.adapters.protocol import Issue
+from harness_mem.adapters.source_metadata import codex_origin_allows_user_statements, codex_session_origin
 from harness_mem.capture_policy import (
     decide_capture,
     redact_private_bytes,
@@ -221,13 +222,23 @@ def _native_source_timestamp(native: bytes, client: str) -> str | None:
     """Read a native timestamp without substituting observation/capture/mtime."""
     from harness_mem.rust_core import scan_jsonl
 
-    if client not in {"codex", "codex-archive", "cursor", "claude-code"}:
+    if client not in {"codex", "codex-archive", "cursor", "claude-code", "hermes"}:
         return None
     try:
         scanned = scan_jsonl(native.decode("utf-8-sig"))
     except UnicodeError:
         return None
     if scanned.errors:
+        return None
+    if client == "hermes" and scanned.records and scanned.records[0].get("format") == "harness-mem-hermes-state-db-v1":
+        row = scanned.records[1].get("row") if len(scanned.records) > 1 else None
+        if isinstance(row, dict) and type(row.get("started_at")) in {float, int}:
+            try:
+                return datetime.fromtimestamp(row["started_at"], tz=timezone.utc).isoformat().replace("+00:00", "Z")
+            except (ValueError, OverflowError, OSError):
+                return None
+        return None
+    if client == "hermes":
         return None
     for record in scanned.records:
         payload = record.get("payload")
@@ -242,6 +253,22 @@ def _native_source_timestamp(native: bytes, client: str) -> str | None:
                 continue
             return value
     return None
+
+
+def _native_codex_origin(native: bytes) -> dict[str, str]:
+    """Re-read native origin independently of discovery and caller metadata."""
+    from harness_mem.rust_core import scan_jsonl
+
+    try:
+        text = native.decode("utf-8-sig")
+    except UnicodeError:
+        return {"kind": "declared_unknown"}
+    if not text.lstrip().startswith(("{", "[")):
+        return {"kind": "legacy_missing"}
+    scanned = scan_jsonl(text)
+    if scanned.errors:
+        return {"kind": "declared_unknown"}
+    return codex_session_origin(scanned.records)
 
 
 async def persist_session_snapshot(
@@ -266,6 +293,12 @@ async def persist_session_snapshot(
     capture_config: MergedConfig | None = None,
     source_context_roots: list[str] | None = None,
     native_input_digest: str | None = None,
+    cursor_cleanup_primary_sha256: str | None = None,
+    cursor_cleanup_search_sha256: str | None = None,
+    hermes_cleanup_sha256: str | None = None,
+    antigravity_cleanup_sha256: str | None = None,
+    expected_source_id: str | None = None,
+    expected_source_revision: str | None = None,
 ) -> TranscriptSyncResult:
     """Persist a complete source revision and upsert its search observation."""
 
@@ -283,6 +316,9 @@ async def persist_session_snapshot(
         if native_input_bytes is not None and native_input_digest != native_input_sha256:
             raise ValueError("native input bytes and digest differ")
         native_input_sha256 = native_input_digest
+    codex_origin = _native_codex_origin(native_input) if client in {"codex", "codex-archive"} else None
+    if codex_origin is not None:
+        observation.metadata["codex_session_origin"] = codex_origin
 
     # Legacy/import callers may preserve a no-longer-mounted project root in
     # transcript metadata.  They keep safe defaults; live project calls load
@@ -397,6 +433,19 @@ async def persist_session_snapshot(
             # Keep the first verified locator as the canonical key. Current and
             # historical locations remain auditable in native_source_aliases.
             source_uri = existing_source.source_uri
+    if existing_source is not None and existing_source.source_revision == revision and codex_origin is not None:
+        previous_origin = existing_source.metadata.get("codex_session_origin")
+        if previous_origin != codex_origin and (
+            previous_origin is not None or not codex_origin_allows_user_statements(codex_origin)
+        ):
+            # The captured prose hash alone cannot authorize rebinding its
+            # immutable author category. Do not rewrite old revision metadata.
+            raise ValueError("Codex native session origin differs from the frozen source")
+    if ((expected_source_id is not None and source_id != expected_source_id)
+            or (expected_source_revision is not None and revision != expected_source_revision)):
+        # A frozen manual review must not create another source/job and only
+        # discover the changed identity after that write has happened.
+        raise ValueError("native binding differs from the selected source")
     action = (
         "ingested"
         if existing_source is None
@@ -439,13 +488,18 @@ async def persist_session_snapshot(
         sequence_count=sequence_count,
         metadata={
             **(dict(existing_source.metadata) if existing_source is not None else {}),
-            "native_timestamp": _native_source_timestamp(native_input, client),
+            "native_timestamp": _native_source_timestamp(source_input if source_kind == "sqlite-session-export" and client == "hermes" else native_input, client),
             # Clear report-only proof on a new revision unless the native bytes
             # proved it again. Legacy caller-owned role fields are insufficient.
             "authored_assistant_text_sha256": None,
             "authored_source_report_native_sha256": None,
             "native_source_uri": requested_source_uri,
             "native_input_sha256": native_input_sha256,
+            **({"cursor_cleanup_primary_sha256": cursor_cleanup_primary_sha256,
+                "cursor_cleanup_search_sha256": cursor_cleanup_search_sha256} if client == "cursor" else {}),
+            **({"hermes_cleanup_sha256": hermes_cleanup_sha256} if source_kind == "sqlite-session-export" and client == "hermes" else {}),
+            **({"antigravity_cleanup_sha256": antigravity_cleanup_sha256} if source_kind == "antigravity-sqlite" else {}),
+            **({"codex_session_origin": codex_origin} if codex_origin is not None else {}),
             **(
                 {"native_cleanup_descriptor": native_cleanup_descriptor}
                 if native_cleanup_descriptor is not None
@@ -553,6 +607,8 @@ async def persist_session_snapshot(
 async def persist_inspected_session(
     backend: MemoryBackend, native: InspectedSource, *, project_name: str,
     project_root: str, capture_config: MergedConfig | None,
+    expected_source_id: str | None = None,
+    expected_source_revision: str | None = None,
 ) -> TranscriptSyncResult:
     """Save a completely read selected session through the one snapshot owner.
 
@@ -571,6 +627,8 @@ async def persist_inspected_session(
     observation = native.adapter.session_to_observation(
         native.record["path"], native.session_id, project_name,
     )
+    if native.observed_rendering is not None:
+        observation.raw_content = native.observed_rendering
     if not _unchanged(_dependency_stamps(native)):
         raise ValueError("selected source changed during observation projection")
     native_input = native.native_input_bytes
@@ -582,17 +640,26 @@ async def persist_inspected_session(
         if (sha256_bytes(native_input) != native.native_input_digest
                 or not _unchanged(_dependency_stamps(native))):
             raise ValueError("selected native source changed before authorship proof")
+        if (native.codex_session_origin is not None
+                and _native_codex_origin(native_input) != native.codex_session_origin):
+            raise ValueError("selected Codex native session origin changed before capture")
     observation.metadata["source_context_roots"] = native.project_roots or []
     return await persist_session_snapshot(
         backend, observation, project_name=project_name, project_root=project_root,
         client=native.client, session_id=native.session_id,
-        source_kind="native-session-export", source_uri=native.source_uri,
+        source_kind=native.native_cleanup_file_kind or "native-session-export",
+        source_uri=native.source_uri,
         source_text=native.text, raw_bytes=native.captured_bytes,
         native_input_bytes=native_input,
         native_input_digest=native.native_input_digest,
+        cursor_cleanup_primary_sha256=native.cursor_cleanup_primary_sha256,
+        cursor_cleanup_search_sha256=native.cursor_cleanup_search_sha256,
+        hermes_cleanup_sha256=native.hermes_cleanup_sha256,
+        antigravity_cleanup_sha256=native.antigravity_cleanup_sha256,
         authored_user_texts=native.authored_user_texts, capture_config=capture_config,
         source_context_roots=native.project_roots,
         parser_version="codex-conversation-v3" if native.client == "codex" else "native-inspected-source-v1",
+        expected_source_id=expected_source_id, expected_source_revision=expected_source_revision,
     )
 
 

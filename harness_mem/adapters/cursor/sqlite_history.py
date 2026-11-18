@@ -99,12 +99,15 @@ def cursor_user_root() -> Path:
     return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "Cursor/User"
 
 
+def cursor_profile_roots(user_root: Path | None = None) -> tuple[Path, ...]:
+    root = user_root if user_root is not None else cursor_user_root()
+    return (root, *sorted(path for path in (root / "profiles").glob("*") if path.is_dir()))
+
+
 def discover_sqlite_databases(user_root: Path | None = None) -> tuple[Path, ...]:
     """Discover only known native filenames, with a fully isolated root override."""
-    root = user_root if user_root is not None else cursor_user_root()
-    roots = [root, *sorted(path for path in (root / "profiles").glob("*") if path.is_dir())]
     candidates: list[Path] = []
-    for profile in roots:
+    for profile in cursor_profile_roots(user_root):
         candidates.append(profile / "globalStorage/state.vscdb")
         candidates.extend(sorted((profile / "workspaceStorage").glob("*/state.vscdb")))
     return tuple(p.absolute() for p in candidates if p.is_file())
@@ -227,8 +230,8 @@ def workspace_owner(workspace_json: Path) -> Path | None:
 def metadata_dependency_paths(database: Path, databases: tuple[Path, ...] = ()) -> list[Path]:
     """Cache dependencies for this container's native owner and SQLite snapshot.
 
-    Global membership is scoped to one User/profile. WAL commits need their
-    own stamp; directories track appearance of currently absent sidecars.
+    Global membership is scoped to one User/profile. Stamp the exact sidecars
+    even when absent so a read of a sibling database cannot invalidate the source.
     """
     database = database.absolute()
     paths = [database]
@@ -244,8 +247,7 @@ def metadata_dependency_paths(database: Path, databases: tuple[Path, ...] = ()) 
         dependencies.append(storage if storage.is_dir() else root)
     for path in dict.fromkeys(paths):
         dependencies.append(path)
-        for sidecar in (path.parent / "workspace.json", Path(str(path) + "-wal")):
-            dependencies.append(sidecar if sidecar.is_file() else path.parent)
+        dependencies.extend((path.parent / "workspace.json", Path(str(path) + "-wal")))
     return list(dict.fromkeys(dependencies))
 
 
@@ -258,6 +260,8 @@ class CursorSQLiteSource:
     mtime_ns: int
     record_count: int
     readability: str = "readable"
+    archive_state: str = "unknown"
+    cleanup_primary_sha256: str | None = None
 
     @property
     def source_uri(self) -> str:
@@ -268,6 +272,11 @@ class CursorSQLiteSource:
 def read_pinned_source(source: CursorSQLiteSource) -> bytes:
     """Read immutable enumerated bytes without reopening a changing database."""
     return source.raw_bytes
+
+
+def cursor_transcript_bytes(records: list[tuple[str, str]]) -> bytes:
+    return json.dumps({"format": "cursorDiskKV-v1", "records": records},
+                      ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
 
 def _object(value: object) -> dict:
@@ -302,6 +311,25 @@ def _validate_disk_schema(connection: sqlite3.Connection) -> None:
     raise CursorHistoryError("cursor_sqlite_unsupported_key_index")
 
 
+def _archive_states(db: sqlite3.Connection, session_id: str | None = None) -> dict[str, str]:
+    """Read only the host's archive flag, within the composer-key snapshot."""
+    if db.execute("SELECT type FROM sqlite_master WHERE name='composerHeaders'").fetchone() != ("table",):
+        return {}
+    columns = {row[1] for row in db.execute("PRAGMA table_info(composerHeaders)")}
+    if not {"composerId", "isArchived"} <= columns:
+        return {}
+    states: dict[str, str] = {}
+    query = "SELECT composerId, isArchived FROM composerHeaders"
+    rows = (db.execute(query) if session_id is None else
+            db.execute(query + " WHERE composerId COLLATE BINARY = ?", (session_id,)))
+    for identity, value in rows:
+        if not isinstance(identity, str) or not identity:
+            continue
+        state = {0: "not_archived", 1: "archived"}.get(value, "unknown") if type(value) is int else "unknown"
+        states[identity] = state if identity not in states else "unknown"
+    return states
+
+
 def enumerate_session_metadata(
     database: Path, *, memberships: dict[str, Path | None] | None = None,
     issues: list[Issue] | None = None,
@@ -319,6 +347,7 @@ def enumerate_session_metadata(
     try:
         with _read_db(database) as db:
             _validate_disk_schema(db)
+            archive_states = _archive_states(db)
             keys = db.execute(
                 "SELECT key FROM cursorDiskKV WHERE key COLLATE BINARY >= ? "
                 "AND key COLLATE BINARY < ? ORDER BY key COLLATE BINARY",
@@ -329,12 +358,14 @@ def enumerate_session_metadata(
                 if not session_id or ":" in session_id:
                     continue
                 session_owner = owner if memberships is None else memberships.get(session_id)
-                records.append(metadata_record(
+                record = metadata_record(
                     database, session_id,
                     project_roots=[str(session_owner)] if session_owner is not None else [],
                     source_kind="cursor_sqlite",
                     metadata_paths=metadata_dependency_paths(database),
-                ))
+                )
+                record["archive_state"] = archive_states.get(session_id, "unknown")
+                records.append(record)
             if workspace_owner(database.parent / "workspace.json") != owner:
                 raise CursorHistoryError("cursor_sqlite_ownership_changed")
         return records
@@ -367,6 +398,7 @@ def enumerate_source_records(
             issues.append({"level": "warning", "code": code, "message": code,
                            "path": str(database), "session_id": session_id})
 
+    selected_read = session_id is not None
     owner = workspace_owner(database.parent / "workspace.json")
     if owner is None:
         issue("cursor_sqlite_ownership_unknown")
@@ -380,6 +412,7 @@ def enumerate_source_records(
         connection.execute("PRAGMA query_only=ON")
         connection.execute("BEGIN")
         _validate_disk_schema(connection)
+        archive_states = _archive_states(connection, session_id)
         if session_id is None:
             composers = prefix_rows(connection, "composerData:")
         else:
@@ -421,13 +454,20 @@ def enumerate_source_records(
                     bubble = _object(bubble_value)
                     if bubble.get("bubbleId") != bubble_key.rsplit(":", 1)[1]:
                         raise CursorHistoryError("cursor_sqlite_bubble_identity_mismatch")
-                raw = json.dumps(
-                    {"format": "cursorDiskKV-v1", "records": [(key, value), *bubbles]},
-                    ensure_ascii=False, separators=(",", ":"),
-                ).encode("utf-8")
+                raw = cursor_transcript_bytes([(key, value), *bubbles])
+                archive_state = archive_states.get(session_id, "unknown")
+                cleanup_primary_sha256 = None
+                if selected_read and archive_state == "archived":
+                    from harness_mem.adapters.cursor.sqlite_cleanup import CursorCleanupBlocked, capture_primary_witness
+                    try:
+                        cleanup_primary_sha256 = capture_primary_witness(connection, session_id)
+                    except (CursorCleanupBlocked, CursorHistoryError):
+                        # Unsupported cleanup metadata must not hide a readable transcript.
+                        pass
                 sources.append(CursorSQLiteSource(database, session_id, session_owner, raw,
                                                    mtime_ns, 1 + len(bubbles),
-                                                   "empty_draft" if not headers and not bubbles else "readable"))
+                                                   "empty_draft" if not headers and not bubbles else "readable",
+                                                   archive_state, cleanup_primary_sha256))
             except CursorHistoryError as exc:
                 issue(str(exc), session_id)
         if workspace_owner(database.parent / "workspace.json") != owner:

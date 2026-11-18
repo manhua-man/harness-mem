@@ -55,7 +55,8 @@ def test_extraction_does_not_choose_assimilation_or_project_modules() -> None:
     assert "canonical_title" not in candidate_schema["properties"]
     assert "topic_path" not in candidate_schema["properties"]
     assert "titles, modules, or write actions" in prompt
-    assert "specific and independently checkable" in prompt
+    assert "Keep points independently checkable" in prompt
+    assert "Preserve the decision's actual scope" in prompt
 
 
 def test_extraction_prompt_keeps_task_envelopes_out_of_candidate_budget() -> None:
@@ -64,15 +65,24 @@ def test_extraction_prompt_keeps_task_envelopes_out_of_candidate_budget() -> Non
     assert "Zero points are valid only" in prompt
     # A historical account of evidence/approval limits is not a one-off task
     # envelope. Keep the exclusion, without filtering those source reports.
-    assert "exclude one-off task logistics, not source-scoped evidence limits" in prompt
-    assert "bounded event with a lasting evidence, approval, or nonchange limit" in prompt
+    assert "continuing constraint separate from" in prompt
+    assert "Leave those temporary clauses in review" in prompt
+    assert "concrete mechanism, unresolved choice or evidence boundary" in prompt
+    assert "will affect a later task" in prompt
+    assert "Keep the source-stated period and named discussion context" in prompt
 
 
 def test_extraction_instructions_remain_bounded() -> None:
     # Preserve the same-setting alternative and coordinated-modality contract;
     # this is a prose growth guard, never permission to cut source or meaning.
-    # Includes the authorized attributed-report contract, not a source/token cap.
-    assert len(_build_prompt({})) < 4900
+    # Includes the new common write/report authority contract. This bounds
+    # instructions only; complete evidence remains independently unbounded here.
+    # First-selection scope and per-clause authorship now precede point creation;
+    # this still bounds instructions only, never the complete source evidence.
+    assert len(_build_prompt({})) < 7400
+    source = "BEGIN complete fixture " + "source material " * 1000 + " END complete fixture"
+    prompt = _build_prompt({"semantic_decision_exchanges": [{"exchange_index": 1, "content": source}]})
+    assert source in prompt
 
 
 def test_compact_extraction_is_expanded_with_local_exchange_hash() -> None:
@@ -222,7 +232,11 @@ def test_assimilation_prompt_preserves_specificity_without_fixed_taxonomy() -> N
     assert "Split independent obligations" in prompt
     assert "never keep an umbrella item beside its split items" in prompt
     assert "Non-writing actions emit no canonical knowledge" in prompt
-    assert len(prompt) < 4000
+    # Includes the shared continuing-setting versus transient-wait contract;
+    # the complete manifest remains intact and is not part of this prose cap.
+    assert len(prompt) < 6200
+    source = "BEGIN verified source " + "complete source material " * 1000 + " END verified source"
+    assert source in _build_assimilation_prompt({"verified_candidates": [{"statement": source}]})
 
 
 def test_assimilation_prompt_treats_stored_knowledge_as_untrusted_data() -> None:

@@ -33,10 +33,15 @@ from harness_mem.autonomous.authorization import background_on
 from harness_mem.commands.distill_lifecycle import pending_distill_jobs
 from harness_mem.commands.separated_assimilation import (
     SeparatedPreparedAssimilation,
+    bind_final_scope_judgment,
     create_separated_candidates,
+    defer_blocked_final_scope,
     final_scope_payload,
+    final_scope_verification_rows,
     final_scope_proof,
     normalize_identical_replacements,
+    judged_update_payload,
+    needs_update_meaning,
     prepare_separated_assimilation,
     validate_separated_assimilation_decision,
 )
@@ -67,14 +72,17 @@ _RUNTIME_SOURCE_FILES = (
     Path(__file__).with_name("executors") / "registry.py",
     Path(__file__).with_name("executors") / "host_cli.py",
     Path(__file__).with_name("executors") / "host_structured_cli.py",
+    Path(__file__).with_name("executors") / "task_budget.py",
     Path(__file__).with_name("executors") / "codex_app_server.py",
     Path(__file__).parents[1] / "host_entry" / "__main__.py",
     Path(__file__).parents[1] / "hook_background.py",
+    Path(__file__).parents[1] / "native_codex_turn.py",
     Path(__file__).parents[1] / "diagnostic_events.py",
     Path(__file__).parents[1] / "commands" / "maintenance.py",
     Path(__file__).parents[1] / "commands" / "ingest.py",
     Path(__file__).parents[1] / "mcp" / "tool_handlers.py",
     Path(__file__).parents[1] / "commands" / "distill_lifecycle.py",
+    Path(__file__).parents[1] / "commands" / "distill_current_knowledge.py",
     Path(__file__).parents[1] / "commands" / "separated_assimilation.py",
     Path(__file__).parents[1] / "commands" / "knowledge_assimilation.py",
     Path(__file__).parents[1] / "commands" / "evidence_admission.py",
@@ -84,6 +92,7 @@ _RUNTIME_SOURCE_FILES = (
     Path(__file__).parents[1] / "adapters" / "codex" / "archive_adapter.py",
     Path(__file__).parents[1] / "adapters" / "source_metadata.py",
     Path(__file__).parents[1] / "adapters" / "source_inspection.py",
+    Path(__file__).parents[1] / "adapters" / "native_tool_evidence.py",
     Path(__file__).parents[1] / "adapters" / "protocol.py",
     Path(__file__).parents[1] / "capture_policy.py",
     Path(__file__).parents[1] / "config" / "merge.py",
@@ -111,6 +120,11 @@ _RUNTIME_SOURCE_FILES = (
     Path(__file__).parents[1] / "storage" / "canonical_store.py",
     Path(__file__).parents[1] / "storage" / "sqlite_index.py",
     Path(__file__).parents[1] / "commands" / "dream.py",
+    Path(__file__).parents[1] / "commands" / "dream_continuation.py",
+    Path(__file__).parents[1] / "commands" / "dream_source_coverage.py",
+    Path(__file__).parents[1] / "commands" / "dream_source_audit.py",
+    Path(__file__).parents[1] / "commands" / "source_handoff_recovery.py",
+    Path(__file__).parents[1] / "commands" / "dream_report_continuation.py",
     Path(__file__).parents[1] / "commands" / "dream_assimilation.py",
     Path(__file__).parents[1] / "storage" / "session_distill_store.py",
     Path(__file__).parents[1] / "storage" / "transcript_store.py",
@@ -156,6 +170,14 @@ class DistillProvider(Protocol):
     ) -> ProviderResult: ...
 
 
+def _last_budget_call_id(provider: Any) -> str | None:
+    method = getattr(provider, "last_task_budget_call_id", None)
+    if not callable(method):
+        return None
+    call_id = method()
+    return call_id if isinstance(call_id, str) and call_id else None
+
+
 def _invoke_provider(
     provider: DistillProvider,
     method_name: str,
@@ -163,7 +185,30 @@ def _invoke_provider(
     *,
     runtime_dir: Path,
     heartbeat: Any,
+    phase: Literal["source", "dream"] | None = None,
+    slice_id: str | None = None,
+    retry_of: str | None = None,
 ) -> ProviderResult:
+    """Call one provider method. Native executors reserve the open task first.
+
+    Fake providers without ``bind_task_budget`` are unchanged. A native
+    executor that was armed for this batch reuses that scope for every slice
+    and retry. The runtime directory is call metadata, not a new task.
+    """
+
+    binding = getattr(provider, "task_budget_binding", None)
+    binder = getattr(provider, "bind_task_budget", None)
+    if binding is not None and callable(binder) and phase and slice_id:
+        from harness_mem.autonomous.executors.task_budget import TaskBudgetRefusal
+
+        try:
+            binder(binding, phase=phase, slice_id=slice_id, retry_of=retry_of)
+        except TaskBudgetRefusal as exc:
+            raise ProviderError(
+                str(exc),
+                kind="setup_required" if exc.kind == "setup" else "unrecoverable",
+                failure_reason=exc.code,
+            ) from exc
     method = getattr(provider, method_name)
     emit_current_stage("provider_started", details={"method": method_name})
     result = method(
@@ -173,6 +218,81 @@ def _invoke_provider(
     )
     emit_current_stage("provider_finished", details={"method": method_name})
     return result
+
+
+def _attach_maintenance_scope(
+    provider: Any,
+    *,
+    data_dir: Path,
+    config: MergedConfig,
+    trigger_id: str | None,
+    dispatch_generation: str | None,
+) -> None:
+    """Bind the natural request once. A missing identity leaves native calls closed."""
+
+    attach = getattr(provider, "attach_maintenance_binding", None)
+    if not callable(attach) or not trigger_id or not dispatch_generation:
+        return
+    from harness_mem.autonomous.executors.task_budget import (
+        TaskBudgetRefusal,
+        bind_maintenance_task,
+    )
+
+    host_client = getattr(provider, "host_client", None)
+    try:
+        binding = bind_maintenance_task(
+            data_dir=data_dir,
+            host_client=host_client,
+            config=config,
+            trigger_id=str(trigger_id),
+            dispatch_generation=str(dispatch_generation),
+        )
+        attach(binding)
+    except TaskBudgetRefusal:
+        return
+
+
+_BUDGET_SETUP_CODES = frozenset({
+    "task_binding_missing",
+    "host_binding_missing",
+    "slice_binding_missing",
+    "phase_binding_missing",
+    "time_bound_missing",
+    "bounds_not_configured",
+    "host_output_limit_unsupported",
+    "complete_input_bound_unknown",
+    "task_bounds_changed",
+    "task_host_changed",
+    "receipt_unreadable",
+    "retry_binding_missing",
+})
+
+
+def _task_budget_update(
+    data_dir: Path,
+    trigger_id: str | None,
+    dispatch_generation: str | None,
+    *,
+    failure_reason: str | None = None,
+) -> dict[str, Any]:
+    """Copy the existing task ledger onto the autonomous receipt. No second queue."""
+
+    from harness_mem.autonomous.executors.task_budget import (
+        TASK_BUDGET_REFUSAL_CODES,
+        task_budget_observation,
+    )
+
+    observation = task_budget_observation(data_dir, trigger_id, dispatch_generation)
+    if failure_reason in TASK_BUDGET_REFUSAL_CODES:
+        kind = "setup" if failure_reason in _BUDGET_SETUP_CODES else "budget"
+        observation = {
+            **observation,
+            "refusal": {"code": failure_reason, "kind": kind, "message": failure_reason},
+        }
+        if observation.get("native_dispatch") != "ledger_present":
+            observation["native_dispatch"] = "refused_before_transport"
+            observation["known_usage"] = None
+    return {"task_budget": observation}
 
 
 def _now() -> str:
@@ -261,6 +381,7 @@ def record_post_turn_maintenance_outcome(
         "maintenance_status": "paused" if status == "continuing" else status,
         "maintenance_dream": {key: dream.get(key) for key in
                               ("run_id", "status", "summary", "continuation", "reason")},
+        **_task_budget_update(data_dir, trigger_id, dispatch_generation),
     })
 
 
@@ -341,6 +462,7 @@ def _record_post_turn_nonsemantic_terminal_receipt(
             "error": error,
             "last_batch_error": error,
             "last_background_error": error,
+            **_task_budget_update(data_dir, trigger_id, dispatch_generation),
         },
     )
 
@@ -745,6 +867,16 @@ def _run_autonomous_distill_batch(
     else:
         resolved_notes = Path.home() / ".codex" / "hm-distill" / "sessions"
     runtime_dir = Path(backend.data_dir) / "autonomous" / "provider-runtime"
+    _attach_maintenance_scope(
+        chosen_provider,
+        data_dir=Path(backend.data_dir),
+        config=config,
+        trigger_id=trigger_id,
+        dispatch_generation=dispatch_generation,
+    )
+    previous_run_receipt = read_autonomous_receipt(
+        backend.data_dir, project_name=project_name, project_root=root,
+    ) or {}
     _write_receipt(
         backend.data_dir,
         project_name=project_name,
@@ -773,6 +905,7 @@ def _run_autonomous_distill_batch(
             "provider_name": chosen_provider.name,
             "runtime_fingerprint": autonomous_runtime_fingerprint(),
             "config_fingerprint": autonomous_config_fingerprint(config),
+            **_task_budget_update(backend.data_dir, trigger_id, dispatch_generation),
             "hook_reentry_count": count_hook_reentry_blocks(
                 backend.data_dir,
                 project_name=project_name,
@@ -850,6 +983,7 @@ def _run_autonomous_distill_batch(
             trigger_id=trigger_id,
             job=preferred,
             notes_dir=resolved_notes,
+            prior_receipt=previous_run_receipt,
         )
     elif preferred is not None and _preferred_job_is_eligible(
         preferred, project_name=project_name, trigger_id=trigger_id
@@ -1051,6 +1185,7 @@ def _replay_completed_preferred_job(
     trigger_id: str | None,
     job: SessionDistillJob,
     notes_dir: Path,
+    prior_receipt: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Reuse one completed trigger job without another provider invocation.
 
@@ -1060,7 +1195,7 @@ def _replay_completed_preferred_job(
     to manufacture a false ``preferred_job_not_completed`` failure.
     """
 
-    receipt = read_autonomous_receipt(
+    receipt = dict(prior_receipt) if prior_receipt is not None else read_autonomous_receipt(
         backend.data_dir,
         project_name=project_name,
         project_root=project_root,
@@ -1074,6 +1209,19 @@ def _replay_completed_preferred_job(
         and verified.get("trigger_id") == trigger_id
         else {}
     )
+    binding = _provider_job_binding(job, project_root=project_root, trigger_id=trigger_id)
+    if prior and (not isinstance(prior.get("provider"), dict)
+                  or any(prior["provider"].get(key) != value for key, value in binding.items())):
+        prior = {}
+    if not prior:
+        batch = receipt.get("batch")
+        for row in batch.get("jobs", []) if isinstance(batch, dict) else []:
+            usage = row.get("provider") if isinstance(row, dict) else None
+            if (isinstance(row, dict) and row.get("job_id") == job.id
+                    and row.get("session_id") == job.session_id and isinstance(usage, dict)
+                    and all(usage.get(key) == value for key, value in binding.items())):
+                prior = row
+                break
     note: dict[str, Any] | None
     try:
         note = _materialize_note(job, notes_dir=notes_dir)
@@ -1081,6 +1229,15 @@ def _replay_completed_preferred_job(
         saved_note = prior.get("note")
         note = saved_note if isinstance(saved_note, dict) else None
     completed_at = job.completed_at.isoformat() if job.completed_at else _now()
+    completion = {}
+    if note is not None:
+        completion = _record_success_receipt(
+            backend, project_name=project_name, project_root=project_root,
+            trigger_id=trigger_id, client=job.client, job=job, note=note,
+            provider_receipt=prior.get("provider") if prior else None,
+            completion_provenance=prior if prior is verified else receipt,
+            semantic_success_at=prior.get("last_semantic_success_at") or completed_at,
+        )
     return {
         "job_id": job.id,
         "session_id": job.session_id,
@@ -1088,7 +1245,7 @@ def _replay_completed_preferred_job(
         "replayed": True,
         "note": note,
         "provider": prior.get("provider") if prior else None,
-        "last_semantic_success_at": prior.get("last_semantic_success_at") if prior else None,
+        "last_semantic_success_at": completion.get("last_semantic_success_at"),
         "last_job_completed_at": prior.get("last_job_completed_at") or completed_at,
         "last_note_materialized_at": (
             str(note.get("materialized_at"))
@@ -1241,6 +1398,21 @@ def _run_one_core(
                 "prepared distill job disappeared", kind="unrecoverable"
             )
         if job.status == "completed":
+            assimilation = (
+                job.semantic_review.get("assimilation")
+                if isinstance(job.semantic_review, dict) else None
+            )
+            if isinstance(assimilation, dict):
+                from harness_mem.commands.knowledge_assimilation import (
+                    recover_committed_assimilation,
+                )
+
+                asyncio.run(recover_committed_assimilation(
+                    backend,
+                    project_name=project_name,
+                    project_root=project_root,
+                    points=list(assimilation.get("points") or []),
+                ))
             note = _materialize_note(job, notes_dir=notes_dir)
             completion = _record_success_receipt(
                 backend,
@@ -1301,10 +1473,16 @@ def _run_one_core(
                 },
             )
 
+        from harness_mem.commands.distill_current_knowledge import current_source_knowledge
+
+        extraction_manifest = build_provider_manifest(packet)
+        extraction_manifest["current_source_knowledge"] = asyncio.run(current_source_knowledge(
+            backend, job=job, project_root=project_root,
+        ))
         provider_result, decision, validated_candidates, candidate_warnings = (
             _decide_with_candidate_retry(
                 provider,
-                manifest=build_provider_manifest(packet),
+                manifest=extraction_manifest,
                 packet=packet,
                 job=job,
                 runtime_dir=runtime_dir,
@@ -1369,6 +1547,7 @@ def _run_one_core(
                     project_name=project_name,
                     project_root=str(project_root),
                     candidate_ids=governed_candidate_ids,
+                    complete_target_discovery=True,
                 )
             )
             if prepared.eligible_candidate_ids:
@@ -1411,7 +1590,10 @@ def _run_one_core(
                 runtime_dir=runtime_dir,
                 heartbeat=heartbeat,
             )
+            supplied_judgments = assimilation.pop("_supplied_final_judgments", None)
             review_payload["assimilation"] = assimilation
+            if supplied_judgments:
+                review_payload["final_scope_judgment"] = supplied_judgments
         finalized = tools.tool_finalize_session_distill(
             project_name=project_name,
             job_id=job_id,
@@ -1448,6 +1630,13 @@ def _run_one_core(
         note = _materialize_note(note_job, notes_dir=notes_dir)
         provider_receipt = {
             **provider_result.receipt(),
+            "extraction_current_knowledge": {
+                "contract": "current-source-knowledge-comparison-v1",
+                "manifest_sha256": hashlib.sha256(json.dumps(extraction_manifest,
+                    ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
+                "comparisons": [{key: row[key] for key in ("id", "version", "source_exchanges")}
+                    for row in extraction_manifest["current_source_knowledge"]],
+            },
             "job_id": stored.id,
             "source_revision": job.source_revision,
             "session_id_sha256": _identity_digest(job.session_id),
@@ -1529,12 +1718,23 @@ def _run_one_core(
         failure_provider = _native_provider_receipt(
             native_journal[native_start:] if isinstance(native_journal, list) else [], exc,
         )
+        if failure_provider is not None and current_job is not None:
+            failure_provider.update(_provider_job_binding(
+                current_job, project_root=project_root, trigger_id=trigger_id))
         job = backend.transcript_store.get_distill_job(job_id)
         if job is not None and job.review_lease_owner == lease_owner:
             job = backend.transcript_store.defer_distill_job(
                 job_id,
                 error=f"{exc.kind}: {exc}"[:512],
             )
+        prior_receipt = read_autonomous_receipt(
+            backend.data_dir, project_name=project_name, project_root=project_root,
+        ) or {}
+        generation = (
+            prior_receipt.get("dispatch_generation")
+            if prior_receipt.get("trigger_id") == trigger_id
+            else None
+        )
         _write_receipt(
             backend.data_dir,
             project_name=project_name,
@@ -1547,8 +1747,18 @@ def _run_one_core(
                     "kind": exc.kind,
                     "message": str(exc)[:1000],
                     "exit_code": exc.exit_code,
+                    **(
+                        {"failure_reason": exc.failure_reason}
+                        if exc.failure_reason else {}
+                    ),
                 },
                 **({"provider": failure_provider} if failure_provider is not None else {}),
+                **_task_budget_update(
+                    backend.data_dir,
+                    trigger_id,
+                    generation if isinstance(generation, str) else None,
+                    failure_reason=exc.failure_reason,
+                ),
             },
         )
         return {
@@ -1562,6 +1772,9 @@ def _run_one_core(
         failure_provider = _native_provider_receipt(
             native_journal[native_start:] if isinstance(native_journal, list) else [],
         )
+        if failure_provider is not None and current_job is not None:
+            failure_provider.update(_provider_job_binding(
+                current_job, project_root=project_root, trigger_id=trigger_id))
         job = backend.transcript_store.get_distill_job(job_id)
         if job is not None and job.review_lease_owner == lease_owner:
             backend.transcript_store.defer_distill_job(
@@ -1841,6 +2054,7 @@ def _decide_with_candidate_retry(
 
     results: list[ProviderResult] = []
     current_manifest = manifest
+    retry_of: str | None = None
     for attempt in range(2):
         result = _invoke_provider(
             provider,
@@ -1848,7 +2062,11 @@ def _decide_with_candidate_retry(
             current_manifest,
             runtime_dir=runtime_dir,
             heartbeat=heartbeat,
+            phase="source",
+            slice_id=f"source-decide:{job.id}",
+            retry_of=retry_of,
         )
+        retry_of = _last_budget_call_id(provider)
         results.append(result)
         decision = _normalize_zero_candidate_signal_labels(
             result.decision,
@@ -1887,6 +2105,7 @@ def _decide_with_candidate_retry(
         current_manifest = {
             **manifest,
             "candidate_validation_feedback": {
+                **(manifest.get("candidate_validation_feedback") or {}),
                 "errors": warnings,
                 "instruction": (
                     "Return corrected review and points. Every point must satisfy its kind "
@@ -1899,6 +2118,411 @@ def _decide_with_candidate_retry(
             },
         }
     raise AssertionError("candidate retry loop did not return")
+
+
+def run_source_coverage_attempt(
+    backend: LocalMemoryBackend, *, provider: DistillProvider,
+    project_name: str, project_root: Path, prepared: dict[str, Any], attempt_id: str,
+    state: dict[str, Any], save: Callable[[dict[str, Any]], None],
+    heartbeat: Callable[[], None], runtime_dir: Path,
+) -> None:
+    """Retain a failed native attempt through the same source checkpoint owner."""
+    try:
+        _run_source_coverage_attempt(
+            backend, provider=provider, project_name=project_name, project_root=project_root,
+            prepared=prepared, attempt_id=attempt_id, state=state, save=save,
+            heartbeat=heartbeat, runtime_dir=runtime_dir,
+        )
+    except ProviderError as error:
+        try:
+            save({
+                "status": "failed",
+                "reason_code": error.failure_reason or "source_coverage_provider_failed",
+                # The caller consumes this runtime object before serializing.
+                # A model-supplied dictionary cannot activate failure bookkeeping.
+                "_provider_error": error,
+                "_receipt": {
+                    "attempt_id": attempt_id, "phase": "provider_failure",
+                    "source_job_id": prepared["job"].id,
+                    "failure_kind": error.kind, "failure_reason": error.failure_reason,
+                    "exit_code": error.exit_code,
+                    "budget_call_id": (getattr(provider, "_last_budget_call_id", None)
+                                       if error.attempt_results else None),
+                    "attempt_results": [result.receipt() for result in error.attempt_results],
+                    "native_attempts": list(error.native_attempts),
+                    "unknown_attempt_count": error.unknown_attempt_count,
+                },
+            })
+        except Exception as receipt_error:
+            # Failure of its receipt must never replace the original native error.
+            raise error from receipt_error
+        raise
+
+
+def _run_source_coverage_attempt(
+    backend: LocalMemoryBackend, *, provider: DistillProvider,
+    project_name: str, project_root: Path, prepared: dict[str, Any], attempt_id: str,
+    state: dict[str, Any], save: Callable[[dict[str, Any]], None],
+    heartbeat: Callable[[], None], runtime_dir: Path,
+) -> None:
+    """Re-extract one applied group's exact original source under its Dream account.
+
+    The completed source job supplies evidence identity only. It is neither
+    claimed nor finalized again, and its old candidates are never reused as a
+    new extraction decision. Canonical writes retain the ordinary final gates.
+    """
+    from harness_mem.commands.separated_assimilation import apply_separated_assimilation
+    from harness_mem.commands.knowledge_assimilation import (
+        _knowledge_item_id, assimilation_decision_id,
+    )
+    from harness_mem.commands.dream_source_coverage import _digest
+    from harness_mem.autonomous.provider import (
+        SOURCE_COVERAGE_INVENTORY_CONTRACT, get_source_coverage_inventory,
+        get_source_coverage_audit_binding, source_coverage_audit_block,
+        get_source_coverage_audit_observation,
+        source_coverage_audit_binding_block, source_coverage_audit_has_unresolved,
+    )
+
+    job = prepared["job"]
+    packet = prepared["packet"]
+    binding = prepared["binding"]
+    original_job = binding["source_job_sha256"]
+    allowed_targets = set(binding["successor_ids"])
+    residual = prepared.get("inventory_audit_repair")
+    if residual is not None:
+        if not isinstance(residual, dict) or residual.get("contract") != "source-coverage-residual-audit-v1":
+            raise ValueError("source_coverage_residual_basis_invalid")
+        allowed_targets.difference_update(residual.get("already_applied_truth_ids") or [])
+    coverage_scope = {
+        "kind": "runtime_maintenance_scope_not_source_evidence",
+        "contract": binding["contract"],
+        "retain_still_applicable_scoped_conditions": True,
+        "run_id": binding["run_id"], "predecessor_id": binding["predecessor_id"],
+        "predecessor_sha256": binding["predecessor_sha256"],
+        "predecessor_text_available": False,
+        "current_successors": prepared["successors"],
+        "comparison_current_truth": prepared.get("comparison_current_truth", []),
+        "instruction": (
+            "Perform only a coverage check of this already-applied original Dream group. "
+            "The current successors may be fully supported while omitting another "
+            "still-applicable condition from their same original source. Extract only "
+            "independently useful, source-supported omitted claims within the same "
+            "original authored-user task and complete immutable source. Establish the "
+            "task's scope from that complete original source, including its earlier "
+            "applicable conditions and later corrections. Current successor titles and "
+            "statements identify points already covered; their narrower subject must "
+            "not exclude still-applicable conditions of that original task. Do not "
+            "re-extract unrelated tasks from the source, replay old writes, "
+            "or treat the retired predecessor hash/current prose as source evidence. "
+            "Preserve the source's actual repair/task/project/period/permission scope. "
+            "Do not turn one task's execution or acceptance instructions into a permanent "
+            "general policy. Captured role=user may include scheduler messages or host "
+            "instructions and does not itself prove human approval. Assistant prose is "
+            "not user authority. A point already covered by current successors is not a "
+            "missing claim. comparison_current_truth contains other current memory for "
+            "comparison only, never source evidence or writable targets. A claim already "
+            "covered there needs no_write, with empty matched_truth_handles. If no "
+            "qualifying omitted claim is established, return an "
+            "honest no-candidate decision; that does not prove this cleanup repaired a loss."
+        ),
+    }
+    inventory_required = binding["contract"] == SOURCE_COVERAGE_INVENTORY_CONTRACT
+    if inventory_required:
+        comparison = {row["id"]: dict(row) for row in (
+            *prepared["successors"], *prepared.get("comparison_current_truth", []))}
+        coverage_scope["inventory_input"] = {
+            "contract": "source-coverage-inventory-v1",
+            "source_id": binding["source_id"], "source_revision": binding["source_revision"],
+            "context_sha256": binding["context_sha256"],
+            "windows": [{**{key: value for key, value in row.items() if key != "anchor_sha256"},
+                         "exchange_sha256": row["anchor_sha256"]}
+                        for row in prepared["authored_user_exchanges"]],
+            "current": [comparison[key] for key in sorted(comparison)],
+        }
+        if residual is not None:
+            coverage_scope["inventory_audit_repair"] = residual
+            if residual.get("later_user_contexts"):
+                coverage_scope["inventory_input"]["later_user_contexts"] = residual["later_user_contexts"]
+
+    def workspace_binding(identities: Sequence[str]) -> dict[str, Any]:
+        async def snapshots() -> list[dict[str, Any]]:
+            store = backend.structured_store.knowledge_store
+            values = []
+            for identity in identities:
+                candidate = await store.get_candidate(identity)
+                evidence = await store.list_evidence(identity)
+                if candidate is None or candidate.status != "pending" or len(evidence) != 1:
+                    raise ValueError("source_coverage_inventory_workspace_changed")
+                values.append({"id": identity, "candidate_sha256": _digest(candidate.to_dict()),
+                               "evidence_sha256": _digest(evidence[0].to_dict())})
+            return values
+        return {"input_sha256": _digest(coverage_scope["inventory_input"]),
+                "workspace": asyncio.run(snapshots())}
+
+    def unchanged(*, check_successors: bool = True) -> None:
+        heartbeat()
+        current = backend.transcript_store.get_distill_job(job.id)
+        if current is None or _digest(current.to_dict()) != original_job:
+            raise ProviderError("source coverage completed source job changed", kind="unrecoverable")
+        if check_successors:
+            from harness_mem.commands.dream_assimilation import _entry_version_snapshot
+            for snapshot in prepared["successors"]:
+                entry = asyncio.run(backend.structured_store.knowledge_store.get_entry(
+                    snapshot["id"], project_name=project_name, project_root=project_root))
+                if entry is None or _entry_version_snapshot(entry) != snapshot:
+                    raise ProviderError("source coverage successor changed", kind="unrecoverable")
+
+    def receipt(phase: str, result: Any) -> None:
+        if result is not None:
+            save({"_receipt": {"attempt_id": attempt_id, "phase": phase,
+                               "source_job_id": job.id, **result.receipt()}})
+
+    def with_context(manifest: dict[str, Any]) -> dict[str, Any]:
+        context = {"kind": "runtime_maintenance_scope_not_source_evidence",
+                   "content": json.dumps(coverage_scope, ensure_ascii=False, sort_keys=True)}
+        return {**manifest, "source_coverage": coverage_scope,
+                "session_context": [context, *(manifest.get("session_context") or [])]}
+
+    unchanged()
+    candidate_ids = list(state.get("candidate_ids") or [])
+    if not candidate_ids:
+        manifest = with_context(build_provider_manifest(packet))
+        manifest["candidate_validation_feedback"] = {"source_coverage": coverage_scope,
+                                                     "instruction": coverage_scope["instruction"]}
+        save({"status": "extracting"})
+        result, decision, validated, _warnings = _decide_with_candidate_retry(
+            provider, manifest=manifest, packet=packet, job=job,
+            runtime_dir=runtime_dir, heartbeat=heartbeat,
+        )
+        receipt("decide", result)
+        if inventory_required:
+            inventory = get_source_coverage_inventory(decision)
+            if inventory is None or len(validated) != len(decision.candidates):
+                raise ValueError("source_coverage_inventory_candidates_incomplete")
+            coverage_scope["inventory"] = inventory
+        if not validated and not inventory_required:
+            save({"status": "no_write", "reason_code": "source_coverage_no_candidate",
+                  "decision_sha256": hashlib.sha256(decision.model_dump_json().encode()).hexdigest()})
+            return
+        # This narrow source-recovery route is offered only for authored-user
+        # ordinary successors. It must not import repository facts, host text or
+        # another speaker's report into that authority through fresh extraction.
+        window_indexes = {row["exchange_index"] for row in packet["semantic_decision_exchanges"]}
+        for candidate, _arguments in validated:
+            if (candidate.evidence_basis != "user_statement" or not candidate.verification_refs
+                    or any(ref.kind != "user_statement" or ref.role != "user"
+                           or ref.exchange_index not in window_indexes for ref in candidate.verification_refs)):
+                raise ProviderError("source coverage candidate crossed original authored-user scope", kind="unrecoverable")
+        original_manifest = with_context(_build_candidate_verification_manifest(
+            packet=packet, validated_candidates=validated, project_root=project_root,
+            backend=backend, distill_job_id=job.id,
+        ))
+        verification, validated = _verify_candidates(
+            provider, manifest=original_manifest, validated_candidates=validated,
+            runtime_dir=runtime_dir, heartbeat=heartbeat,
+        )
+        receipt("candidate_verify", verification)
+        if inventory_required:
+            selected_unverified = any(arguments.get("verification_outcome") != "verified"
+                                      for _candidate, arguments in validated)
+            admission_mode = "selected_points" if validated else "full_inventory"
+            blocked = source_coverage_audit_block(verification.decision, original_manifest, admission_mode=admission_mode)
+            if selected_unverified or blocked == "source_coverage_inventory_audit_unresolved":
+                # This shared serializer still rejects every technical binding
+                # error. A negative semantic result is retained, never credited
+                # as candidate admission or a completed source inventory.
+                observation = get_source_coverage_audit_observation(verification.decision, original_manifest)
+                unchanged()
+                held_arguments = []
+                for _candidate, arguments in validated:
+                    held = dict(arguments)
+                    held["verification_reason_codes"] = list(dict.fromkeys([
+                        *(arguments.get("verification_reason_codes") or []),
+                        "source_coverage_point_verification_" + str(arguments["verification_outcome"]),
+                        "source_coverage_inventory_observation_unresolved",
+                    ]))
+                    # Authentic source support does not waive the failed
+                    # inventory gate through another assimilation entry.
+                    held["verification_outcome"] = "unverified"
+                    held_arguments.append(held)
+                candidate_ids = asyncio.run(create_separated_candidates(
+                    backend, project_name=project_name, distill_job_id=job.id,
+                    candidate_arguments=held_arguments,
+                    _attempt_namespace=f"source-coverage:{attempt_id}:observation", _retire_prior_pending=False,
+                )) if held_arguments else []
+                save({"status": "unresolved", "reason_code": "source_coverage_inventory_audit_unresolved",
+                      "inventory_blocked_reason": ("source_coverage_inventory_selected_point_unverified"
+                                                   if selected_unverified else blocked),
+                      "decision_sha256": hashlib.sha256(decision.model_dump_json().encode()).hexdigest(),
+                      "candidate_ids": candidate_ids,
+                      "inventory_verification": observation, "inventory_workspace": workspace_binding(candidate_ids)})
+                return
+            if blocked is not None:
+                raise ValueError(blocked)
+            audit_binding = get_source_coverage_audit_binding(verification.decision, original_manifest,
+                admission_mode=admission_mode)
+            if not validated:
+                save({"status": "no_write", "reason_code": "source_coverage_no_candidate",
+                      "decision_sha256": hashlib.sha256(decision.model_dump_json().encode()).hexdigest(),
+                      "inventory_verification": audit_binding})
+                return
+        unchanged()
+        candidate_ids = asyncio.run(create_separated_candidates(
+            backend, project_name=project_name, distill_job_id=job.id,
+            candidate_arguments=[arguments for _candidate, arguments in validated],
+            _attempt_namespace=f"source-coverage:{attempt_id}", _retire_prior_pending=False,
+        ))
+        save({"status": "candidates_verified", "candidate_ids": candidate_ids,
+              **({"inventory_verification": audit_binding,
+                  "inventory_workspace": workspace_binding(candidate_ids)}
+                 if inventory_required else {})})
+    else:
+        if inventory_required:
+            audit = state.get("inventory_verification")
+            if (not isinstance(audit, dict)
+                    or source_coverage_audit_binding_block(audit, with_context(build_provider_manifest(packet)),
+                        admission_mode="selected_points")
+                    or state.get("inventory_workspace") != workspace_binding(candidate_ids)):
+                raise ValueError("source_coverage_inventory_resume_binding_changed")
+        # Rebuild the normal verifier input from the fresh candidate workspace.
+        # That workspace is evidence-bound; the Dream checkpoint contains only
+        # IDs and hashes, never a replacement copy of its proposed statements.
+        async def restore() -> list[tuple[Any, dict[str, Any]]]:
+            store = backend.structured_store.knowledge_store
+            values = []
+            for identity in candidate_ids:
+                candidate = await store.get_candidate(identity)
+                evidence = await store.list_evidence(identity)
+                if candidate is None or len(evidence) != 1 or evidence[0].distill_job_id != job.id:
+                    raise ValueError("source_coverage_candidate_workspace_missing")
+                if candidate.status != "pending":
+                    continue
+                # Verification arguments need only the original exact statement
+                # and references. The candidate has already passed kind shaping.
+                proxy = DistillCandidate(kind="memory", category="knowledge", content=candidate.statement,
+                    confidence=0.5, evidence_basis=evidence[0].evidence_basis,
+                    verification_outcome="unverified",
+                    verification_refs=[item.model_dump(mode="json", exclude={"locator_sha256"})
+                                       for item in evidence[0].verification_refs])
+                values.append((proxy, {"kind": "memory", "content": candidate.statement}))
+            return values
+        restored = asyncio.run(restore())
+        original_manifest = with_context(_build_candidate_verification_manifest(
+            packet=packet, validated_candidates=restored, project_root=project_root,
+            backend=backend, distill_job_id=job.id,
+        ))
+        candidate_ids = [identity for identity in candidate_ids
+                         if asyncio.run(backend.structured_store.knowledge_store.get_candidate(identity)).status == "pending"]
+        if not candidate_ids:
+            raise ValueError("source_coverage_terminal_candidates_require_commit_receipt")
+
+    current = asyncio.run(prepare_separated_assimilation(
+        backend, project_name=project_name, project_root=str(project_root),
+        candidate_ids=candidate_ids, required_target_ids=sorted(allowed_targets),
+        complete_target_discovery=True,
+    ))
+    # Preserve normal relevant-current discovery for comparison. Only original
+    # successors receive handles: other current claims can prevent a duplicate
+    # add without gaining confirmation, refresh or replacement authority.
+    comparison_by_id = {
+        row["id"]: dict(row) for row in coverage_scope["comparison_current_truth"]
+    }
+    for row in current.manifest.get("current_truth") or []:
+        identity = current.truth_by_handle.get(row.get("handle"))
+        if (identity is not None and identity not in allowed_targets
+                and identity not in comparison_by_id):
+            comparison_by_id[identity] = {
+                "id": identity,
+                **{key: value for key, value in row.items() if key != "handle"},
+                "comparison_only": True,
+                "kind": "current_knowledge_comparison_not_source_evidence",
+            }
+    coverage_scope["comparison_current_truth"] = [
+        comparison_by_id[key] for key in sorted(comparison_by_id)
+    ]
+    current = replace(current,
+        truth_by_handle={key: value for key, value in current.truth_by_handle.items() if value in allowed_targets},
+        manifest=with_context({**current.manifest, "current_truth": [row for row in current.manifest["current_truth"]
+                                                      if current.truth_by_handle.get(row.get("handle")) in allowed_targets]}))
+    if current.eligible_candidate_ids:
+        result = _assimilate_prepared_in_bounded_batches(
+            provider, prepared=current, runtime_dir=runtime_dir, heartbeat=heartbeat,
+        )
+        receipt("assimilate", result)
+        plan = validate_separated_assimilation_decision(current, result.decision)
+    else:
+        plan = validate_separated_assimilation_decision(current, AssimilationDecision(points=[]))
+    if any(not set(point.get("matched_truth_ids") or []).issubset(allowed_targets)
+           for point in plan["points"]):
+        raise ValueError("source_coverage_target_scope_expansion")
+    original_manifest = with_context({
+        **original_manifest,
+        "session_context": [row for row in original_manifest.get("session_context") or []
+                            if row.get("kind") != "runtime_maintenance_scope_not_source_evidence"],
+    })
+    final, plan = _verify_final_knowledge_scope(
+        provider, backend=backend, prepared=current, plan=plan,
+        original_manifest=original_manifest, governed_candidate_ids=candidate_ids,
+        runtime_dir=runtime_dir, heartbeat=heartbeat,
+    )
+    receipt("final_scope", final)
+    supplied = plan.pop("_supplied_final_judgments", {})
+    for point in plan["points"]:
+        proof = supplied.get(point["candidate_id"])
+        if proof is not None:
+            point["final_scope_judgment"] = proof
+    unchanged()
+    commits = list(state.get("commit_bindings") or [])
+    for point in plan["points"]:
+        disposition = point["disposition"]
+        if disposition not in {"add", "refine", "replace"}:
+            continue
+        truth_ids = [_knowledge_item_id(project_name, item) for item in point["knowledge_items"]]
+        commits.append({
+            "candidate_id": point["candidate_id"], "status": "committing",
+            "decision_id": assimilation_decision_id(candidate_id=point["candidate_id"], disposition=disposition,
+                knowledge_ids=truth_ids, predecessor_ids=point.get("matched_truth_ids") or [], reason=point["reason"]),
+            "truth_ids": truth_ids, "predecessor_ids": list(point.get("matched_truth_ids") or []),
+            "truth_sha256": [_digest({"title": item["title"], "statement": item["statement"],
+                "topic_path": item["topic_path"]}) for item in point["knowledge_items"]],
+        })
+    save({"status": "committing", "commit_bindings": commits,
+          "plan_sha256": _digest(plan), "candidate_outcomes": [
+              {"candidate_id": point["candidate_id"], "status": "planned_" + point["disposition"],
+               "disposition": point["disposition"],
+               "point_sha256": _digest(point)} for point in plan["points"]]})
+    heartbeat()
+    outcome = asyncio.run(apply_separated_assimilation(
+        backend, project_name=project_name, project_root=str(project_root),
+        candidate_ids=candidate_ids, plan=plan,
+        _expected_context_entries=prepared["successor_entries"],
+    ))
+    unchanged(check_successors=False)
+    # The public result uses counts plus its per-point results. A no-write or
+    # mere confirmation is terminal work evidence, never restored coverage.
+    promoted = int(outcome.get("promoted") or 0)
+    inventory_unresolved = inventory_required and source_coverage_audit_has_unresolved(state["inventory_verification"])
+    unresolved = inventory_unresolved or any(int(outcome.get(key) or 0) for key in ("pending", "handoff", "conflict", "deferred", "missing", "rejected"))
+    candidate_outcomes = []
+    for result in outcome.get("points") or []:
+        candidate = asyncio.run(backend.structured_store.knowledge_store.get_candidate(result["candidate_id"]))
+        candidate_outcomes.append({"candidate_id": result["candidate_id"],
+            "disposition": result["disposition"], "handoff_id": result.get("handoff_id"),
+            "status": candidate.status if candidate is not None else "missing",
+            "candidate_sha256": _digest(candidate.to_dict()) if candidate is not None else None,
+            "result_sha256": _digest(result), "truth_ids": result.get("canonical_truth_ids") or []})
+        unresolved = (unresolved or result["disposition"] == "handoff" or candidate is None
+                      or candidate.status in {"pending", "conflict", "deferred", "rejected"})
+    final_status = "unresolved" if unresolved else "applied" if promoted else "no_write"
+    save({"status": final_status,
+          "reason_code": "source_coverage_inventory_audit_unresolved" if inventory_unresolved else
+                         "source_coverage_partial_resolution" if unresolved else
+                         "source_coverage_committed" if promoted else "source_coverage_no_new_claim",
+          "result_sha256": _digest(outcome),
+          "candidate_outcomes": candidate_outcomes,
+          "result_status_counts": {key: int(outcome.get(key) or 0) for key in (
+              "promoted", "confirmed", "no_write", "handoff", "deferred", "conflict", "rejected", "missing", "pending")},
+          "commit_bindings": [{**row, "status": "applied"} for row in commits] if promoted else commits})
 
 
 def _assimilate_with_schema_retry(
@@ -1933,6 +2557,7 @@ def _assimilate_with_schema_retry(
             )
         return combined
 
+    retry_of: str | None = None
     for attempt in range(3):
         try:
             result = _invoke_provider(
@@ -1941,8 +2566,13 @@ def _assimilate_with_schema_retry(
                 current_manifest,
                 runtime_dir=runtime_dir,
                 heartbeat=heartbeat,
+                phase="source",
+                slice_id="source-assimilate",
+                retry_of=retry_of,
             )
+            retry_of = _last_budget_call_id(provider)
         except ProviderError as exc:
+            retry_of = _last_budget_call_id(provider) or retry_of
             attempt_results.extend(exc.attempt_results)
             unknown_attempt_count += exc.unknown_attempt_count
             if not exc.attempt_results and not exc.unknown_attempt_count:
@@ -2928,7 +3558,7 @@ def _verify_final_knowledge_scope(
     payloads: dict[str, dict[str, Any]] = {}
     blocked: dict[str, str] = {}
     rows: list[dict[str, Any]] = []
-    owner_by_index: dict[int, str] = {}
+    update_contexts: list[dict[str, Any]] = []
     reopened_by_target: dict[str, list[dict[str, Any]] | None] = {}
 
     async def target_sources(target_id: str) -> list[dict[str, Any]] | None:
@@ -2970,39 +3600,64 @@ def _verify_final_knowledge_scope(
         if not final_items or not sources or any(not source.get("content") for source in sources):
             blocked[candidate_id] = "final_scope_source_incomplete"
             continue
-        for item in final_items:
-            index = len(rows)
-            owner_by_index[index] = candidate_id
-            rows.append({"candidate_index": index, "kind": "memory", "statement": str(item["statement"]),
-                         "title": str(item["title"]),
-                         "scope_text": str(item["title"]) + "\n" + str(item["statement"]),
-                         "sources": sources})
+        projected = final_scope_verification_rows(payload, sources)
+        if projected and projected[0].get("update_context") is not None:
+            update_contexts.append(projected[0]["update_context"])
+        for row in projected:
+            row["candidate_index"] = len(rows)
+            rows.append(row)
 
     result = None
     if rows:
+        manifest = {
+            "contract_version": "final-knowledge-scope-v1",
+            "scope_partition_required": True,
+            "project_name": prepared.project_name,
+            "session_context": original_manifest.get("session_context") or [],
+            "candidates": rows,
+        }
+        if update_contexts:
+            manifest["update_contexts"] = update_contexts
         result = _invoke_provider(
-            provider, "verify", {
-                "contract_version": "final-knowledge-scope-v1",
-                "scope_partition_required": True,
-                "project_name": prepared.project_name,
-                "session_context": original_manifest.get("session_context") or [],
-                "candidates": rows,
-            }, runtime_dir=runtime_dir, heartbeat=heartbeat,
+            provider, "verify", manifest, runtime_dir=runtime_dir, heartbeat=heartbeat,
+            phase="source", slice_id="source-final-scope",
         )
         if not isinstance(result.decision, CandidateVerificationDecision):
             raise ProviderError("final scope verification returned an invalid decision", kind="unrecoverable")
-        checked = list(result.decision.points)
-        if (len(checked) != len(rows)
-                or {point.candidate_index for point in checked} != set(range(len(rows)))):
-            raise ProviderError("final scope verification must cover every item once", kind="unrecoverable")
-        for verdict in checked:
-            candidate_id = owner_by_index[verdict.candidate_index]
-            scope = verification_scope_status(verdict, rows[verdict.candidate_index]["scope_text"])
-            if (verdict.semantic_support != "supported" or scope != "source_scope_durable"
-                    or verdict.future_scope != "durable"
-                    or verdict.source_use not in {"standing_decision", "reusable_knowledge"}):
-                blocked[candidate_id] = "final_" + (
-                    scope if scope != "source_scope_durable" else "semantic_support_incomplete")
+        try:
+            blocked.update(bind_final_scope_judgment(rows, result.decision))
+        except ValueError as exc:
+            raise ProviderError(str(exc), kind="unrecoverable") from exc
+    for candidate_id, payload in list(payloads.items()):
+        if candidate_id in blocked:
+            continue
+        stamped, meaning = judged_update_payload(
+            payload, result.decision if result is not None else None, rows,
+        )
+        if meaning:
+            blocked[candidate_id] = meaning
+            continue
+        payloads[candidate_id] = stamped
+    for point in points:
+        candidate_id = str(point.get("candidate_id") or "")
+        if candidate_id in blocked or not needs_update_meaning(payloads.get(candidate_id) or {}):
+            continue
+        judgment = (payloads.get(candidate_id) or {}).get("update_meaning_judgment")
+        if not isinstance(judgment, dict):
+            continue
+        point["update_meaning_judgment"] = judgment
+        if (payloads.get(candidate_id) or {}).get("report_preservation_inventory") is not None:
+            point["report_preservation_inventory"] = payloads[candidate_id]["report_preservation_inventory"]
+        retained = [str(item) for item in judgment.get("predecessor_conditions") or [] if str(item).strip()]
+        if retained:
+            point["retained_conditions"] = retained
+        else:
+            point.pop("retained_conditions", None)
+        undecided = str(judgment.get("undecided_state") or "").strip()
+        if undecided:
+            point["undecided_state"] = undecided
+        else:
+            point.pop("undecided_state", None)
 
     async def retain_scope_verdicts() -> None:
         for candidate_id, payload in payloads.items():
@@ -3018,14 +3673,28 @@ def _verify_final_knowledge_scope(
             await store.save_evidence(evidence)
 
     asyncio.run(retain_scope_verdicts())
-    for point in points:
-        reason = blocked.get(str(point["candidate_id"]))
-        if reason is not None:
-            # Keep all predecessor rows if any item of a replacement failed.
-            point.update(disposition="defer", matched_truth_ids=[], matched_truth_kinds=[],
-                         canonical_title=None, canonical_statement=None, topic_path=[], knowledge_items=[],
-                         reason=f"Final knowledge scope verification deferred this complete point: {reason}.")
-    return result, {**plan, "points": points}
+    # One failed output, including a preservation miss, defers the whole point.
+    supplied_judgments: dict[str, Any] = {}
+    decision = getattr(result, "decision", None)
+    if isinstance(decision, CandidateVerificationDecision):
+        grouped: dict[str, list[int]] = {}
+        for row in rows:
+            grouped.setdefault(str(row["owner_candidate_id"]), []).append(int(row["candidate_index"]))
+        by_index = {point.candidate_index: point for point in decision.points}
+        for candidate_id, indexes in grouped.items():
+            if candidate_id in blocked or any(index not in by_index for index in indexes):
+                continue
+            sliced = [
+                by_index[index].model_copy(update={"candidate_index": new_index})
+                for new_index, index in enumerate(indexes)
+            ]
+            supplied_judgments[candidate_id] = CandidateVerificationDecision(
+                points=sliced,
+            ).model_dump(mode="json")
+    updated = defer_blocked_final_scope({**plan, "points": points}, blocked)
+    if supplied_judgments:
+        updated = {**updated, "_supplied_final_judgments": supplied_judgments}
+    return result, updated
 
 
 def _verify_candidates(
@@ -3042,6 +3711,8 @@ def _verify_candidates(
         manifest,
         runtime_dir=runtime_dir,
         heartbeat=heartbeat,
+        phase="source",
+        slice_id="source-verify",
     )
     if not isinstance(result.decision, CandidateVerificationDecision):
         raise ProviderError(
@@ -3779,6 +4450,15 @@ def _summary_from_note(path: Path) -> str | None:
     return None
 
 
+def _provider_job_binding(
+    job: SessionDistillJob, *, project_root: Path, trigger_id: str | None,
+) -> dict[str, Any]:
+    return {"job_id": job.id, "source_revision": job.source_revision,
+        "session_id_sha256": _identity_digest(job.session_id),
+        "trigger_id_sha256": _identity_digest(trigger_id),
+        "project_root_sha256": _identity_digest(str(project_root))}
+
+
 def _record_success_receipt(
     backend: LocalMemoryBackend,
     *,
@@ -3789,15 +4469,18 @@ def _record_success_receipt(
     job: SessionDistillJob,
     note: dict[str, Any],
     provider_receipt: dict[str, Any] | None,
+    completion_provenance: Mapping[str, Any] | None = None,
+    semantic_success_at: str | None = None,
 ) -> dict[str, str | None]:
     completed_at = job.completed_at.isoformat() if job.completed_at else _now()
-    semantic_success_at = _now() if provider_receipt is not None else None
+    semantic_success_at = (semantic_success_at or _now()) if provider_receipt is not None else None
     completion = {
         "last_semantic_success_at": semantic_success_at,
         "last_job_completed_at": completed_at,
         "last_note_materialized_at": str(note["materialized_at"]),
     }
     current = (
+        completion_provenance or
         read_autonomous_receipt(
             backend.data_dir,
             project_name=project_name,
@@ -3829,6 +4512,12 @@ def _record_success_receipt(
         "provider": provider_receipt,
         "note": note,
     }
+    generation = current.get("dispatch_generation") if current.get("trigger_id") == trigger_id else None
+    budget = _task_budget_update(
+        backend.data_dir,
+        trigger_id,
+        generation if isinstance(generation, str) else None,
+    )
     if trigger_id is not None and job.session_id != trigger_id:
         # This job belongs to backlog work offered in the same batch. Keep its
         # evidence in the batch outcome without rebinding the active Hook's
@@ -3837,7 +4526,7 @@ def _record_success_receipt(
             backend.data_dir,
             project_name=project_name,
             project_root=project_root,
-            update={"last_background_completion": verified_completion},
+            update={"last_background_completion": verified_completion, **budget},
         )
         return completion
     _write_receipt(
@@ -3856,6 +4545,7 @@ def _record_success_receipt(
             "note": note,
             "last_verified_completion": verified_completion,
             "error": None,
+            **budget,
         },
     )
     return completion

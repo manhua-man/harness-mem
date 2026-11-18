@@ -1,16 +1,11 @@
-"""Read OpenCode's SQLite session store without modifying it.
-
-OpenCode stores sessions in a SQLite database under its XDG data directory.
-The adapter intentionally uses the public table shape from OpenCode's source
-(``session``, ``message`` and ``part``) and treats missing/older schemas as an
-unavailable source rather than guessing from configuration files.
-"""
+"""Read the current SQLite store and the earlier OpenCode JSON session tree."""
 
 from __future__ import annotations
 
 import base64
 import json
 import math
+import os
 import re
 import sqlite3
 from contextlib import closing
@@ -23,6 +18,13 @@ from uuid import uuid4
 
 from harness_mem.adapters.claude_code.project_profile_detector import (
     normalize_project_root,
+)
+from harness_mem.adapters.opencode.legacy import (
+    OpenCodeSourceError,
+    legacy_dependencies,
+    legacy_session_info,
+    legacy_session_paths,
+    read_legacy_rows,
 )
 from harness_mem.adapters.protocol import Issue, SessionRecord
 from harness_mem.adapters.scan_scheduler import sync_sessions_fairly
@@ -38,6 +40,8 @@ DEFAULT_DATABASE_NAMES = (
     "opencode-beta.db",
     "opencode-latest.db",
 )
+_SQLITE_KIND = "sqlite-session-export"
+_LEGACY_KIND = "opencode-legacy-json"
 
 
 @dataclass(frozen=True)
@@ -54,7 +58,7 @@ class _SessionExport:
 
 
 class OpenCodeAdapter:
-    """Adapter for OpenCode's local SQLite transcript database."""
+    """Adapter for read-only OpenCode session sources."""
 
     def __init__(
         self,
@@ -65,21 +69,65 @@ class OpenCodeAdapter:
         project_root: Path | None = None,
     ) -> None:
         self.backend = backend
-        self.home_dir = Path.home() if home_dir is None else home_dir
+        self.home_dir = (Path.home() if home_dir is None else home_dir).absolute()
         self.project_root = _normalize_workspace_path(project_root)
+        self._auto_database = database_path is None
+        self._profiles: tuple[Path, ...]
+        self._database_candidates: tuple[Path, ...]
+        if database_path is not None:
+            database_path = database_path.absolute()
+            self._profiles = (database_path.parent,)
+            self._database_candidates = (database_path,)
+        else:
+            self._profiles = self._profile_roots(use_environment=home_dir is None)
+            self._database_candidates = tuple(
+                root / name for root in self._profiles for name in DEFAULT_DATABASE_NAMES
+            )
         self.database_path = database_path or self._find_database()
 
     def list_session_metadata(
         self, *, min_size_kb: int = 0, limit: int | None = None,
         issues: list[Issue] | None = None,
     ) -> list[SessionRecord]:
-        """Read only session metadata from the selected database, not all profiles."""
+        """Read session headers; verify duplicate-format bodies on selection."""
+        sqlite_sessions = self._list_sqlite_metadata(issues)
+        records: dict[str, SessionRecord] = {row["session_id"]: row for row in sqlite_sessions}
+        legacy: dict[str, list[Path]] = {}
+        for profile in self._profiles:
+            for path in legacy_session_paths(profile / "storage"):
+                legacy.setdefault(path.stem, []).append(path)
+        for session_id, paths in legacy.items():
+            if len(paths) > 1:
+                self._issue(issues, "opencode_duplicate_legacy_session", session_id, paths[0])
+                continue
+            path = paths[0]
+            if session_id in records:
+                continue  # The selected SQLite read must corroborate this copy.
+            try:
+                info, _ = legacy_session_info(path, session_id)
+                record = metadata_record(
+                    path, session_id, project_roots=[info["directory"]], source_kind=_LEGACY_KIND,
+                    metadata_paths=[path, path.parent, path.parent.parent],
+                )
+                record["name"] = str(info.get("title") or session_id)
+                stamp = info.get("time")
+                if isinstance(stamp, dict):
+                    record["mtime"] = _epoch_millis(stamp.get("updated") or stamp.get("created")) or record["mtime"]
+                records[session_id] = record
+            except (OSError, OpenCodeSourceError) as exc:
+                self._issue(issues, getattr(exc, "reason_code", "opencode_legacy_unreadable"), str(exc), path)
+        sessions = sorted(
+            (row for row in records.values()
+             if row["size_kb"] >= min_size_kb and self._directory_matches(row.get("cwd"))),
+            key=lambda row: (row["mtime"], row["session_id"]), reverse=True,
+        )
+        return sessions if limit is None else sessions[:limit]
+
+    def _list_sqlite_metadata(self, issues: list[Issue] | None) -> list[SessionRecord]:
         path = self.database_path
         if path is None:
             return []
         try:
-            if path.stat().st_size / 1024 < min_size_kb:
-                return []
             with closing(self._connect()) as db:
                 rows = db.execute(
                     "SELECT id, directory, title, time_created, time_updated "
@@ -87,11 +135,11 @@ class OpenCodeAdapter:
                 ).fetchall()
             sessions: list[SessionRecord] = []
             for session_id, directory, title, created, updated in rows:
-                if not session_id or not self._directory_matches(directory):
+                if not session_id:
                     continue
                 roots = [directory] if isinstance(directory, str) and directory.strip() else []
                 record = metadata_record(
-                    path, str(session_id), project_roots=roots, source_kind="sqlite-session-export",
+                    path, str(session_id), project_roots=roots, source_kind=_SQLITE_KIND,
                     # WAL commits can change session rows without touching the DB.
                     metadata_paths=[path, path.with_name(path.name + "-wal")],
                 )
@@ -104,7 +152,7 @@ class OpenCodeAdapter:
         except (OSError, sqlite3.Error) as exc:
             self._issue(issues, "opencode_database_unreadable", str(exc), path)
             return []
-        return sessions if limit is None else sessions[:limit]
+        return sessions
 
     def list_sessions(
         self,
@@ -114,43 +162,84 @@ class OpenCodeAdapter:
         limit: int | None = None,
         issues: list[Issue] | None = None,
     ) -> list[SessionRecord]:
-        del project_name, min_size_kb
-        if self.database_path is None:
-            return []
-        try:
-            with closing(self._connect()) as db:
-                rows = db.execute(
-                    "SELECT id, directory, title, time_created, time_updated "
-                    "FROM session ORDER BY time_updated DESC, id DESC"
-                ).fetchall()
-        except (OSError, sqlite3.Error) as exc:
-            self._issue(
-                issues, "opencode_database_unreadable", str(exc), self.database_path
-            )
-            return []
+        del project_name
+        return self.list_session_metadata(min_size_kb=min_size_kb, limit=limit, issues=issues)
 
-        sessions: list[SessionRecord] = []
-        for session_id, directory, title, created, updated in rows:
-            if not self._directory_matches(directory):
-                continue
-            mtime = _epoch_millis(updated or created) or datetime.fromtimestamp(
-                self.database_path.stat().st_mtime,
-                tz=timezone.utc,
+    def _legacy_matches(self, session_id: str) -> list[Path]:
+        return [
+            path for profile in self._profiles
+            for path in legacy_session_paths(profile / "storage", session_id)
+        ]
+
+    def session_dependency_paths(self, record: SessionRecord) -> list[Path]:
+        """Selected-source dependencies include each record and its membership."""
+        return self._source_dependencies(record["path"], self._legacy_matches(record["session_id"]), record["session_id"])
+
+    def _source_dependencies(self, path: Path, legacy: list[Path], session_id: str) -> list[Path]:
+        dependencies = [path]
+        for database in self._database_candidates:
+            dependencies.extend((database, database.with_name(database.name + "-wal")))
+        for profile in self._profiles:
+            session_root = profile / "storage" / "session"
+            dependencies.append(session_root)
+            if session_root.is_dir():
+                # An existing bucket can gain another copy of this session.
+                dependencies.extend(bucket for bucket in sorted(session_root.iterdir()) if bucket.is_dir())
+        for legacy_path in legacy:
+            dependencies.extend(legacy_dependencies(legacy_path, session_id))
+        return list(dict.fromkeys(dependencies))
+
+    def _read_source_export(self, path: Path, session_id: str) -> tuple[_SessionExport, str]:
+        path = path.absolute()
+        if self._auto_database and self._find_database() != self.database_path:
+            raise OpenCodeSourceError("opencode_source_dependencies_changed", session_id)
+        legacy = self._legacy_matches(session_id)
+        if len(legacy) > 1:
+            raise OpenCodeSourceError("opencode_duplicate_legacy_session", session_id)
+        if path == self.database_path:
+            kind = _SQLITE_KIND
+        elif path in legacy:
+            kind = _LEGACY_KIND
+        else:
+            raise OpenCodeSourceError("opencode_source_not_discovered", session_id)
+        dependencies = self._source_dependencies(path, legacy, session_id)
+        before = _dependency_state(dependencies)
+        sqlite_export = None
+        if self.database_path is not None and self.database_path.is_file():
+            try:
+                with closing(self._connect()) as db:
+                    sqlite_export = _export_session(db, session_id)
+            except OpenCodeSourceError as exc:
+                if kind == _SQLITE_KIND or exc.reason_code != "opencode_session_not_found":
+                    raise
+            except (OSError, sqlite3.Error) as exc:
+                raise OpenCodeSourceError("opencode_database_unreadable", session_id) from exc
+        legacy_export = None
+        if legacy:
+            source = read_legacy_rows(legacy[0], session_id)
+            legacy_export = _encode_export(
+                source.session, source.messages, source.parts, session_id, native_files=source.files,
             )
-            sessions.append(
-                {
-                    "path": self.database_path,
-                    "name": str(title or session_id),
-                    "session_id": str(session_id),
-                    "size_kb": self.database_path.stat().st_size / 1024,
-                    "size_bytes": self.database_path.stat().st_size,
-                    "size": f"{self.database_path.stat().st_size / 1024:.1f}KB",
-                    "mtime": mtime,
-                    "mtime_ns": self.database_path.stat().st_mtime_ns,
-                    "cwd": str(directory or ""),
-                }
-            )
-        return sessions if limit is None else sessions[:limit]
+            if sqlite_export is not None and not _equivalent_exports(sqlite_export, legacy_export):
+                raise OpenCodeSourceError("opencode_dual_format_conflict", session_id)
+        if (self._legacy_matches(session_id) != legacy
+                or (self._auto_database and self._find_database() != self.database_path)
+                or self._source_dependencies(path, legacy, session_id) != dependencies
+                or _dependency_state(dependencies) != before):
+            raise OpenCodeSourceError("opencode_source_dependencies_changed", session_id)
+        exported = sqlite_export if kind == _SQLITE_KIND else legacy_export
+        if exported is None or not self._directory_matches(exported.session.get("directory")):
+            raise OpenCodeSourceError("opencode_session_not_found", session_id)
+        return exported, kind
+
+    def read_session_source(self, session_path: Path, session_id: str) -> dict[str, Any]:
+        exported, kind = self._read_source_export(session_path, session_id)
+        return {
+            "raw_bytes": exported.raw_bytes,
+            "source_text": exported.source_text,
+            "source_uri": _source_uri(session_path, session_id, kind),
+            "project_roots": [str(exported.session.get("directory") or "")],
+        }
 
     def session_to_observation(
         self,
@@ -161,14 +250,14 @@ class OpenCodeAdapter:
         issues: list[Issue] | None = None,
     ) -> Observation:
         del issues
-        with closing(_connect_readonly(session_path)) as db:
-            exported = _export_session(db, session_id)
+        exported, kind = self._read_source_export(session_path, session_id)
 
         return self._export_to_observation(
             exported,
             session_path,
             session_id,
             project_name,
+            kind,
         )
 
     def _export_to_observation(
@@ -177,6 +266,7 @@ class OpenCodeAdapter:
         session_path: Path,
         session_id: str,
         project_name: str | None,
+        source_kind: str,
     ) -> Observation:
         session = exported.session
 
@@ -231,7 +321,7 @@ class OpenCodeAdapter:
             metadata={
                 "project_name": project_name,
                 "project_root": str(self.project_root) if self.project_root else None,
-                "opencode_database": str(session_path),
+                **({"opencode_database": str(session_path)} if source_kind == _SQLITE_KIND else {}),
                 "opencode_session_id": session_id,
             },
             tags=["session", "opencode"],
@@ -243,29 +333,26 @@ class OpenCodeAdapter:
         session_id: str,
         project_name: str | None = None,
     ) -> TranscriptSyncResult:
-        """Persist one deterministic, complete SQLite session export."""
+        """Persist one deterministic, complete per-session export."""
 
         if self.backend is None:
             raise RuntimeError(
                 "OpenCodeAdapter.sync_session requires an initialized backend"
             )
-        with closing(_connect_readonly(session_path)) as db:
-            exported = _export_session(db, session_id)
+        exported, kind = self._read_source_export(session_path, session_id)
 
         observation = self._export_to_observation(
             exported,
             session_path,
             session_id,
             project_name,
+            kind,
         )
         project_root = str(self.project_root or exported.session.get("directory") or "")
         effective_project_name = project_name or _project_name_from_root(project_root)
         updated = exported.session.get("time_updated")
         mtime_ns = (
             int(updated * 1_000_000) if isinstance(updated, (int, float)) else None
-        )
-        source_uri = (
-            f"{source_uri_from_path(session_path)}#session={quote(session_id, safe='')}"
         )
         return await persist_session_snapshot(
             self.backend,
@@ -274,13 +361,13 @@ class OpenCodeAdapter:
             project_root=project_root,
             client="opencode",
             session_id=session_id,
-            source_kind="sqlite-session-export",
-            source_uri=source_uri,
+            source_kind=kind,
+            source_uri=_source_uri(session_path, session_id, kind),
             source_text=exported.source_text,
             raw_bytes=exported.raw_bytes,
             mtime_ns=mtime_ns,
             sequence_count=exported.sequence_count,
-            parser_version="opencode-sqlite-v1",
+            parser_version="opencode-sqlite-v1" if kind == _SQLITE_KIND else "opencode-legacy-json-v1",
         )
 
     async def ingest(
@@ -293,8 +380,8 @@ class OpenCodeAdapter:
             raise RuntimeError("OpenCodeAdapter.ingest requires an initialized backend")
         if not project_name:
             raise ValueError("project_name is required for OpenCode ingest")
-        sessions = self.list_sessions(project_name, min_size_kb=min_size_kb)
         errors: list[Issue] = []
+        sessions = self.list_sessions(project_name, min_size_kb=min_size_kb, issues=errors)
 
         async def sync_one(session: SessionRecord) -> TranscriptSyncResult:
             return await self.sync_session(
@@ -318,7 +405,7 @@ class OpenCodeAdapter:
             errors.append(
                 {
                     "level": "error",
-                    "code": "session_ingest_failed",
+                    "code": getattr(failure.error, "reason_code", "session_ingest_failed"),
                     "message": f"Failed to ingest OpenCode session {session_id}: {failure.error}",
                     "path": str(failure.session["path"]),
                     "session_id": session_id,
@@ -339,7 +426,11 @@ class OpenCodeAdapter:
             "scan_frontier": scan.frontier.to_dict(),
         }
 
-    def _find_database(self) -> Path | None:
+    def _profile_roots(self, *, use_environment: bool) -> tuple[Path, ...]:
+        if use_environment:
+            native_home = os.environ.get("OPENCODE_HOME")
+            if native_home and (native_profile := Path(native_home).expanduser()).is_absolute():
+                return (native_profile,)
         roots = (
             self.home_dir / ".local" / "share" / "opencode",
             self.home_dir / "AppData" / "Local" / "opencode",
@@ -347,8 +438,13 @@ class OpenCodeAdapter:
             self.home_dir / ".config" / "opencode",
             self.home_dir / ".opencode",
         )
-        candidates = [root / name for root in roots for name in DEFAULT_DATABASE_NAMES]
-        existing = [path for path in candidates if path.is_file()]
+        xdg = os.environ.get("XDG_DATA_HOME") if use_environment else None
+        if xdg and (xdg_path := Path(xdg).expanduser()).is_absolute():
+            return tuple(dict.fromkeys((xdg_path / "opencode", *roots)))
+        return roots
+
+    def _find_database(self) -> Path | None:
+        existing = [path for path in self._database_candidates if path.is_file()]
         return (
             max(existing, key=lambda path: path.stat().st_mtime) if existing else None
         )
@@ -379,7 +475,7 @@ class OpenCodeAdapter:
 
 
 def _connect_readonly(path: Path) -> sqlite3.Connection:
-    connection = sqlite3.connect(f"file:{path.resolve().as_posix()}?mode=ro", uri=True)
+    connection = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
     return connection
 
@@ -391,7 +487,7 @@ def _export_session(db: sqlite3.Connection, session_id: str) -> _SessionExport:
         (session_id,),
     ).fetchone()
     if session_row is None:
-        raise ValueError(f"OpenCode session not found: {session_id}")
+        raise OpenCodeSourceError("opencode_session_not_found", session_id)
     message_rows = db.execute(
         "SELECT * FROM message WHERE session_id = ? ORDER BY time_created, id",
         (session_id,),
@@ -404,8 +500,16 @@ def _export_session(db: sqlite3.Connection, session_id: str) -> _SessionExport:
     session = dict(session_row)
     messages = [dict(row) for row in message_rows]
     parts = [dict(row) for row in part_rows]
+    return _encode_export(session, messages, parts, session_id)
+
+
+def _encode_export(
+    session: dict[str, Any], messages: list[dict[str, Any]], parts: list[dict[str, Any]],
+    session_id: str, *, native_files: dict[str, str] | None = None,
+) -> _SessionExport:
     records = [
-        {"format": "harness-mem-opencode-session-v1", "session_id": session_id},
+        {"format": "harness-mem-opencode-session-v1", "session_id": session_id,
+         **({"native_files": native_files} if native_files is not None else {})},
         {"row": _encode_sqlite_row(session), "table": "session"},
         *({"row": _encode_sqlite_row(row), "table": "message"} for row in messages),
         *({"row": _encode_sqlite_row(row), "table": "part"} for row in parts),
@@ -422,6 +526,46 @@ def _export_session(db: sqlite3.Connection, session_id: str) -> _SessionExport:
         source_text=source_text,
         raw_bytes=source_text.encode("ascii"),
     )
+
+
+def _source_uri(path: Path, session_id: str, kind: str) -> str:
+    uri = source_uri_from_path(path)
+    return f"{uri}#session={quote(session_id, safe='')}" if kind == _SQLITE_KIND else uri
+
+
+def _dependency_state(paths: list[Path]) -> list[tuple[int, int, int] | None]:
+    state: list[tuple[int, int, int] | None] = []
+    for path in paths:
+        try:
+            stamp = path.stat()
+        except FileNotFoundError:
+            state.append(None)
+        else:
+            state.append((stamp.st_mtime_ns, stamp.st_size, stamp.st_ino))
+    return state
+
+
+def _equivalent_exports(sqlite_export: _SessionExport, legacy_export: _SessionExport) -> bool:
+    """The native migration copies the complete message and part JSON data."""
+    database, legacy = sqlite_export.session, legacy_export.session
+    database_dir, legacy_dir = database.get("directory"), legacy.get("directory")
+    if (not isinstance(database_dir, str) or not isinstance(legacy_dir, str)
+            or not Path(database_dir).is_absolute() or not Path(legacy_dir).is_absolute()
+            or os.path.normcase(str(Path(database_dir).resolve())) != os.path.normcase(str(Path(legacy_dir).resolve()))):
+        return False
+    for key, native_key in (("project_id", "projectID"), ("parent_id", "parentID"), ("title", "title")):
+        if key in database and native_key in legacy and database[key] != legacy[native_key]:
+            return False
+    for sql_rows, json_rows in ((sqlite_export.messages, legacy_export.messages), (sqlite_export.parts, legacy_export.parts)):
+        if len(sql_rows) != len(json_rows):
+            return False
+        for sql_row, json_row in zip(sql_rows, json_rows):
+            if any(sql_row.get(key) != json_row.get(key) for key in ("id", "session_id", "message_id")):
+                return False
+            decoded = _decode_json(sql_row.get("data"))
+            if not isinstance(decoded, dict) or json.dumps(decoded, sort_keys=True) != json.dumps(json_row["data"], sort_keys=True):
+                return False
+    return True
 
 
 def _encode_sqlite_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -470,9 +614,12 @@ def _message_tools(parts: list[dict[str, Any]]) -> list[str]:
 
 
 def _epoch_millis(value: object) -> datetime | None:
-    if not isinstance(value, (int, float)) or value <= 0:
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or value <= 0:
         return None
-    return datetime.fromtimestamp(value / 1000, tz=timezone.utc)
+    try:
+        return datetime.fromtimestamp(value / 1000, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
 
 
 def _normalize_workspace_path(path: Path | None) -> str | None:

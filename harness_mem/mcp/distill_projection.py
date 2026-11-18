@@ -19,7 +19,10 @@ DISTILL_SEMANTIC_PROJECTION = "exchange-outline-v1"
 DISTILL_COMPACT_PROJECTION = "exchange-outline-v2"
 DISTILL_INCREMENTAL_PROJECTION = "exchange-projection-lineage-v1"
 
-_TURN_HEADING_RE = re.compile(r"(?m)^## Turn \d+ \([^\n]*\)\s*$")
+_TURN_HEADING_RE = re.compile(
+    r"(?m)^## Turn \d+(?: \([^\n]*\))?[ \t]*\r?\n"
+    r"(?=(?:[ \t]*\r?\n)*(?:User|Assistant|Tool): )"
+)
 _SEMANTIC_EXCHANGE_HEADING_RE = re.compile(r"(?m)^## E\d+\b[^\n]*$")
 _ENTRY_RE = re.compile(r"(?:\A|\n\n)(User|Assistant|Tool): ")
 _EVIDENCE_ANCHOR_RE = re.compile(r"\b[A-Z][A-Z0-9]*(?:[-_][A-Z0-9]+)+\b")

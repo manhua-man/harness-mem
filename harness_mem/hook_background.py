@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import subprocess
 import sys
 import time
 import threading
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Iterator
 from uuid import uuid4
@@ -23,6 +24,7 @@ __all__ = [
     "BackgroundRequest",
     "background_generation_from_env",
     "dispatch_post_turn",
+    "dispatch_bound_continuation",
     "finish_background_worker",
     "heartbeat_background_worker",
     "keep_background_worker_alive",
@@ -58,6 +60,9 @@ class BackgroundRequest:
     trigger_id: str | None
     requested_at: float
     native_transcript_path: str | None = None
+    resume_run_id: str | None = None
+    # One ready-selection decision, never serialized or accepted from disk.
+    cancelled_by_activity: bool = field(default=False, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -116,6 +121,47 @@ def dispatch_post_turn(
     )
 
 
+def dispatch_bound_continuation(
+    data_dir: Path, *, project_root: Path, client: str,
+    trigger_id: str, generation: str, resume_run_id: str,
+    popen: _Popen = subprocess.Popen,
+) -> BackgroundDispatch:
+    """Requeue the same finite task through the existing worker lease."""
+    from harness_mem.hook_receipts import serialize_native_hook_event
+
+    request_path, lock_path = _state_paths(data_dir, project_root=project_root, client=client)
+    with serialize_native_hook_event(data_dir, identity={"dream_resume_queue": str(request_path)}):
+        # The existing queue filename retains the mode even if JSON fields
+        # are removed. A damaged resume request must never degrade to intake.
+        pending = _pending_path(request_path, generation)
+        pending = pending.with_name(pending.name.replace(".pending-", ".pending-resume-", 1))
+        request = BackgroundRequest(
+            generation=generation, project_root=str(project_root.expanduser().resolve()),
+            client=client, source="ide_hook", trigger_id=trigger_id,
+            requested_at=time.time(), resume_run_id=resume_run_id,
+        )
+        if pending.exists():
+            existing = _read_request(pending, project_root=project_root, client=client)
+            if existing != request and (existing is None or
+                    existing.resume_run_id != resume_run_id or existing.trigger_id != trigger_id):
+                raise ValueError("continuation_generation_conflict")
+        else:
+            _write_request(pending, request)
+        # Preserve an existing live owner even if its heartbeat is overdue.
+        # The normal worker handoff will pick up the immutable pointer.
+        from harness_mem.maintenance_lock import _owner_is_alive
+        if lock_path.exists() and _owner_is_alive(lock_path):
+            return BackgroundDispatch(False, True, generation)
+        if not _acquire_lock(lock_path, now=time.time(), owner_generation=generation):
+            return BackgroundDispatch(False, True, generation)
+        try:
+            _spawn_worker(request, popen=popen)
+        except Exception:
+            lock_path.unlink(missing_ok=True)
+            raise
+        return BackgroundDispatch(True, False, generation)
+
+
 def load_background_request(
     data_dir: Path,
     *,
@@ -134,6 +180,7 @@ def load_background_request(
     requests = _pending_requests(request_path, project_root=project_root, client=client)
     if not requests:
         return None
+    cancelled_generations: set[str] = set()
     if ready_only and client in _IDLE_CLIENTS:
         timestamp = time.time() if now is None else now
         latest_by_session: dict[tuple[str, str], BackgroundRequest] = {}
@@ -142,11 +189,18 @@ def load_background_request(
             previous = latest_by_session.get(key)
             if previous is None or _request_order(item) > _request_order(previous):
                 latest_by_session[key] = item
-        eligible = {
-            key for key, item in latest_by_session.items()
-            if timestamp >= item.requested_at + POST_TURN_IDLE_SECONDS
-            or background_request_cancelled(data_dir, item)
-        }
+        eligible = set()
+        for key, item in latest_by_session.items():
+            if item.resume_run_id is not None:
+                eligible.add(key)
+                continue
+            activity = _background_activity_state(data_dir, item, now=timestamp)
+            if activity == "cancel":
+                cancelled_generations.add(item.generation)
+            if activity != "pending" and (
+                activity == "cancel" or timestamp >= item.requested_at + POST_TURN_IDLE_SECONDS
+            ):
+                eligible.add(key)
         requests = [(path, item) for path, item in requests if _session_key(item) in eligible]
         if not requests:
             return None
@@ -159,6 +213,8 @@ def load_background_request(
     _loaded_requests.setdefault(
         (request_path, latest.generation), tuple(path for path, _item in selected)
     )
+    if latest.generation in cancelled_generations:
+        latest = replace(latest, cancelled_by_activity=True)
     return latest
 
 
@@ -170,6 +226,7 @@ def _activity_path(request_path: Path, session_id: str) -> Path:
 def record_background_activity(
     data_dir: Path, *, project_root: Path, client: str,
     session_id: str | None, now: float | None = None,
+    native_transcript_path: str | None = None, native_turn_id: str | None = None,
 ) -> None:
     """Cancel only this session's earlier idle window on a native user turn.
 
@@ -180,26 +237,169 @@ def record_background_activity(
         return
     request_path, _lock_path = _state_paths(data_dir, project_root=project_root, client=client)
     target = _activity_path(request_path, session_id)
+    from harness_mem.hook_receipts import serialize_native_hook_event
+    # Reuse the existing OS lock owner, without creating an event receipt. A
+    # concurrent heartbeat writer must not overwrite a human cancel watermark.
+    with serialize_native_hook_event(data_dir, identity={"background_activity_path": str(target)}):
+        _record_background_activity_locked(
+            target, project_root=project_root, client=client, session_id=session_id,
+            now=now, native_transcript_path=native_transcript_path, native_turn_id=native_turn_id,
+        )
+
+
+def _record_background_activity_locked(
+    target: Path, *, project_root: Path, client: str, session_id: str,
+    now: float | None, native_transcript_path: str | None, native_turn_id: str | None,
+) -> None:
+    timestamp = time.time() if now is None else now
+    try:
+        previous = json.loads(target.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        previous = {}
+    except (OSError, ValueError):
+        previous = {"cancel_at": timestamp}
+    if not isinstance(previous, dict):
+        previous = {"cancel_at": timestamp}
+    if previous and (
+        _activity_number(previous.get("active_at")) is None
+        or ("cancel_at" in previous and _activity_number(previous["cancel_at"]) is None)
+        or ("native_turn" in previous and (
+            _activity_number(previous.get("pending_until")) is None
+            or previous.get("pending_until") != previous.get("active_at", 0) + POST_TURN_IDLE_SECONDS))
+    ):
+        previous = {"cancel_at": timestamp}
+    native = None
+    status = "unknown"
+    heartbeat_at = None
+    if client == "codex" and native_transcript_path:
+        from harness_mem.native_codex_turn import read_native_codex_turn
+        observed = read_native_codex_turn(
+            native_transcript_path, session_id=session_id,
+            project_root=project_root, turn_id=native_turn_id,
+        )
+        if (observed.binding_sha256 and observed.turn_id
+                and (native_turn_id is not None or (
+                    not observed.completed and observed.status == "pending"))):
+            native = {"path": str(Path(native_transcript_path).resolve()),
+                      "turn_id": observed.turn_id, "binding_sha256": observed.binding_sha256}
+            status = observed.status
+            heartbeat_at = observed.heartbeat_at
+    previous_native = previous.get("native_turn")
+    same_turn = native is not None and native == previous_native
+    active_at = _activity_number(previous.get("active_at")) if same_turn else None
+    active_at = timestamp if active_at is None else active_at
+    pending_until = (_activity_number(previous.get("pending_until")) if same_turn else None)
+    if pending_until is None and native is not None:
+        pending_until = active_at + POST_TURN_IDLE_SECONDS
+    if status == "heartbeat" and pending_until is not None and (
+        heartbeat_at is None or heartbeat_at > pending_until
+    ):
+        status = "unknown"
+    cancel_at = _activity_number(previous.get("cancel_at"))
+    previous_at = _activity_number(previous.get("active_at"))
+    if previous_at is not None:
+        old_status = status if same_turn else _native_activity_status(
+            previous_native, project_root=project_root, session_id=session_id,
+            pending_until=_activity_number(previous.get("pending_until")),
+        )
+        # Preserve a cancellation watermark: a later heartbeat cannot erase a
+        # human/unproved activity, including an old pending turn now superseded.
+        if old_status not in {"heartbeat", "pending"} or (
+            old_status == "pending" and timestamp >= previous_at + POST_TURN_IDLE_SECONDS
+        ):
+            cancel_at = max(cancel_at or previous_at, previous_at)
+    if status not in {"heartbeat", "pending"}:
+        cancel_at = max(cancel_at or active_at, active_at)
+    activity: dict[str, Any] = {"active_at": active_at}
+    if native is not None:
+        activity["native_turn"] = native
+    if pending_until is not None:
+        activity["pending_until"] = pending_until
+    if previous_at is not None and previous_at > active_at:
+        # Late-arriving older hooks may add cancellation evidence, but cannot
+        # erase a newer pending lifecycle or move its fixed deadline backward.
+        activity = {key: value for key, value in previous.items() if key != "cancel_at"}
+    if cancel_at is not None:
+        activity["cancel_at"] = cancel_at
     temporary = target.with_name(f".{target.name}.{os.getpid()}.{uuid4().hex}.tmp")
     temporary.write_text(
-        json.dumps({"active_at": time.time() if now is None else now}) + "\n",
+        json.dumps(activity) + "\n",
         encoding="utf-8",
     )
     os.replace(temporary, target)
 
 
-def background_request_cancelled(data_dir: Path, request: BackgroundRequest) -> bool:
+def _activity_number(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return None
+    return float(value)
+
+
+def _native_activity_status(
+    native: Any, *, project_root: Path, session_id: str, pending_until: float | None = None,
+) -> str:
+    if (not isinstance(native, dict) or set(native) != {"path", "turn_id", "binding_sha256"}
+            or any(not isinstance(value, str) or not value for value in native.values())):
+        return "unknown"
+    from harness_mem.native_codex_turn import read_native_codex_turn
+    observed = read_native_codex_turn(
+        native["path"], session_id=session_id, project_root=project_root, turn_id=native["turn_id"],
+    )
+    if observed.binding_sha256 != native["binding_sha256"]:
+        return "unknown"
+    if observed.status == "heartbeat" and pending_until is not None and (
+        observed.heartbeat_at is None or observed.heartbeat_at > pending_until
+    ):
+        return "unknown"
+    return observed.status
+
+
+def _background_activity_state(
+    data_dir: Path, request: BackgroundRequest, *, now: float | None = None,
+) -> str:
     if request.client not in _IDLE_CLIENTS or not request.trigger_id:
-        return False
+        return "none"
     request_path, _lock_path = _state_paths(
         data_dir, project_root=Path(request.project_root), client=request.client,
     )
     try:
         payload = json.loads(_activity_path(request_path, request.trigger_id).read_text(encoding="utf-8"))
-        active_at = float(payload["active_at"])
-    except (OSError, ValueError, TypeError, KeyError):
-        return False
-    return active_at > request.requested_at
+    except FileNotFoundError:
+        return "none"
+    except (OSError, ValueError, TypeError):
+        return "cancel"
+    if not isinstance(payload, dict):
+        return "cancel"
+    active_at = _activity_number(payload.get("active_at"))
+    cancel_at = _activity_number(payload.get("cancel_at"))
+    pending_until = _activity_number(payload.get("pending_until"))
+    if (active_at is None or ("cancel_at" in payload and cancel_at is None)
+            or ("native_turn" in payload and pending_until is None)
+            or ("pending_until" in payload and pending_until != active_at + POST_TURN_IDLE_SECONDS)):
+        return "cancel"
+    if cancel_at is not None and cancel_at > request.requested_at:
+        return "cancel"
+    if active_at <= request.requested_at:
+        return "none"
+    status = (_native_activity_status(payload.get("native_turn"),
+        project_root=Path(request.project_root), session_id=request.trigger_id, pending_until=pending_until)
+        if request.client == "codex" else "unknown")
+    if status == "heartbeat":
+        return "none"
+    timestamp = time.time() if now is None else now
+    if status == "pending" and timestamp < active_at + POST_TURN_IDLE_SECONDS:
+        return "pending"
+    return "cancel"
+
+
+def background_request_cancelled(
+    data_dir: Path, request: BackgroundRequest, *, now: float | None = None,
+) -> bool:
+    if request.resume_run_id is not None:
+        return False  # This task already passed its original idle window.
+    if request.cancelled_by_activity:
+        return True
+    return _background_activity_state(data_dir, request, now=now) == "cancel"
 
 
 def wait_for_background_request(
@@ -227,6 +427,12 @@ def wait_for_background_request(
 def _read_request(path: Path, *, project_root: Path, client: str) -> BackgroundRequest | None:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
+        if ".pending-resume-" in path.name and "resume_run_id" not in payload:
+            return None
+        if "resume_run_id" in payload and (
+            not isinstance(payload["resume_run_id"], str) or not payload["resume_run_id"].strip()
+        ):
+            return None  # A malformed resume pointer must never become intake.
         request = BackgroundRequest(
             generation=str(payload["generation"]),
             project_root=str(payload["project_root"]),
@@ -240,6 +446,7 @@ def _read_request(path: Path, *, project_root: Path, client: str) -> BackgroundR
             requested_at=float(payload["requested_at"]),
             native_transcript_path=(str(payload["native_transcript_path"])
                                     if payload.get("native_transcript_path") else None),
+            resume_run_id=payload.get("resume_run_id"),
         )
     except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError):
         return None
@@ -254,6 +461,8 @@ def _request_order(request: BackgroundRequest) -> tuple[float, str]:
 
 
 def _session_key(request: BackgroundRequest) -> tuple[str, str]:
+    if request.resume_run_id is not None:
+        return "dream-resume", request.resume_run_id
     identity = request.trigger_id
     if not identity or identity in {"codex-stop", "antigravity-stop", "hermes-post-llm"}:
         # These adapter defaults do not identify a native conversation.
@@ -403,6 +612,8 @@ def _write_request(path: Path, request: BackgroundRequest) -> None:
         "requested_at": request.requested_at,
         "native_transcript_path": request.native_transcript_path,
     }
+    if request.resume_run_id is not None:
+        payload["resume_run_id"] = request.resume_run_id
     temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
     temporary.write_text(
         json.dumps(payload, ensure_ascii=True, sort_keys=True) + "\n",
@@ -446,10 +657,16 @@ def _acquire_lock(path: Path, *, now: float, owner_generation: str | None = None
 
 
 def _spawn_worker(request: BackgroundRequest, *, popen: _Popen) -> None:
+    # Preserve this caller's runtime owner. The workspace and inherited Python
+    # environment must not select another harness_mem package for its child.
+    runtime_root = str(Path(__file__).resolve().parents[1])
     command = [
         sys.executable,
-        "-m",
-        "harness_mem.host_entry.__main__",
+        "-I",
+        "-c",
+        "import runpy,sys;sys.path.insert(0,sys.argv.pop(1));"
+        "runpy.run_module('harness_mem.host_entry.__main__',run_name='__main__')",
+        runtime_root,
         "--action",
         "post-turn-maintenance",
         "--project-root",

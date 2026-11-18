@@ -24,7 +24,8 @@ from harness_mem.commands.dream import (
 from harness_mem.commands.dream_assimilation import (
     DreamAssimilationCandidate,
     prepare_dream_assimilation,
-    validate_dream_assimilation_decision,
+    build_dream_maintenance_plan,
+    apply_dream_assimilation,
 )
 from harness_mem.autonomous.models import (
     AssimilationDecision as ProviderAssimilationDecision,
@@ -140,7 +141,14 @@ class _DreamVerificationProvider:
                 "candidate_index": int(candidate["candidate_index"]),
                 "semantic_support": self.support,
                 "future_scope": self.scope,
-                "reason": "Current source was checked against the statement.",
+                "source_use": "standing_decision" if self.scope == "durable" else "task_context",
+                "reason": "Current source was checked against the actual title and statement.",
+                "scope_segments": [{
+                    "text": candidate["scope_text"],
+                    "source_use": "standing_decision" if self.scope == "durable" else "task_context",
+                    "future_scope": self.scope, "standalone": True,
+                    "content_role": "claim", "source_support": self.support,
+                }],
             }
             for candidate in manifest["candidates"]
         ]
@@ -164,8 +172,12 @@ class _DreamVerificationProvider:
         self.assimilation_manifests.append(manifest)
         points = []
         candidates = list(manifest["verified_candidates"])
-        survivor_handle = str(candidates[0]["own_truth_handle"])
+        survivor_handle = str(candidates[0].get("own_truth_handle", ""))
         for index, candidate in enumerate(candidates):
+            if manifest.get("maintenance_candidates"):
+                points.append({"candidate_id": candidate["candidate_id"], "disposition": "no_write",
+                               "reason": "This fixture proposes no corrected replacement for the original row."})
+                continue
             support = str(candidate["semantic_support"])
             own_handle = str(candidate["own_truth_handle"])
             if support == "contradicted":
@@ -259,7 +271,12 @@ def test_hook_dream_passes_its_selected_cli_to_session_distill(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     selected = _DreamVerificationProvider()
+    # This test replaces both worker and Dream with in-process fakes. Native
+    # production readiness is separately covered and remains fail-closed.
+    monkeypatch.setattr(dream_module, "background_status", lambda *_args, **_kwargs:
+        SimpleNamespace(ready=True, on=True, reason="ok", selected_cli="fake"))
     captured: dict[str, Any] = {}
+    monkeypatch.setattr("harness_mem.hook_background.background_generation_from_env", lambda: "later-stop-generation")
 
     from harness_mem.autonomous.executors import registry as executor_registry
 
@@ -271,10 +288,13 @@ def test_hook_dream_passes_its_selected_cli_to_session_distill(
 
     def fake_worker(_backend, **kwargs):
         captured.update(kwargs)
-        return {"success": True, "state": "succeeded", "outcomes": []}
+        return {"success": True, "state": "succeeded", "outcomes": [], "receipt": {
+            "last_verified_completion": {"job_id": "job-42", "session_id": "session-42",
+                "trigger_id": "session-42", "dispatch_generation": "original-paid-generation"}}}
 
     async def fake_dream_run(*_args, **kwargs):
-        captured["dream_provider"] = kwargs["semantic_provider"]
+        captured["dream_host"] = kwargs["host_client"]
+        captured["dream_scope"] = kwargs["maintenance_scope"]
         now = datetime.now(timezone.utc)
         return DreamRun(
             project_name="demo",
@@ -305,11 +325,15 @@ def test_hook_dream_passes_its_selected_cli_to_session_distill(
         )
     )
 
-    assert result["success"] is True
+    assert result["success"] is True, result
     assert result["session_distill"]["job_id"] == "job-42"
     assert captured["provider"] is None
     assert captured["preferred_job_id"] == "job-42"
     assert captured["client"] == "codex"
+    assert captured["dream_host"] == "codex"
+    assert captured["dream_scope"]["trigger_id"] == "session-42"
+    assert captured["dispatch_generation"] == "later-stop-generation"
+    assert captured["dream_scope"]["dispatch_generation"] == "original-paid-generation"
 
 
 def test_hook_dream_uses_job_host_when_project_selects_another_cli(
@@ -318,6 +342,10 @@ def test_hook_dream_uses_job_host_when_project_selects_another_cli(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     selected = _DreamVerificationProvider()
+    # This test replaces both worker and Dream with in-process fakes. Native
+    # production readiness is separately covered and remains fail-closed.
+    monkeypatch.setattr(dream_module, "background_status", lambda *_args, **_kwargs:
+        SimpleNamespace(ready=True, on=True, reason="ok", selected_cli="fake"))
     captured: dict[str, Any] = {}
 
     from harness_mem.autonomous.executors import registry as executor_registry
@@ -440,7 +468,11 @@ def test_dream_compares_and_deduplicates_source_backed_current_knowledge(
     )
 
     candidates = _run(store.list_candidates("demo"))
-    assert [item.final_action for item in run.items] == ["applied", "applied"]
+    # Stale and duplicate signals share one verification batch. Count actual
+    # mutations rather than assuming there is only one signal group.
+    deleted = [item for item in run.items if item.result.get("truth_change") == "deleted"]
+    assert len(deleted) == 1 and deleted[0].source_id == "knowledge-second"
+    assert all(item.final_action in {"applied", "skipped"} for item in run.items)
     assert candidates == []
     assert _run(
         store.get_entry("knowledge-first", project_name="demo", project_root=project_root)
@@ -448,8 +480,7 @@ def test_dream_compares_and_deduplicates_source_backed_current_knowledge(
     assert _run(
         store.get_entry("knowledge-second", project_name="demo", project_root=project_root)
     ) is None
-    assert run.items[1].result["truth_change"] == "deleted"
-    assert "undo" not in run.items[1].to_dict()
+    assert "undo" not in deleted[0].to_dict()
 
 
 def test_dream_archives_multi_entry_conflict_without_selecting_a_winner(
@@ -520,6 +551,19 @@ def test_dream_compares_source_backed_conflict_and_rejects_a_guess(
     first, second = current
 
     class _ConflictProvider(_DreamVerificationProvider):
+        def verify(self, manifest, *, runtime_dir, heartbeat=None):
+            result = super().verify(manifest, runtime_dir=runtime_dir, heartbeat=heartbeat)
+            # Both source accounts exist, but the complete sources do not
+            # settle which incompatible rule is currently applicable.
+            for point in result.decision.points:
+                point.future_scope = "unclear"
+                point.source_use = "unclear"
+                point.reason = "Both cited accounts exist; current applicability is unresolved."
+                for part in point.scope_segments:
+                    part.future_scope = "unclear"
+                    part.source_use = "unclear"
+            return result
+
         def assimilate(self, manifest, *, runtime_dir, heartbeat=None):
             del runtime_dir, heartbeat
             self.assimilation_manifests.append(manifest)
@@ -564,7 +608,8 @@ def test_dream_compares_source_backed_conflict_and_rejects_a_guess(
         )
     )
 
-    assert [item.final_action for item in run.items] == ["rejected", "rejected"]
+    assert {item.source_id for item in run.items} == {first.id, second.id}
+    assert all(item.final_action == "rejected" for item in run.items)
     assert _run(
         store.get_entry(first.id, project_name="demo", project_root=project_root)
     ) == first
@@ -572,7 +617,8 @@ def test_dream_compares_source_backed_conflict_and_rejects_a_guess(
         store.get_entry(second.id, project_name="demo", project_root=project_root)
     ) == second
     assert _run(store.list_candidates("demo")) == []
-    assert len(provider.assimilation_manifests) == 1
+    assert len(provider.manifests) == 1
+    assert provider.assimilation_manifests == []
 
 
 def test_dream_archives_aged_claim_and_negative_feedback_without_profile(
@@ -657,7 +703,7 @@ def test_dream_refreshes_one_reopenable_entry_with_restricted_provider(
     assert refreshed.statement == entry.statement
     assert refreshed.verified_at is not None and refreshed.verified_at > entry.verified_at
     assert _run(store.list_candidates("demo")) == []
-    assert provider.manifests[0]["source_excerpts"][0]["content"] == entry.statement
+    assert provider.manifests[0]["candidates"][0]["sources"][0]["content"] == entry.statement
     assert "file:" not in str(provider.manifests[0])
 
 
@@ -720,48 +766,68 @@ def test_dream_refines_changed_local_source_through_assimilation(
     source_path = project_root / "source.md"
     source_path.write_text(new_statement, encoding="utf-8")
 
+    from harness_mem.commands.separated_assimilation import target_version
+    predecessor_version = target_version({
+        "title": entry.title,
+        "statement": old_statement,
+        "topic_path": list(entry.module_path),
+        "source_report": None,
+    })
+
     class _RefiningProvider(_DreamVerificationProvider):
         def __init__(self) -> None:
             super().__init__(support="contradicted")
+            self.phases = []
+
+        def verify(self, manifest, *, runtime_dir, heartbeat=None):
+            from dataclasses import replace
+
+            result = super().verify(manifest, runtime_dir=runtime_dir, heartbeat=heartbeat)
+            candidate = manifest["candidates"][0]
+            if manifest["contract_version"] == "final-knowledge-scope-v1":
+                self.phases.append("final")
+                context = candidate["update_context"]
+                assert candidate["statement"] == new_statement
+                assert candidate["sources"][0]["content"] == new_statement
+                assert context["predecessors"][0]["statement"] == old_statement
+                assert context["predecessors"][0]["version"] == predecessor_version
+                meaning = {
+                    "relationship": "preserves_applicable_meaning", "predecessor_conditions": [],
+                    "predecessor_statements": [old_statement], "predecessor_versions": [predecessor_version],
+                    "successor_statements": [new_statement], "undecided_state": None,
+                    "basis": "The reopened source explicitly corrects seven days to thirty days.",
+                }
+                return replace(result, decision=CandidateVerificationDecision.model_validate({"points": [{
+                    "candidate_index": 0, "semantic_support": "supported", "future_scope": "durable",
+                    "source_use": "standing_decision", "reason": "The final corrected title and statement match current source.",
+                    "scope_segments": [{"text": candidate["scope_text"], "source_use": "standing_decision",
+                        "future_scope": "durable", "standalone": True, "content_role": "claim", "source_support": "supported"}],
+                    "update_meaning_judgment": meaning,
+                }]}))
+            self.phases.append("source")
+            assert candidate["statement"] == old_statement
+            assert candidate["sources"][0]["content"] == new_statement
+            snapshot = candidate["target_snapshot"]
+            assert snapshot["statement"] == old_statement
+            assert snapshot["version"] == predecessor_version
+            assert result.decision.points[0].semantic_support == "contradicted"
+            assert result.decision.points[0].replacement_items == []
+            self.source_result = result
+            return result
 
         def assimilate(self, manifest, *, runtime_dir, heartbeat=None):
-            del runtime_dir, heartbeat
+            from dataclasses import replace
+            self.phases.append("proposal")
             self.assimilation_manifests.append(manifest)
             candidate = manifest["verified_candidates"][0]
-            return ProviderResult(
-                decision=ProviderAssimilationDecision.model_validate(
-                    {
-                        "points": [
-                            {
-                                "candidate_id": candidate["candidate_id"],
-                                "disposition": "refine",
-                                "matched_truth_handles": [candidate["own_truth_handle"]],
-                                "canonical_title": None,
-                                "canonical_statement": None,
-                                "topic_path": [],
-                                "knowledge_items": [
-                                    {
-                                        "title": "Retention window",
-                                        "statement": new_statement,
-                                        "topic_path": ["retention"],
-                                        "claim_kind": "implementation_fact",
-                                    }
-                                ],
-                                "reason": "The re-opened repository source now states thirty days.",
-                            }
-                        ]
-                    }
-                ),
-                provider=self.name,
-                model="test-model",
-                duration_seconds=0.01,
-                input_sha256="e" * 64,
-                response_sha256="f" * 64,
-                input_tokens=1,
-                output_tokens=1,
-                total_tokens=2,
-                event_count=1,
-            )
+            assert candidate["semantic_support"] == "contradicted"
+            return replace(self.source_result, decision=ProviderAssimilationDecision.model_validate({"points": [{
+                "candidate_id": candidate["candidate_id"], "disposition": "refine",
+                "matched_truth_handles": [manifest["current_truth"][0]["handle"]],
+                "knowledge_items": [{"title": "Retention window", "statement": new_statement,
+                    "topic_path": ["retention"], "claim_kind": "implementation_fact"}],
+                "reason": "Propose the exact current-source correction without a final semantic verdict.",
+            }]}))
 
     provider = _RefiningProvider()
     run = _run(
@@ -780,8 +846,10 @@ def test_dream_refines_changed_local_source_through_assimilation(
     assert _run(store.get_entry(entry.id, project_name="demo")) is None
     assert run.items[0].final_action == "applied"
     assert run.items[0].result["truth_change"] == "refine"
-    assert provider.manifests[0]["source_excerpts"][0]["content"] == new_statement
-    assert provider.assimilation_manifests[0]["source_excerpts"][0]["content"] == new_statement
+    assert len(provider.manifests) == 2
+    assert provider.manifests[0]["candidates"][0]["sources"][0]["content"] == new_statement
+    assert len(provider.assimilation_manifests) == 1
+    assert provider.phases == ["source", "proposal", "final"]
     current_sources = _run(store.list_sources(current[0].id))
     assert current_sources[0].content_sha256 == hashlib.sha256(
         new_statement.encode("utf-8")
@@ -789,78 +857,200 @@ def test_dream_refines_changed_local_source_through_assimilation(
     assert _run(store.list_candidates("demo")) == []
 
 
-def test_dream_replace_can_target_multiple_current_rows() -> None:
-    first = KnowledgeEntry(
-        id="dream-old-one",
-        project_name="demo",
-        title="Old one",
-        statement="The first old rule is no longer correct.",
-        module_path=["rules"],
-    )
-    second = KnowledgeEntry(
-        id="dream-old-two",
-        project_name="demo",
-        title="Old two",
-        statement="The second old rule is no longer correct.",
-        module_path=["rules"],
-    )
-    prepared = prepare_dream_assimilation(
-        project_name="demo",
-        project_root=".",
-        run_id="dream-multi-target",
-        signal_kind="conflict",
-        candidates=[
-            DreamAssimilationCandidate(
-                candidate_id="candidate-one",
-                entry=first,
-                sources=(),
-                semantic_support="contradicted",
-                future_scope="durable",
-                verification_reason="The source contradicts the old rule.",
-                source_excerpts=(),
-            ),
-            DreamAssimilationCandidate(
-                candidate_id="candidate-two",
-                entry=second,
-                sources=(),
-                semantic_support="contradicted",
-                future_scope="durable",
-                verification_reason="The source contradicts the old rule.",
-                source_excerpts=(),
-            ),
-        ],
-    )
-    decision = ProviderAssimilationDecision.model_validate(
-        {
-            "points": [
-                {
-                    "candidate_id": "candidate-one",
-                    "disposition": "replace",
-                    "matched_truth_handles": ["T1", "T2"],
-                    "knowledge_items": [
-                        {
-                            "title": "Current combined rule",
-                            "statement": "The two old rules are replaced by one clear rule.",
-                            "topic_path": ["rules"],
-                            "claim_kind": "implementation_fact",
-                        }
-                    ],
-                    "reason": "Both old rows are contradicted by the same source.",
-                },
-                {
-                    "candidate_id": "candidate-two",
-                    "disposition": "no_write",
-                    "matched_truth_handles": [],
-                    "reason": "Its row is handled by the combined replacement.",
-                },
-            ]
-        }
-    )
+def _prepared_multi_target_replacement(backend):
+    from harness_mem.autonomous.models import CandidateVerificationPoint, UpdateMeaningJudgment
+    from harness_mem.commands.separated_assimilation import target_version
 
-    plan = validate_dream_assimilation_decision(prepared, decision)
+    first = KnowledgeEntry(id="dream-old-one", project_name="demo", title="Old Alpha rule",
+        statement="Alpha cache stays local while the sample is signed.", module_path=["rules"])
+    second = KnowledgeEntry(id="dream-old-two", project_name="demo", title="Old Beta decision",
+        statement="Beta rollout remains undecided.", module_path=["rules"])
+    root, current = _publish_current_knowledge(backend, first, second)
+    by_id = {row.id: row for row in current}
+    current = [by_id[first.id], by_id[second.id]]
+    items = [
+        {"title": "Signed Alpha cache", "statement": first.statement,
+         "topic_path": ["rules"], "claim_kind": "implementation_fact"},
+        {"title": "Undecided Beta rollout", "statement": second.statement,
+         "topic_path": ["rules"], "claim_kind": "design_requirement"},
+    ]
+    meaning = UpdateMeaningJudgment(relationship="preserves_applicable_meaning",
+        predecessor_conditions=["while the sample is signed"],
+        undecided_state=second.statement, successor_statements=[item["statement"] for item in items],
+        predecessor_statements=[row.statement for row in current],
+        predecessor_versions=[target_version({"title": row.title, "statement": row.statement,
+            "topic_path": list(row.module_path), "source_report": None}) for row in current],
+        basis="Both exact old rows, their condition and undecided state remain in the two outputs.")
+    candidates = []
+    for index, row in enumerate(current):
+        segment = {"text": row.title + "\n" + row.statement, "source_use": "standing_decision",
+            "future_scope": "durable", "standalone": True, "content_role": "claim", "source_support": "supported"}
+        proposal = {"candidate_index": index, "semantic_support": "supported", "future_scope": "durable",
+            "source_use": "standing_decision", "reason": "The complete current source and proposed output were checked.",
+            "scope_segments": [segment]}
+        if index == 0:
+            proposal.update(replacement_items=items, replacement_target_ids=[entry.id for entry in current],
+                update_meaning_judgment=meaning.model_dump(mode="json"),
+                output_verifications=[{"semantic_support": "supported", "future_scope": "durable",
+                    "source_use": "standing_decision", "reason": "This exact final title and body keep the whole replacement meaning.",
+                    "scope_segments": [{**segment, "text": item["title"] + "\n" + item["statement"]}],
+                    "update_meaning_judgment": meaning.model_dump(mode="json")} for item in items])
+        point = CandidateVerificationPoint.model_validate(proposal)
+        candidates.append(DreamAssimilationCandidate(candidate_id=f"candidate-{index}", entry=row,
+            sources=tuple(_run(backend.structured_store.knowledge_store.list_sources(row.id))),
+            semantic_support="supported", future_scope="durable", verification_reason=point.reason,
+            source_excerpts=(), scope_verification=point))
+    # The owner is deliberately after the other target: execution must reorder it.
+    prepared = prepare_dream_assimilation(project_name="demo", project_root=root,
+        run_id="dream-multi-target", signal_kind="stale", candidates=list(reversed(candidates)))
+    return root, current, items, prepared
 
-    assert plan[0]["matched_truth_ids"] == [first.id, second.id]
 
+def test_dream_replace_can_target_multiple_current_rows(backend) -> None:
+    from harness_mem.read_knowledge import search_current_knowledge
+
+    root, current, items, prepared = _prepared_multi_target_replacement(backend)
+    plan = build_dream_maintenance_plan(prepared)
+    assert plan[0]["candidate_id"] == "candidate-0"
+    assert plan[0]["matched_truth_ids"] == [row.id for row in current]
+    assert len(plan) == len(current) == 2
+    outcomes = _run(apply_dream_assimilation(backend, prepared=prepared, plan=plan))
+    assert len(outcomes) == 2
+    assert all(outcome["status"] == "applied" for outcome in outcomes), outcomes
+    assert sum(outcome.get("truth_change") == "covered_by_replacement" for outcome in outcomes) == 1
+    store = backend.structured_store.knowledge_store
+    rows = _run(store.list_entries("demo"))
+    assert len(rows) == 2
+    assert {row.statement for row in rows} == {item["statement"] for item in items}
+    assert not {row.id for row in current}.intersection(row.id for row in rows)
+    expected = {row.id: row.to_dict() for row in rows}
+    _run(backend.close())
+    fresh = _run(_new_backend(backend.data_dir))
+    try:
+        assert {row.id: row.to_dict() for row in _run(fresh.structured_store.knowledge_store.list_entries("demo"))} == expected
+        for query, title in (("Alpha cache", "Signed Alpha cache"), ("Beta rollout", "Undecided Beta rollout")):
+            found = _run(search_current_knowledge(fresh, project_name="demo", query=query, limit=20))
+            assert title in {row.title for row in found}
+            assert not {row.id for row in current}.intersection(row.id for row in found)
+    finally:
+        _run(fresh.close())
+
+
+def test_v9_joint_replacement_uses_separate_proposal_and_final_verification(backend):
+    from dataclasses import replace
+    from harness_mem.autonomous.models import UpdateMeaningJudgment
+
+    old = [KnowledgeEntry(id="joint-alpha", project_name="demo", title="Legacy policy",
+                         statement="Alpha cache stays local while the sample is signed.", module_path=["rules"]),
+           KnowledgeEntry(id="joint-beta", project_name="demo", title="Legacy policy",
+                         statement="Beta rollout remains undecided.", module_path=["rules"])]
+    root, current = _publish_current_knowledge(backend, *old)
+    outputs = [{"title": "Signed Alpha cache", "statement": old[0].statement,
+                "topic_path": ["rules"], "claim_kind": "implementation_fact"},
+               {"title": "Undecided Beta rollout", "statement": old[1].statement,
+                "topic_path": ["rules"], "claim_kind": "design_requirement"}]
+
+    class JointProvider(_DreamVerificationProvider):
+        def __init__(self):
+            super().__init__(support="supported")
+            self.phases = []
+
+        def verify(self, manifest, *, runtime_dir, heartbeat=None):
+            result = super().verify(manifest, runtime_dir=runtime_dir, heartbeat=heartbeat)
+            final = manifest["contract_version"] == "final-knowledge-scope-v1"
+            self.phases.append("final" if final else "source")
+            if not final:
+                self.source_result = result
+                # Whole-row support is partial; its complete durable body can
+                # still become proposed output after correcting the title.
+                return replace(result, decision=CandidateVerificationDecision.model_validate({"points": [
+                    {**point.model_dump(mode="json"), "semantic_support": "partial", "scope_segments": [{
+                        **point.scope_segments[0].model_dump(mode="json"), "source_support": "supported"}]}
+                    for point in result.decision.points]}))
+            points = []
+            for row in manifest["candidates"]:
+                context = row["update_context"]
+                meaning = UpdateMeaningJudgment(relationship="preserves_applicable_meaning",
+                    predecessor_conditions=["while the sample is signed"], undecided_state=old[1].statement,
+                    predecessor_statements=[item["statement"] for item in context["predecessors"]],
+                    predecessor_versions=[item["version"] for item in context["predecessors"]],
+                    successor_statements=[item["statement"] for item in context["successors"]],
+                    basis="Both corrected topics retain the signed condition and explicitly undecided state.")
+                points.append({"candidate_index": row["candidate_index"], "semantic_support": "supported",
+                    "future_scope": "durable", "source_use": "standing_decision",
+                    "reason": "The exact final output and whole joint update match complete original sources.",
+                    "scope_segments": [{"text": row["scope_text"], "source_use": "standing_decision",
+                        "future_scope": "durable", "standalone": True, "content_role": "claim", "source_support": "supported"}],
+                    "update_meaning_judgment": meaning.model_dump(mode="json")})
+            return replace(result, decision=CandidateVerificationDecision.model_validate({"points": points}))
+
+        def assimilate(self, manifest, *, runtime_dir, heartbeat=None):
+            self.phases.append("proposal")
+            self.assimilation_manifests.append(manifest)
+            candidates = manifest["verified_candidates"]
+            points = [{"candidate_id": candidates[0]["candidate_id"], "disposition": "replace",
+                       "matched_truth_handles": [item["handle"] for item in manifest["current_truth"]],
+                       "knowledge_items": outputs, "reason": "Propose one joint replacement preserving both topics."}]
+            points.extend({"candidate_id": item["candidate_id"], "disposition": "no_write",
+                           "reason": "The owning proposal replaces this target in the same transaction."}
+                          for item in candidates[1:])
+            return replace(self.source_result, decision=ProviderAssimilationDecision.model_validate({"points": points}))
+
+    provider = JointProvider()
+    run = _run(dream_once(backend, project_name="demo", project_root=root, config=None,
+                          source="agent", semantic_provider=provider))
+    rows = _run(backend.structured_store.knowledge_store.list_entries("demo"))
+    assert {row.title for row in rows} == {item["title"] for item in outputs}
+    assert not {row.id for row in current}.intersection(row.id for row in rows)
+    assert provider.phases == ["source", "proposal", "final"]
+    assert any(item.result.get("truth_change") == "replace" for item in run.items)
+    assert any(item.result.get("truth_change") == "covered_by_replacement" for item in run.items)
+    assert run.continuation["unresolved_scope"] == {}
+    assert run.resolution_status == "resolved"
+
+
+def test_dream_multi_target_cas_failure_writes_no_partial_outputs(backend, monkeypatch):
+    root, current, _items, prepared = _prepared_multi_target_replacement(backend)
+    plan = build_dream_maintenance_plan(prepared)
+    structured = backend.structured_store
+    original_commit = structured.apply_canonical_payload_transaction
+    competing = current[1].model_copy(update={"title": "Concurrent Beta title correction"})
+    intercepted = []
+
+    def race(*, idempotency_key, mutations):
+        if idempotency_key.startswith("knowledge-change:") and not intercepted:
+            intercepted.append(idempotency_key)
+            original_commit(idempotency_key="fixture-concurrent-target-update", mutations=[{
+                "operation": "upsert", "collection": "knowledge_entries", "entity_id": competing.id,
+                "project_name": "demo", "payload": competing.to_dict(),
+                "expected_sha256": structured.record_payload_sha256("knowledge_entries", competing.id, project_name="demo"),
+            }])
+        return original_commit(idempotency_key=idempotency_key, mutations=mutations)
+
+    monkeypatch.setattr(structured, "apply_canonical_payload_transaction", race)
+    outcomes = _run(apply_dream_assimilation(backend, prepared=prepared, plan=plan))
+    assert len(intercepted) == 1
+    assert len(outcomes) == 2 and all(row["status"] != "applied" for row in outcomes), outcomes
+    rows = _run(structured.knowledge_store.list_entries("demo"))
+    assert {row.id: row.to_dict() for row in rows} == {
+        current[0].id: current[0].to_dict(), competing.id: competing.to_dict()}
+
+
+def test_dream_overlapping_multi_target_proposals_keep_all_current_rows(backend):
+    from dataclasses import replace
+
+    _root, current, _items, prepared = _prepared_multi_target_replacement(backend)
+    owner = next(row for row in prepared.candidates if row.candidate_id == "candidate-0")
+    competing = next(row for row in prepared.candidates if row.candidate_id == "candidate-1")
+    competing = replace(competing, scope_verification=owner.scope_verification.model_copy(
+        update={"candidate_index": 1}))
+    prepared = replace(prepared, candidates=(owner, competing))
+    plan = build_dream_maintenance_plan(prepared)
+    assert len(plan) == 2 and all(point["disposition"] == "no_write" for point in plan)
+    outcomes = _run(apply_dream_assimilation(backend, prepared=prepared, plan=plan))
+    assert len(outcomes) == 2 and all(row["status"] != "applied" for row in outcomes)
+    rows = _run(backend.structured_store.knowledge_store.list_entries("demo"))
+    assert {row.id: row.to_dict() for row in rows} == {row.id: row.to_dict() for row in current}
 
 def test_dream_never_retires_knowledge_from_a_truncated_source_excerpt(
     backend,
@@ -885,6 +1075,16 @@ def test_dream_never_retires_knowledge_from_a_truncated_source_excerpt(
     )
     entry = current[0]
 
+    from dataclasses import replace
+    real_reopen = dream_module.reopen_dream_knowledge_sources
+
+    async def bounded_reopen(*args, **kwargs):
+        validation, reopened, effective = await real_reopen(*args, **kwargs)
+        assert reopened and len(reopened[0].content) > 16000
+        return validation, tuple(replace(item, content=item.content[:16000], truncated=True)
+                                 for item in reopened), effective
+
+    monkeypatch.setattr(dream_module, "reopen_dream_knowledge_sources", bounded_reopen)
     provider = _DreamVerificationProvider(support="contradicted")
     run = _run(
         dream_once(
@@ -1321,6 +1521,9 @@ def test_dream_wall_clock_timeout_fails_job_and_records_tick(
 
     monkeypatch.setattr(dream_module, "dream_scheduler_decision", always_eligible)
     monkeypatch.setattr(dream_module, "dream_once", blocked_dream)
+    # The fake blocks before any native request; no 300-second provider window
+    # exists here. Keep the original one-second outer-watchdog assertion.
+    monkeypatch.setattr(dream_module, "_verification_runtime_seconds", lambda _provider: 0)
 
     payload = _run(
         dream_auto_tick(
@@ -1334,7 +1537,7 @@ def test_dream_wall_clock_timeout_fails_job_and_records_tick(
     )
 
     assert payload["status"] == "failed"
-    assert payload["error"] == "dream runtime exceeded max_runtime_seconds"
+    assert payload["error"] == "dream slice watchdog exceeded scheduling plus native decision runtime"
     assert payload["tick_receipt"] == {"state": "recorded"}
     jobs = backend.reflection_job_store.list(project_name="demo", kind="dream")
     assert len(jobs) == 1
@@ -1345,7 +1548,7 @@ def test_dream_wall_clock_timeout_fails_job_and_records_tick(
     assert len(runs) == 1
     assert runs[0].status == "failed"
     assert runs[0].completed_at is not None
-    assert "dream runtime exceeded" in " ".join(runs[0].notes or [])
+    assert "dream slice watchdog exceeded" in " ".join(runs[0].notes or [])
 
 
 def test_post_turn_stages_before_waking_dream_with_embeddings_disabled(

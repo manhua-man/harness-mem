@@ -26,6 +26,11 @@ from harness_mem.autonomous.hook_guard import (
 from harness_mem.autonomous.provider import ProviderError, _classify_failure
 
 
+# Accounting/cancellation only. This never extends a turn/start deadline and
+# permits no new model dispatch. Process reaping retains its existing bound.
+_CANCEL_DRAIN_SECONDS = 2.0
+
+
 def _sha(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
@@ -111,7 +116,8 @@ class CodexAppServer:
             heartbeat()
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise ProviderError("Codex app-server call deadline exceeded", kind="transient")
+            raise ProviderError("Codex app-server call deadline exceeded", kind="transient",
+                                failure_reason="native_request_deadline_exceeded")
         return min(self.poll_seconds, remaining)
 
     def _acquire(self, deadline: float, heartbeat: Any) -> None:
@@ -129,7 +135,7 @@ class CodexAppServer:
 
     def _start(self, root: Path, env: dict[str, str], overrides: list[str],
                instructions: str, data_dir: Path, deadline: float, heartbeat: Any,
-               record: dict[str, Any]) -> None:
+               record: dict[str, Any], output_limit_argv: tuple[str, ...] = ()) -> None:
         path = Path(shutil.which(self.executable) or self.executable)
         stat = path.stat()
         stamp = (str(path.resolve()), stat.st_size, stat.st_mtime_ns, stat.st_ino)
@@ -145,7 +151,7 @@ class CodexAppServer:
         # The inherited environment may contain credentials. Compare it only
         # in process memory; never serialize, hash or retain it in receipts.
         signature = (stamp, str(root.resolve()), tuple(overrides), _sha(instructions),
-                     dict(env), str(data_dir.resolve()))
+                     dict(env), str(data_dir.resolve()), tuple(output_limit_argv))
         if (self._process is not None and not self._cleanup_pending
                 and signature == self._key and self._process.poll() is None):
             return
@@ -170,7 +176,8 @@ class CodexAppServer:
         instruction_path.write_text(instructions, encoding="utf-8")
         command = [self.executable, "app-server", "--listen", "stdio://", *overrides,
                    "-c", "thread_unload_delay_secs=0", "-c",
-                   "model_instructions_file=" + json.dumps(str(instruction_path))]
+                   "model_instructions_file=" + json.dumps(str(instruction_path)),
+                   *output_limit_argv]
         self._stderr_file = stderr = tempfile.TemporaryFile(
             mode="w+", encoding="utf-8", dir=self._root,
         )
@@ -313,6 +320,8 @@ class CodexAppServer:
             return
         method = message["method"]
         if method == "thread/closed":
+            if "turnId" in params and params["turnId"] != record.get("turn_id"):
+                return
             record["thread_closed"] = True
             return
         if not record.get("turn_id"):
@@ -322,10 +331,14 @@ class CodexAppServer:
                 self._response(params, record)
             record["early"].append(message)
             return
-        if params.get("turnId") != record["turn_id"]:
-            # turn/completed carries its id inside turn, not a top-level turnId.
-            if method != "turn/completed" or (params.get("turn") or {}).get("id") != record["turn_id"]:
+        if method == "turn/completed":
+            # Its nested identity is mandatory; an optional top-level identity
+            # must agree too. Neither field can vouch for a foreign other one.
+            if ((params.get("turn") or {}).get("id") != record["turn_id"]
+                    or ("turnId" in params and params["turnId"] != record["turn_id"])):
                 return
+        elif params.get("turnId") != record["turn_id"]:
+            return
         if method == "rawResponse/completed":
             self._response(params, record)
         elif method in {"item/started", "item/completed"}:
@@ -333,6 +346,10 @@ class CodexAppServer:
                        completed=method == "item/completed")
         elif method == "turn/completed":
             turn = _object(params.get("turn"), "terminal turn")
+            if record["terminal"] is not None and record["terminal"] != turn.get("status"):
+                record["terminal_conflict"] = True
+                raise ProviderError("Conflicting native terminal status", kind="unrecoverable",
+                                    failure_reason="native_terminal_conflict")
             record["terminal"] = turn.get("status")
             record["turn_error"] = turn.get("error")
             for item in turn.get("items") or []:
@@ -351,7 +368,9 @@ class CodexAppServer:
         key = (turn_id, response_id)
         prior = record["responses"].get(key)
         if prior is not None and prior != item:
-            raise ProviderError("Conflicting duplicate native usage", kind="unrecoverable")
+            record["usage_conflict"] = True
+            raise ProviderError("Conflicting duplicate native usage", kind="unrecoverable",
+                                failure_reason="native_usage_conflict")
         record["responses"][key] = item
 
     def _item(self, item: dict[str, Any], record: dict[str, Any], *, completed: bool = True) -> None:
@@ -423,14 +442,17 @@ class CodexAppServer:
 
     def run(self, *, runtime_dir: Path, data_dir: Path, cwd: Path, env: dict[str, str],
             overrides: list[str], instructions: str, prompt: str, schema: dict[str, Any],
-            deadline: float, heartbeat: Any) -> tuple[str, dict[str, Any]]:
+            deadline: float, heartbeat: Any,
+            output_limit_argv: tuple[str, ...] = ()) -> tuple[str, dict[str, Any]]:
         started = time.monotonic()
         record: dict[str, Any] = {"call_id": uuid4().hex, "server_epoch": None, "rpc": [],
             "thread_id": None, "turn_id": None, "responses": {}, "messages": {}, "early": [],
             "model_dispatched": False, "terminal": None, "thread_closed": False,
             "input_sha256": _sha(prompt), "schema_sha256": _sha(json.dumps(schema, sort_keys=True)),
             "instructions_sha256": _sha(instructions), "event_count": 0,
-            "protocol_sha256": "", "native_errors": [], "status": "running"}
+            "protocol_sha256": "", "native_errors": [], "status": "running",
+            "request_deadline_monotonic": deadline,
+            "request_timeout_seconds": max(0.0, deadline - started)}
         callback = heartbeat
         next_heartbeat = 0.0
 
@@ -451,7 +473,10 @@ class CodexAppServer:
             if self._closed:
                 raise ProviderError("Codex app-server owner is closed", kind="setup_required")
             self._active = record
-            self._start(runtime_dir, env, overrides, instructions, data_dir, deadline, heartbeat, record)
+            self._start(
+                runtime_dir, env, overrides, instructions, data_dir, deadline, heartbeat, record,
+                output_limit_argv=output_limit_argv,
+            )
             record.update(server_epoch=self._epoch, server_pid=self._process.pid)
             home_instructions = self._home_instruction_contract(env)
             if self._instruction_contract is not None and home_instructions != self._instruction_contract:
@@ -536,30 +561,55 @@ class CodexAppServer:
         except BaseException as exc:
             record["status"] = "failed"
             record["error_type"] = type(exc).__name__
+            error = exc if isinstance(exc, ProviderError) else ProviderError(str(exc), kind="transient")
+            failure_reason = error.failure_reason or (
+                "native_request_failed" if record["model_dispatched"] else "native_setup_failed")
+            record["failure_reason"] = failure_reason
             # Never resend an ambiguously dispatched request. Native/semantic
             # retries retain their ordinary owner and an independent new thread.
-            try:
-                if locked and record.get("turn_id") and record["terminal"] is None and time.monotonic() < deadline:
-                    self._rpc("turn/interrupt", {"threadId": record["thread_id"], "turnId": record["turn_id"]},
-                              min(deadline, time.monotonic() + 5.0), None, record)
-            except Exception as cleanup_error:
-                record["interrupt_error"] = type(cleanup_error).__name__
+            # The request deadline is over; only cancellation and accounting
+            # may use this separate bounded allowance, without its heartbeat.
+            cleanup_deadline = time.monotonic() + _CANCEL_DRAIN_SECONDS
+            record["cancel_drain_state"] = "incomplete"
+            record["cancel_drain_seconds"] = _CANCEL_DRAIN_SECONDS
             try:
                 if locked:
-                    self._stop(deadline, None)
+                    self._cancel_and_drain(record, cleanup_deadline)
+                else:
+                    record["cancel_drain_state"] = "unbound"
             except Exception as cleanup_error:
-                record["cleanup_error"] = str(cleanup_error)
+                record["cancel_drain_error_type"] = type(cleanup_error).__name__
+            try:
+                if locked:
+                    self._stop(cleanup_deadline, None)
+            except Exception as cleanup_error:
+                record["cleanup_error"] = type(cleanup_error).__name__
             sealed = self._seal(record, started)
             if not isinstance(exc, Exception):
                 raise
-            error = exc if isinstance(exc, ProviderError) else ProviderError(str(exc), kind="transient")
             raise ProviderError(str(error), kind=error.kind, exit_code=error.exit_code,
                 attempt_results=error.attempt_results, unknown_attempt_count=error.unknown_attempt_count,
-                native_attempts=(*error.native_attempts, sealed)) from exc
+                native_attempts=(*error.native_attempts, sealed), failure_reason=failure_reason) from exc
         finally:
             if locked:
                 self._active = None
                 self._lock.release()
+
+    def _cancel_and_drain(self, record: dict[str, Any], deadline: float) -> None:
+        """Finish only an already-bound turn's cancellation/accounting stream."""
+        if not record["model_dispatched"] or not record.get("thread_id") or not record.get("turn_id"):
+            record["cancel_drain_state"] = "unbound"
+            return
+        if record["terminal"] not in {"completed", "failed", "interrupted"}:
+            self._rpc("turn/interrupt", {"threadId": record["thread_id"], "turnId": record["turn_id"]},
+                      deadline, None, record)
+        while record["terminal"] not in {"completed", "failed", "interrupted"}:
+            self._notification(self._receive(deadline, None, record), record)
+        if not record["thread_closed"]:
+            self._rpc("thread/unsubscribe", {"threadId": record["thread_id"]}, deadline, None, record)
+            while not record["thread_closed"]:
+                self._notification(self._receive(deadline, None, record), record)
+        record["cancel_drain_state"] = "terminal_closed"
 
     def _seal(self, record: dict[str, Any], started: float) -> dict[str, Any]:
         result = copy.deepcopy(record)
@@ -606,8 +656,10 @@ class CodexAppServer:
         rows = record.get("responses") or []
         values = [CodexAppServer._response_usage(row.get("usage")) for row in rows]
         complete = bool(values) and all(value is not None for value in values)
-        if record.get("native_errors") or (
-            record.get("model_dispatched") and record.get("terminal") not in {"completed", "failed", "interrupted"}
+        if (record.get("native_errors") or record.get("usage_conflict") or record.get("terminal_conflict")
+                or record.get("cancel_drain_error_type")) or (
+            record.get("model_dispatched") and (
+                record.get("terminal") not in {"completed", "failed"} or not record.get("thread_closed"))
         ):
             complete = False
         return {key: sum(value[key] for value in values if value is not None) if complete else None

@@ -2,10 +2,13 @@
 
 Selection is sorted by (client, session_id, source_id, source_revision). Each
 input dictionary contains those four strings and optionally reference_id.
-There is no session-count cap. States describe orchestration only: active or
-stopped for a batch; selected, bound or failed for a reference. Failures remain
-until explicit retry on an active batch. The caller compares the frozen runtime
-fingerprint before resuming work; this store does not inspect running code.
+There is no session-count cap. States describe orchestration only: active,
+paused, or stopped for a batch; selected, bound or failed for a reference.
+Paused is a user hold. Stopped is an integrity hold and cannot be toggled back
+to active. Failures remain until explicit retry on an active batch. Loading a
+legacy active or stopped manifest does not rewrite it. The caller compares the
+frozen runtime fingerprint before resuming work; this store does not inspect
+running code.
 """
 
 from __future__ import annotations
@@ -45,6 +48,67 @@ def frozen_source_matches(job: SessionDistillJob, revision: TranscriptSourceRevi
     return (job.source_id == reference["source_id"] and job.source_revision == reference["source_revision"]
             or metadata_hint and job.source_id == reference["source_id"]
             and f"sha256:{revision.raw_sha256}" == reference["source_revision"])
+
+
+def _project_revision_matches(job: SessionDistillJob, revision: TranscriptSourceRevision | None,
+                              reference: dict) -> bool:
+    """Exact project revision match used by frozen ownership, not session identity."""
+
+    if (revision is None or revision.project_name != job.project_name
+            or _scope(job.project_name, revision.project_root)[1] != _scope(job.project_name, job.project_root)[1]
+            or revision.client != job.client or revision.session_id != job.session_id):
+        return False
+    return (reference["client"] == job.client and reference["session_id"] == job.session_id
+            and (job.source_id == reference["source_id"] and job.source_revision == reference["source_revision"]
+                 or f"sha256:{revision.raw_sha256}" == reference["source_revision"]))
+
+
+def _same_locator(job: SessionDistillJob, reference: dict) -> bool:
+    """One native source, not merely the same client session id."""
+
+    return (reference["client"] == job.client and reference["session_id"] == job.session_id
+            and reference["source_id"] == job.source_id)
+
+
+def _batch_claim(manifest: dict, job: SessionDistillJob, revision: TranscriptSourceRevision | None,
+                 *, device_scope: bool) -> str:
+    """Return covered, narrowed, or none for one frozen manifest.
+
+    An unbound selection still reserves its own source locator. Binding one
+    locator covers only that captured revision; a later revision of that same
+    locator is narrowed away. Another still-unbound locator keeps its
+    reservation even when the client session id matches. A user pause and an
+    integrity stop both keep this decision. ``manual_only`` is not consulted.
+    """
+
+    bindings = manifest["bindings"]
+    skipped = manifest.get("skipped") or {}
+    validated = manifest.get("validated") or {}
+    covered = False
+    narrowed = False
+    for reference in manifest["sessions"]:
+        reference_id = reference["reference_id"]
+        if reference_id in skipped:
+            continue
+        bound = reference_id in bindings
+        if device_scope:
+            target = validated.get(reference_id, reference) if bound else reference
+            if frozen_source_matches(job, revision, target, metadata_hint=not bound):
+                covered = True
+                continue
+            if bound and _same_locator(job, target):
+                narrowed = True
+            continue
+        if _project_revision_matches(job, revision, reference):
+            covered = True
+            continue
+        if bound and _same_locator(job, reference):
+            narrowed = True
+    if covered:
+        return "covered"
+    if narrowed:
+        return "narrowed"
+    return "none"
 
 
 def _text(value: object, field: str, limit: int = 1024) -> str:
@@ -131,10 +195,53 @@ class ManualBatchStore:
         self.load(batch_id, name, root)
         return name, Path(root) if root else None
 
+    def list_batches(self, *, project_root: str | None = None,
+                     project_name: str | None = None, scope: str = "project") -> list[dict]:
+        """Read validated manifests in exactly one project or device scope.
+
+        No lock, directory, lease or manifest is created by discovery. A project
+        name is an optional filter: the persisted name may differ from today's
+        automatically inferred directory label.
+        """
+        if scope not in {"project", "all"}:
+            raise ValueError("invalid batch scope")
+        if scope == "all":
+            if project_root is not None:
+                raise ValueError("a device selection has no directory owner")
+            wanted_root = ""
+        else:
+            _, wanted_root = _scope(project_name or "discovery", project_root or "")
+        if not self.root.exists():
+            return []
+        if self.root.resolve() != self.root:
+            raise ValueError("manual-batches must not redirect outside its directory")
+        found = []
+        for path in sorted(self.root.glob("*.json")):
+            header = json.loads(self._path(path.stem).read_text(encoding="utf-8"))
+            if not isinstance(header, dict):
+                raise ValueError("invalid manifest schema")
+            if header.get("scope", "project") != scope:
+                continue
+            name, root = _scope(header.get("project_name"), header.get("project_root"), scope=scope)
+            if root != wanted_root or project_name is not None and name != project_name:
+                continue
+            found.append(self.load(path.stem, name, root))
+        return found
+
     def owns_job(self, job: SessionDistillJob, revision: TranscriptSourceRevision | None) -> bool:
-        """Read frozen ownership independently of job binding, state or code version."""
-        if job.manual_only:
-            return True
+        """Own a job only when a frozen selection or its captured revision matches.
+
+        ``manual_only`` still protects an explicit reservation that no batch has
+        narrowed to a different revision. It does not by itself keep every later
+        revision of a bound conversation out of automatic learning. Unbound
+        selections and stopped batches still cover the revision they actually
+        selected. Legacy manifests are read, not rewritten.
+        """
+
+        if not self.root.exists():
+            return bool(job.manual_only)
+        covered = False
+        narrowed = False
         for path in sorted(self.root.glob("*.json")):
             if path.is_symlink():
                 raise ValueError("manual batch manifest must not redirect")
@@ -148,32 +255,41 @@ class ManualBatchStore:
                                  "" if device_scope else job.project_root)
             if job.id in manifest["bindings"].values():
                 return True
-            if device_scope:
-                if any(
-                    ref["reference_id"] not in manifest["skipped"]
-                    and frozen_source_matches(job, revision, manifest["validated"].get(ref["reference_id"], ref),
-                                              metadata_hint=ref["reference_id"] not in manifest["bindings"])
-                    for ref in manifest["sessions"]
-                ):
-                    return True
+            claim = _batch_claim(manifest, job, revision, device_scope=device_scope)
+            covered = covered or claim == "covered"
+            narrowed = narrowed or claim == "narrowed"
+        if covered:
+            return True
+        return bool(job.manual_only) and not narrowed
+
+    def owning_pause(self, job: SessionDistillJob, revision: TranscriptSourceRevision | None) -> bool:
+        """True when a paused manifest still covers this job's selected revision."""
+
+        if not self.root.exists():
+            return False
+        for path in sorted(self.root.glob("*.json")):
+            if path.is_symlink():
+                raise ValueError("manual batch manifest must not redirect")
+            header = json.loads(path.read_text(encoding="utf-8"))
+            if header.get("state") != "paused":
                 continue
-            if (revision is None or revision.project_name != job.project_name
-                    or (revision.project_root != job.project_root if device_scope else
-                        _scope(job.project_name, revision.project_root)[1] != _scope(job.project_name, job.project_root)[1])
-                    or revision.client != job.client or revision.session_id != job.session_id):
+            device_scope = header.get("scope") == "all"
+            if not device_scope and (header.get("project_name") != job.project_name
+                    or _scope(job.project_name, header.get("project_root", ""))[1]
+                    != _scope(job.project_name, job.project_root)[1]):
                 continue
-            if any(
-                ref["client"] == job.client and ref["session_id"] == job.session_id
-                and (job.source_id == ref["source_id"] and job.source_revision == ref["source_revision"]
-                     or f"sha256:{revision.raw_sha256}" == ref["source_revision"])
-                for ref in manifest["sessions"]
-            ):
+            manifest = self.load(path.stem, header["project_name"] if device_scope else job.project_name,
+                                 "" if device_scope else job.project_root)
+            if job.id in manifest["bindings"].values():
+                return True
+            if _batch_claim(manifest, job, revision, device_scope=device_scope) == "covered":
                 return True
         return False
 
     def create(self, project_name: str, project_root: str, sessions: list[dict],
                runtime_fingerprint: str | None = None,
-               already_completed: list[str] | None = None, *, scope: str = "project") -> dict:
+               already_completed: list[str] | None = None, *, scope: str = "project",
+               archived_only: bool = False) -> dict:
         name, root = _scope(project_name, project_root, scope=scope)
         selection = _selection(sessions)
         if runtime_fingerprint is not None:
@@ -188,6 +304,7 @@ class ManualBatchStore:
             "bindings": {}, "failures": {},
             "runtime_fingerprint": runtime_fingerprint,
             "already_completed": completed,
+            **({"archived_only": True} if archived_only else {}),
             **({"scope": "all", "started_at": datetime.now(timezone.utc).isoformat(), "skipped": {}, "validated": {}} if scope == "all" else {}),
         }
         path = self._path(batch_id)
@@ -215,6 +332,8 @@ class ManualBatchStore:
         }
         if device_scope:
             expected_fields.update({"scope", "started_at", "skipped", "validated"})
+        if payload.get("archived_only") is True:
+            expected_fields.add("archived_only")
         if set(payload) != expected_fields:
             raise ValueError("invalid manifest schema")
         if payload["runtime_fingerprint"] is not None:
@@ -224,7 +343,7 @@ class ManualBatchStore:
         if (payload["batch_id"] != batch_id or payload["project_name"] != name
                 or payload["project_root"] != root):
             raise ValueError("manifest scope mismatch")
-        if payload["state"] not in ("active", "stopped"):
+        if payload["state"] not in ("active", "paused", "stopped"):
             raise ValueError("invalid batch state")
         if _selection(payload["sessions"]) != payload["sessions"]:
             raise ValueError("invalid frozen selection")
@@ -287,6 +406,29 @@ class ManualBatchStore:
         return self._update(batch_id, project_name, project_root, reference_id,
                             reason=reason, stop_batch=stop_batch)
 
+    def pause(self, batch_id: str, project_name: str, project_root: str) -> dict:
+        """Hold an active batch without clearing failures, bindings, or selection."""
+
+        return self._set_user_hold(batch_id, project_name, project_root, paused=True)
+
+    def resume_paused(self, batch_id: str, project_name: str, project_root: str) -> dict:
+        """Continue a user pause. An integrity stop stays stopped."""
+
+        return self._set_user_hold(batch_id, project_name, project_root, paused=False)
+
+    def _set_user_hold(self, batch_id: str, project_name: str, project_root: str, *, paused: bool) -> dict:
+        self.load(batch_id, project_name, project_root)
+        path = self._path(batch_id)
+        with self._locked(path):
+            payload = self.load(batch_id, project_name, project_root)
+            if payload["state"] == "stopped":
+                raise ValueError("batch is stopped")
+            target = "paused" if paused else "active"
+            if payload["state"] != target and payload["state"] in {"active", "paused"}:
+                payload["state"] = target
+                self._write(path, payload)
+            return payload
+
     def retry_failures(self, batch_id: str, project_name: str, project_root: str) -> dict:
         """Clear failures only for an explicit user retry of an active batch."""
         self.load(batch_id, project_name, project_root)
@@ -294,7 +436,7 @@ class ManualBatchStore:
         with self._locked(path):
             payload = self.load(batch_id, project_name, project_root)
             if payload["state"] != "active":
-                raise ValueError("batch is stopped")
+                raise ValueError("batch is stopped" if payload["state"] == "stopped" else "batch is paused")
             if payload["failures"]:
                 payload["failures"] = {}
                 self._write(path, payload)
@@ -320,8 +462,8 @@ class ManualBatchStore:
                 if existing is not None and existing != job_id:
                     raise ValueError("reference cannot be rebound")
                 if existing is None:
-                    if payload["state"] == "stopped":
-                        raise ValueError("batch is stopped")
+                    if payload["state"] != "active":
+                        raise ValueError("batch is stopped" if payload["state"] == "stopped" else "batch is paused")
                     if job_id in payload["bindings"].values():
                         raise ValueError("job already bound to another reference")
                     payload["bindings"][reference_id] = job_id
