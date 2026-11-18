@@ -39,6 +39,8 @@ def test_stop_maintenance_defers_embedding_model_loading(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
+    monkeypatch.delenv("HARNESS_MEM_DISABLE_EMBEDDINGS", raising=False)
+    assert embeddings_disabled() is False
     observed: dict[str, bool | int | str | None] = {}
 
     def fake_prepare_session_distill(**kwargs):
@@ -62,12 +64,12 @@ def test_stop_maintenance_defers_embedding_model_loading(
             _Backend(tmp_path),
             project_name="demo",
             project_root=str(tmp_path),
-            config=MergedConfig(),
+            config=MergedConfig(dream_auto_enabled=False),
             trigger_id="current-session",
         )
     )
 
-    assert payload["success"] is True
+    assert payload["success"] is True, payload
     assert observed["embeddings_disabled"] is True
     assert observed["limit"] == 1
     assert observed["session_id"] == "current-session"
@@ -148,13 +150,13 @@ def test_stop_maintenance_retries_exact_trigger_until_native_session_is_visible(
             _Backend(tmp_path),
             project_name="demo",
             project_root=str(tmp_path),
-            config=MergedConfig(),
+            config=MergedConfig(dream_auto_enabled=False),
             source="ide_hook",
             trigger_id="new-native-session",
         )
     )
 
-    assert payload["success"] is True
+    assert payload["success"] is True, payload
     assert payload["summary"]["evidence_ingest_attempts"] == 3
     assert payload["summary"]["evidence_ingest_wait_seconds"] >= 0
 
@@ -209,6 +211,11 @@ def test_stop_maintenance_reports_lossless_job_from_transcript_store(
     expected_status: str,
     queued: bool,
 ) -> None:
+    async def skip_background_dream(*_args, **kwargs):
+        assert kwargs["trigger_job_id"] == "distill-1"
+        return {"success": True, "status": "skipped"}
+
+    monkeypatch.setattr("harness_mem.commands.maintenance.dream_auto_tick", skip_background_dream)
     monkeypatch.setattr(
         tool_handlers,
         "tool_prepare_session_distill",
@@ -228,7 +235,7 @@ def test_stop_maintenance_reports_lossless_job_from_transcript_store(
         )
     )
 
-    assert payload["status"] == expected_status
+    assert payload["status"] == expected_status, payload
     assert payload["distill_job"] == {"id": "distill-1", "status": job_status}
     assert payload["summary"]["distill_queued"] is queued
     assert payload["summary"]["distill_job_id"] == "distill-1"

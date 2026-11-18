@@ -281,5 +281,5 @@ def test_json_decision_rejects_unexpected_tools_before_accepting_output(tmp_path
     assert raised.value.kind == "unrecoverable"
     assert raised.value.attempt_results[-1].schema_valid is False
     assert raised.value.native_attempts[-1]["model_dispatched"] is True
-    assert not any(request["method"] == "thread/unsubscribe" for request in captured["requests"])
+    assert any(request["method"] == "thread/unsubscribe" for request in captured["requests"])
     assert captured["lease_events"] == ["lease", "popen", "release"]

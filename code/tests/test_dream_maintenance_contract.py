@@ -436,8 +436,9 @@ def test_dream_does_not_read_legacy_candidate_stores(
     }
 def test_dream_compares_and_deduplicates_source_backed_current_knowledge(
     backend,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from test_dream_duplicate_consolidation import MergeProvider
+
     store = backend.structured_store.knowledge_store
     first = KnowledgeEntry(
         id="knowledge-first",
@@ -455,6 +456,12 @@ def test_dream_compares_and_deduplicates_source_backed_current_knowledge(
     )
     project_root, current = _publish_current_knowledge(backend, first, second)
     first, second = current
+    provider = MergeProvider(make_output=lambda _subject: {
+        "title": first.title,
+        "statement": first.statement,
+        "topic_path": first.module_path,
+        "claim_kind": "design_requirement",
+    })
 
     run = _run(
         dream_once(
@@ -463,24 +470,21 @@ def test_dream_compares_and_deduplicates_source_backed_current_knowledge(
             project_root=project_root,
             config=None,
             source="agent",
-            semantic_provider=_DreamVerificationProvider(),
+            semantic_provider=provider,
         )
     )
 
-    candidates = _run(store.list_candidates("demo"))
-    # Stale and duplicate signals share one verification batch. Count actual
-    # mutations rather than assuming there is only one signal group.
-    deleted = [item for item in run.items if item.result.get("truth_change") == "deleted"]
-    assert len(deleted) == 1 and deleted[0].source_id == "knowledge-second"
-    assert all(item.final_action in {"applied", "skipped"} for item in run.items)
-    assert candidates == []
-    assert _run(
-        store.get_entry("knowledge-first", project_name="demo", project_root=project_root)
+    assert run.resolution_status == "resolved", run.notes
+    assert len(provider.finals) == 1
+    survivor, = _run(store.list_entries("demo", project_root=project_root))
+    assert survivor.id not in {first.id, second.id}
+    assert (survivor.title, survivor.statement, survivor.module_path) == (
+        first.title, first.statement, first.module_path,
     )
-    assert _run(
-        store.get_entry("knowledge-second", project_name="demo", project_root=project_root)
-    ) is None
-    assert "undo" not in deleted[0].to_dict()
+    assert _run(store.list_candidates("demo")) == []
+    replacements = [item for item in run.items if item.result.get("truth_change") == "replace"]
+    assert len(replacements) == 1
+    assert "undo" not in replacements[0].to_dict()
 
 
 def test_dream_archives_multi_entry_conflict_without_selecting_a_winner(

@@ -608,7 +608,17 @@ def bind_report_preservation_inventory(
     for omission in omissions if mode == "literal_projection" else []:
         text = str(omission.get("text") or "")
         start = report.text.find(text) if text else -1
-        if start < 0 or report.text.find(text, start + 1) >= 0:
+        if start >= 0 and report.text.find(text, start + 1) >= 0 and not text.strip():
+            # An ordinary space may appear inside many retained claims. Only an
+            # exact, separately classified temporary separator can disambiguate it.
+            separators = [part["start"] for part in parts
+                          if part["future_scope"] == "session_only"
+                          and part["source_use"] == "task_context"
+                          and report.text[part["start"]:part["end"]] == text]
+            start = separators[0] if len(separators) == 1 else -1
+        elif start >= 0 and report.text.find(text, start + 1) >= 0:
+            start = -1
+        if start < 0:
             raise ValueError("report_original_omission_range_invalid")
         end = start + len(text)
         removed.append({"start": start, "end": end, "sha256": hashlib.sha256(text.encode()).hexdigest(),

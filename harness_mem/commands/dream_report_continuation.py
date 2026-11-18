@@ -442,7 +442,7 @@ async def claim_report_slice(
         projection = {name: getattr(current, name) for name in (
             "id", "project_name", "started_at", "completed_at", "status", "trigger_source",
             "reflection_job_id", "policy_version", "duration_ms")}
-        index = backend.structured_store._index
+        index = backend.structured_store.index
         if index.get("dream_runs", current.id) is None:
             await asyncio.to_thread(index.insert, "dream_runs", projection)
         else:

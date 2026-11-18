@@ -34,7 +34,7 @@ def test_assimilation_keeps_subject_in_statement_not_only_module():
 
 def test_prompts_preserve_known_unknown_and_permission_modality():
     extraction = _build_prompt({})
-    assert "durable known-unknown fact" in extraction
+    assert "independent use beyond completing the current intake, audit or reply" in extraction
     assert "permission is not actual presence or execution" in extraction
     assert "header alone does not establish a standing policy" in extraction
     verification = _build_verification_prompt({})
@@ -144,10 +144,8 @@ def test_bounded_historical_evidence_is_not_misread_as_a_current_state_claim():
 
 def test_incoming_change_scope_must_remain_readable_not_only_in_assimilation_reason():
     prompt = _build_assimilation_prompt({})
-    assert "useful limits from the incoming verified point itself" in prompt
-    assert "prose, not only reason" in prompt
-    assert "Unchanged rows elsewhere do not express the authorized scope" in prompt
-    assert "without restating their values" in prompt
+    assert "what the incoming point did not alter or prove in the knowledge itself" in prompt
+    assert "Preserve that scope without repeating unchanged values" in prompt
 
 
 def test_descriptive_context_cannot_become_an_extra_affirmative_duty():

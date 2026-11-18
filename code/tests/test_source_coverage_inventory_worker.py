@@ -119,14 +119,21 @@ def test_v5_incomplete_or_negative_inventory_cannot_write_a_selected_subset(cove
     provider = InventoryProvider(fault=fault, multiple=fault in {"partial_candidate", "initial_shape"}, no_candidate=fault == "unclear")
     before = run(coverage[0].structured_store.knowledge_store.list_entries("demo"))
     run(_cover(coverage, provider))
-    assert state(coverage)["status"] == "failed", state(coverage)
-    if fault == "negative_audit":
-        assert state(coverage)["reason_code"] == "source_coverage_inventory_audit_unresolved"
-    elif fault == "partial_candidate":
-        assert state(coverage)["reason_code"] == "source_coverage_inventory_selected_point_unverified"
+    checkpoint = state(coverage)
+    unresolved = fault in {"negative_audit", "partial_candidate", "unclear"}
+    assert checkpoint["status"] == ("unresolved" if unresolved else "failed"), checkpoint
+    if unresolved:
+        assert checkpoint["reason_code"] == "source_coverage_inventory_audit_unresolved"
+        if fault == "partial_candidate":
+            assert checkpoint["inventory_blocked_reason"] == "source_coverage_inventory_selected_point_unverified"
+        store = coverage[0].structured_store.knowledge_store
+        assert all(run(store.get_candidate(identity)).status == "pending"
+                   for identity in checkpoint.get("candidate_ids", ()))
+    else:
+        assert not checkpoint.get("candidate_ids")
     assert "assimilate" not in provider.calls and "final_verify" not in provider.calls
     assert [row.to_dict() for row in run(coverage[0].structured_store.knowledge_store.list_entries("demo"))] == [row.to_dict() for row in before]
-    assert not state(coverage).get("candidate_ids") and not state(coverage).get("commit_bindings")
+    assert not checkpoint.get("commit_bindings")
 
 
 def test_v5_verified_slice_resumes_without_extraction_or_inventory_reaudit_and_no_prose(coverage):

@@ -51,7 +51,7 @@ def test_host_entry_wake_start_outputs_wake_text(monkeypatch, tmp_path) -> None:
         lambda *_args, **_kwargs: asyncio.sleep(0, result=(None, None)),
     )
 
-    async def fake_wake(_backend, project_name: str) -> str:
+    async def fake_wake(_backend, project_name: str, *, current_task, selection_receipt) -> str:
         return f"Wake context for {project_name}"
 
     async def fail_dream(*_args, **_kwargs):
@@ -85,7 +85,7 @@ def test_host_entry_wake_records_current_codex_hook_execution(
         lambda *_args, **_kwargs: asyncio.sleep(0, result=(None, None)),
     )
 
-    async def fake_wake(_backend, project_name: str) -> str:
+    async def fake_wake(_backend, project_name: str, *, current_task, selection_receipt) -> str:
         return f"Wake context for {project_name}"
 
     monkeypatch.setattr(wake_module, "build_wake_injection", fake_wake)
@@ -217,6 +217,10 @@ def test_host_entry_post_turn_maintenance_outputs_combined_json(
         config,
         source: str,
         trigger_id: str | None = None,
+        native_transcript_path=None,
+        background_requested_at=None,
+        resume_run_id=None,
+        host_client=None,
     ):
         return {
             "action": "post-turn-maintenance",
@@ -531,9 +535,11 @@ def test_wait_for_autonomous_receipt_returns_matching_terminal_identity(
     assert payload == {
         "action": "post-turn-maintenance",
         "dispatch_generation": None,
+        "dream": None,
         "error": None,
         "job": "job-7",
         "job_id": "job-7",
+        "maintenance_status": None,
         "receipt": str(receipt_path),
         "state": "succeeded",
         "success": True,
@@ -647,9 +653,11 @@ def test_wait_for_autonomous_receipt_reports_deferred_as_hook_failure(tmp_path) 
     assert json.loads(stdout_payload) == {
         "action": "post-turn-maintenance",
         "dispatch_generation": "generation-1",
+        "dream": None,
         "error": {"kind": "provider_busy", "message": "retry later"},
         "job": "job-1",
         "job_id": "job-1",
+        "maintenance_status": None,
         "receipt": str(receipt_path),
         "state": "deferred",
         "success": False,
@@ -755,7 +763,7 @@ def test_host_entry_client_override_sets_runtime_host(monkeypatch, tmp_path) -> 
         lambda *_args, **_kwargs: asyncio.sleep(0, result=(None, None)),
     )
 
-    async def fake_wake(_backend, project_name: str) -> str:
+    async def fake_wake(_backend, project_name: str, *, current_task, selection_receipt) -> str:
         assert os.environ.get("HARNESS_MEM_CLIENT") == "cursor"
         return f"Wake context for {project_name}"
 
@@ -835,6 +843,8 @@ def test_shell_host_adapter_keeps_native_identity_and_bound_root(
         assert json.loads(output) == {}
     elif client == "cursor":
         assert json.loads(output) == {"additional_context": "remember this"}
+    elif client == "grok":
+        assert json.loads(output) == {"systemMessage": "remember this"}
     else:
         assert output == "remember this\n"
 

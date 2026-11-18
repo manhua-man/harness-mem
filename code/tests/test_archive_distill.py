@@ -575,8 +575,9 @@ def test_archive_apply_reports_persisted_answer_packet_and_daily_ledger(
     assert outcome["warnings"] == []
     assert outcome["execution"] == "provider_executed"
     note_text = Path(outcome["note"]["path"]).read_text(encoding="utf-8")
-    assert "结果校验" in note_text
-    assert "已写入长期记忆" in note_text
+    assert "## 记忆整理与来源核验" in note_text
+    assert "### 写入的长期记忆" in note_text
+    assert outcome["promoted_items"][0]["fact"] in note_text
     assert "知识类型：" not in note_text
     assert "知识分类：" not in note_text
     assert "（rule / testing）" not in note_text

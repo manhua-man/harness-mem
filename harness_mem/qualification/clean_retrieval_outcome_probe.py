@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import cast
 
 from harness_mem.core.schemas import (
     AssimilationDecision,
@@ -16,10 +18,11 @@ from harness_mem.core.schemas import (
     KnowledgeEntry,
     ProjectKnowledgeSourceRef,
 )
+from harness_mem.core.schemas.dream_run import DreamRun
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.embedding.model_loader import temporarily_disable_embeddings
-from harness_mem.commands.dream import dream_once
+from harness_mem.commands.dream import _scope_fingerprint, dream_once
 from harness_mem.mcp import server
 from harness_mem.mcp.read_evidence_handlers import tool_file_context, tool_search_raw
 from harness_mem.mcp.read_search_handlers import (
@@ -28,6 +31,7 @@ from harness_mem.mcp.read_search_handlers import (
 )
 from harness_mem.mcp.read_wake_handlers import tool_wake
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from harness_mem.storage.local_structured_store import LocalStructuredStore
 
 
 def run_clean_retrieval_outcome_probe() -> dict[str, bool]:
@@ -100,7 +104,7 @@ def run_clean_retrieval_outcome_probe() -> dict[str, bool]:
                                 label="README.md",
                                 target=source.as_uri(),
                                 kind="repository",
-                                digest="c" * 64,
+                                digest=hashlib.sha256(source.read_bytes()).hexdigest(),
                             )
                         ]
                     },
@@ -109,6 +113,18 @@ def run_clean_retrieval_outcome_probe() -> dict[str, bool]:
             asyncio.run(
                 backend.structured_store.knowledge_store.cleanup_candidate(seed.id)
             )
+            # The fixture already represents current, scope-verified knowledge.
+            # Seed its receipt so Dream only has to discover new work.
+            structured = cast(LocalStructuredStore, backend.structured_store)
+            asyncio.run(structured.save_dream_run(DreamRun(
+                id="fixture-prior-scope-review", project_name=project_name,
+                status="completed", trigger_source="agent",
+                notes=["dream scope_partition_v3: " + json.dumps({current.id: {
+                    "fingerprint": _scope_fingerprint(current),
+                    "scope_status": "source_scope_durable",
+                    "semantic_support": "supported",
+                }})],
+            )))
             observation_id = asyncio.run(
                 backend.verbatim_store.save(
                     Observation(
@@ -161,6 +177,15 @@ def run_clean_retrieval_outcome_probe() -> dict[str, bool]:
                     tool_result="cleanretrievaltoken failure",
                     is_error=True,
                 )
+                injection = autopilot.get("context_injection") or {}
+                autopilot_memories = list(injection.get("memories") or [])
+                for candidate in list(autopilot_memories):
+                    if candidate.get("read_cursor") and "statement" not in candidate:
+                        opened = tool_search_memory(
+                            query=injection["query"], scope="all", detail="full",
+                            read_cursor=candidate["read_cursor"],
+                        )
+                        autopilot_memories.extend(opened.get("memories") or [])
                 dream = asyncio.run(
                     dream_once(
                         backend,
@@ -224,13 +249,14 @@ def run_clean_retrieval_outcome_probe() -> dict[str, bool]:
                     autopilot.get("search_executed") is True
                     and any(
                         item.get("statement") == current.statement
-                        for item in (autopilot.get("context_injection") or {}).get("memories", [])
+                        for item in autopilot_memories
                     )
-                    and provisional.content not in json.dumps(autopilot)
-                    and historical.content not in json.dumps(autopilot)
+                    and provisional.content not in json.dumps(autopilot_memories)
+                    and historical.content not in json.dumps(autopilot_memories)
                 ),
                 "dream_ignores_legacy_memory": (
-                    dream.get("items") == []
+                    dream.get("status") == "completed"
+                    and dream.get("items") == []
                     and provisional.content not in json.dumps(dream)
                     and historical.content not in json.dumps(dream)
                 ),

@@ -15,13 +15,21 @@ def review(**updates):
             "evidence_status": "answered", "promotion_decision": "promote", **updates}
 
 
-def point(packet, text, *, basis="user_statement", role="user", **updates):
+def point(packet, text, *, basis="user_statement", role="user", conditions=(), **updates):
     window = packet["semantic_decision_exchanges"][0]
+    state = updates.get("retained_state_item")
+    disposition = updates.get("assimilation_disposition", "add")
     return {"content": text, "canonical_title": text, "topic_path": ["Reading club"],
             "evidence_basis": basis, "verification_outcome": "verified",
             "verification_refs": [{"kind": basis, "exchange_index": window["exchange_index"],
                                    "content_sha256": window["content_sha256"], "role": role}],
             "assimilation_disposition": "add", "assimilation_reason": "Retain this verified future-use point.",
+            "review": {"support": "supported",
+                       "use": "explicit_undecided" if state else (
+                           "reusable_knowledge" if basis == "source_report" else "standing_decision"),
+                       "reason": "This fixture's authored evidence supports the bounded point.",
+                       "conditions": list(conditions), "undecided_state": state,
+                       **({"preserves_meaning": True} if disposition in {"refine", "replace"} else {})},
             **updates}
 
 
@@ -72,7 +80,8 @@ def test_prepare_plus_finish_preserves_suggestion_identity_and_correction_state(
     work_item = state
     saved = finish(packet, [
         point(packet, "For Iris club, use simplified Chinese, Chinese book titles with original on first use, and verified pages.",
-              assimilation_disposition="replace", target_knowledge=[old]),
+              assimilation_disposition="replace", target_knowledge=[old],
+              conditions=["with original on first use", "verified pages"]),
         point(packet, state, retained_state_item=work_item),
     ], unfinished_work=[work_item])
     assert saved["success"] and saved["readback_verified"], saved
@@ -252,7 +261,8 @@ def test_wrong_target_shape_never_stages_earlier_points_and_can_retry_same_job(d
     rows = asyncio.run(backend.structured_store.knowledge_store.list_entries("global"))
     assert len(rows) == 1 and rows[0].statement == original
     minimal_old = {key: old[key] for key in ("title", "statement", "project_name")}
-    saved = finish(packet, [point(packet, corrected, assimilation_disposition="replace", target_knowledge=[minimal_old])])
+    saved = finish(packet, [point(packet, corrected, assimilation_disposition="replace",
+                                  target_knowledge=[minimal_old], conditions=["with original on first use"])])
     assert saved["success"] and saved["readback_verified"], saved
     rows = asyncio.run(backend.structured_store.knowledge_store.list_entries("global"))
     assert len(rows) == 1 and rows[0].statement == corrected

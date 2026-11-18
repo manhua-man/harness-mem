@@ -23,7 +23,7 @@ def test_correction_resolves_device_owner_and_raw_read_includes_current_evidence
     first = write("lantern-original", original)
     packet = tool_handlers.tool_prepare_session_distill(client="codex", scope="all", session_id="lantern-original")
     remember(backend, packet, original)
-    old = tool_handlers.tool_search_memory(query="Lantern")["memories"][0]
+    old, = tool_handlers.tool_search_memory(query="", project_name="global", scope="project")["memories"]
     second = write("lantern-correction", correction)
     originals = {path: path.read_bytes() for path in (first, second)}
 
@@ -31,7 +31,9 @@ def test_correction_resolves_device_owner_and_raw_read_includes_current_evidence
         client="codex", session_id="lantern-correction", target_knowledge=[old],
     )
     assert packet["success"] and packet["project_name"] == "global", packet
-    saved = remember(backend, packet, current, disposition="replace", targets=[old])
+    saved = remember(backend, packet, current, disposition="replace", targets=[old],
+                     conditions=["only use verified page numbers"],
+                     undecided_state="Author naming is undecided.")
     assert saved["readback_verified"] is True
 
     evidence = tool_handlers.tool_search_raw(pattern="Lantern", scope="all")
@@ -54,8 +56,10 @@ def test_correction_target_chooses_unique_project_and_rejects_changed_or_ambiguo
     from types import SimpleNamespace
 
     rows = {
-        "club": [SimpleNamespace(id="c", title="Loan rule", statement="Five days", module_path=["Loans"])],
-        "other": [SimpleNamespace(id="o", title="Loan rule", statement="Three days", module_path=["Loans"])],
+        "club": [SimpleNamespace(id="c", title="Loan rule", statement="Five days",
+                                 module_path=["Loans"], source_report=None)],
+        "other": [SimpleNamespace(id="o", title="Loan rule", statement="Three days",
+                                  module_path=["Loans"], source_report=None)],
     }
 
     class Store:
@@ -79,7 +83,7 @@ def test_project_correction_uses_target_owner_across_native_workspaces(device, t
     job = prepare_correction_source(backend, project_name="club", client="codex", session_id="club-original")
     packet = tool_handlers.tool_prepare_session_distill(project_name="club", distill_job_id=job.id)
     remember(backend, packet, original)
-    old = tool_handlers.tool_search_memory(query="club")["memories"][0]
+    old, = tool_handlers.tool_search_memory(query="", project_name="club")["memories"]
     assert old["project_name"] == "club"
     correction = "For future club loans, allow five days; the deposit remains undecided."
     write("club-correction", correction, roots=[tmp_path / "another-workspace"])
@@ -87,7 +91,8 @@ def test_project_correction_uses_target_owner_across_native_workspaces(device, t
         client="codex", scope="all", session_id="club-correction", target_knowledge=[old],
     )
     assert packet["success"] and packet["project_name"] == "club", packet
-    remember(backend, packet, correction, disposition="replace", targets=[old])
+    remember(backend, packet, correction, disposition="replace", targets=[old],
+             undecided_state="the deposit remains undecided")
     current = tool_handlers.tool_search_memory(query="club")["memories"]
     assert len(current) == 1 and current[0]["statement"] == correction
     assert not asyncio.run(backend.structured_store.knowledge_store.list_entries("global"))

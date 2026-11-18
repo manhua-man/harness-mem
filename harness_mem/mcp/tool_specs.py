@@ -33,14 +33,20 @@ def _inline_model_schema(model_type: Any) -> dict[str, Any]:
     model = model_type.model_json_schema()
     definitions = model.get("$defs", {})
 
-    def inline(value: Any) -> Any:
+    def inline(value: Any, *, field_map: bool = False) -> Any:
         if isinstance(value, list):
             return [inline(item) for item in value]
         if not isinstance(value, dict):
             return value
         if "$ref" in value:
             return inline(definitions[value["$ref"].rsplit("/", 1)[-1]])
-        return {key: inline(item) for key, item in value.items() if key != "$defs"}
+        # Pydantic's field and class titles repeat property names. Keep fields
+        # literally named "title" and all schema constraints intact.
+        return {
+            key: inline(item, field_map=key == "properties" and not field_map)
+            for key, item in value.items()
+            if field_map or key not in {"$defs", "title"}
+        }
 
     return inline(model)
 

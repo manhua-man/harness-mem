@@ -38,7 +38,8 @@ def test_single_command_and_canonical_distill_skill_use_logical_tool_names() -> 
     skill = Path("code/tools/hm-distill/SKILL.md").read_text(encoding="utf-8")
 
     assert "inspect_sessions" in command
-    assert "项目、目录和 Hook 安装都不是检索或人工整理的前提" in command
+    assert "检索和人工整理无需项目初始化、Hook、后台 CLI 或 Dream" in command
+    assert "不要求用户管理编号、目录" in command
     assert "prepare_session_distill" in command
     assert "finalize_session_distill" in command
     assert "mcp__mcp_router__" not in command
@@ -46,8 +47,8 @@ def test_single_command_and_canonical_distill_skill_use_logical_tool_names() -> 
     assert "prepare_session_distill" in skill
     assert "finalize_session_distill" in skill
     assert 'scope="all"' in skill
-    assert "一场会话可以保存多条知识" in skill
-    assert "不要自设每日或批次数量上限" in command
+    assert "一个会话可以产生零条、一条或多条记忆" in skill
+    assert "不自设每日／批次数量上限" in command
     assert "batch_id" in skill
     assert "mcp__mcp_router__" not in skill
     assert "mcp__harness_mem__" not in skill

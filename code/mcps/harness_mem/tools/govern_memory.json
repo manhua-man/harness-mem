@@ -37,7 +37,6 @@
                       "properties": {
                         "candidate_index": {
                           "minimum": 0,
-                          "title": "Candidate Index",
                           "type": "integer"
                         },
                         "semantic_support": {
@@ -46,7 +45,6 @@
                             "partial",
                             "contradicted"
                           ],
-                          "title": "Semantic Support",
                           "type": "string"
                         },
                         "future_scope": {
@@ -55,7 +53,6 @@
                             "session_only",
                             "unclear"
                           ],
-                          "title": "Future Scope",
                           "type": "string"
                         },
                         "source_use": {
@@ -67,13 +64,11 @@
                             "task_context",
                             "unclear"
                           ],
-                          "title": "Source Use",
                           "type": "string"
                         },
                         "reason": {
                           "maxLength": 1000,
                           "minLength": 8,
-                          "title": "Reason",
                           "type": "string"
                         },
                         "scope_segments": {
@@ -83,7 +78,6 @@
                             "properties": {
                               "text": {
                                 "minLength": 1,
-                                "title": "Text",
                                 "type": "string"
                               },
                               "source_use": {
@@ -94,7 +88,6 @@
                                   "task_context",
                                   "unclear"
                                 ],
-                                "title": "Source Use",
                                 "type": "string"
                               },
                               "future_scope": {
@@ -103,12 +96,10 @@
                                   "session_only",
                                   "unclear"
                                 ],
-                                "title": "Future Scope",
                                 "type": "string"
                               },
                               "standalone": {
                                 "default": false,
-                                "title": "Standalone",
                                 "type": "boolean"
                               },
                               "content_role": {
@@ -119,7 +110,6 @@
                                   "temporary_context",
                                   "unclear"
                                 ],
-                                "title": "Content Role",
                                 "type": "string"
                               },
                               "source_support": {
@@ -130,7 +120,6 @@
                                   "contradicted",
                                   "unclear"
                                 ],
-                                "title": "Source Support",
                                 "type": "string"
                               }
                             },
@@ -142,10 +131,8 @@
                               "content_role",
                               "source_support"
                             ],
-                            "title": "CandidateScopeSegment",
                             "type": "object"
                           },
-                          "title": "Scope Segments",
                           "type": "array",
                           "minItems": 1
                         },
@@ -161,28 +148,24 @@
                                     "drops_applicable_meaning",
                                     "unclear"
                                   ],
-                                  "title": "Relationship",
                                   "type": "string"
                                 },
                                 "predecessor_conditions": {
                                   "items": {
                                     "type": "string"
                                   },
-                                  "title": "Predecessor Conditions",
                                   "type": "array"
                                 },
                                 "predecessor_statements": {
                                   "items": {
                                     "type": "string"
                                   },
-                                  "title": "Predecessor Statements",
                                   "type": "array"
                                 },
                                 "predecessor_versions": {
                                   "items": {
                                     "type": "string"
                                   },
-                                  "title": "Predecessor Versions",
                                   "type": "array"
                                 },
                                 "undecided_state": {
@@ -194,21 +177,18 @@
                                       "type": "null"
                                     }
                                   ],
-                                  "default": null,
-                                  "title": "Undecided State"
+                                  "default": null
                                 },
                                 "successor_statements": {
                                   "items": {
                                     "type": "string"
                                   },
                                   "minItems": 1,
-                                  "title": "Successor Statements",
                                   "type": "array"
                                 },
                                 "basis": {
                                   "maxLength": 1000,
                                   "minLength": 8,
-                                  "title": "Basis",
                                   "type": "string"
                                 },
                                 "report_preservation": {
@@ -217,17 +197,14 @@
                                       "additionalProperties": false,
                                       "properties": {
                                         "owner_candidate_id": {
-                                          "title": "Owner Candidate Id",
                                           "type": "string"
                                         },
                                         "inventory_sha256": {
                                           "maxLength": 64,
                                           "minLength": 64,
-                                          "title": "Inventory Sha256",
                                           "type": "string"
                                         },
                                         "inventory_complete": {
-                                          "title": "Inventory Complete",
                                           "type": "boolean"
                                         },
                                         "units": {
@@ -236,13 +213,11 @@
                                             "properties": {
                                               "unit_index": {
                                                 "minimum": 0,
-                                                "title": "Unit Index",
                                                 "type": "integer"
                                               },
                                               "unit_sha256": {
                                                 "maxLength": 64,
                                                 "minLength": 64,
-                                                "title": "Unit Sha256",
                                                 "type": "string"
                                               },
                                               "verdict": {
@@ -252,7 +227,6 @@
                                                   "lost",
                                                   "unclear"
                                                 ],
-                                                "title": "Verdict",
                                                 "type": "string"
                                               },
                                               "successor_spans": {
@@ -261,23 +235,19 @@
                                                   "properties": {
                                                     "successor_index": {
                                                       "minimum": 0,
-                                                      "title": "Successor Index",
                                                       "type": "integer"
                                                     },
                                                     "char_start": {
                                                       "minimum": 0,
-                                                      "title": "Char Start",
                                                       "type": "integer"
                                                     },
                                                     "char_end": {
                                                       "minimum": 1,
-                                                      "title": "Char End",
                                                       "type": "integer"
                                                     },
                                                     "text_sha256": {
                                                       "maxLength": 64,
                                                       "minLength": 64,
-                                                      "title": "Text Sha256",
                                                       "type": "string"
                                                     }
                                                   },
@@ -287,10 +257,8 @@
                                                     "char_end",
                                                     "text_sha256"
                                                   ],
-                                                  "title": "ReportRetainedSpan",
                                                   "type": "object"
                                                 },
-                                                "title": "Successor Spans",
                                                 "type": "array"
                                               }
                                             },
@@ -300,10 +268,8 @@
                                               "verdict",
                                               "successor_spans"
                                             ],
-                                            "title": "ReportUnitPreservation",
                                             "type": "object"
                                           },
-                                          "title": "Units",
                                           "type": "array"
                                         },
                                         "omissions": {
@@ -312,20 +278,17 @@
                                             "properties": {
                                               "omission_index": {
                                                 "minimum": 0,
-                                                "title": "Omission Index",
                                                 "type": "integer"
                                               },
                                               "omission_sha256": {
                                                 "maxLength": 64,
                                                 "minLength": 64,
-                                                "title": "Omission Sha256",
                                                 "type": "string"
                                               },
                                               "affected_units": {
                                                 "items": {
                                                   "type": "integer"
                                                 },
-                                                "title": "Affected Units",
                                                 "type": "array"
                                               },
                                               "claim": {
@@ -335,7 +298,6 @@
                                                   "lost",
                                                   "unclear"
                                                 ],
-                                                "title": "Claim",
                                                 "type": "string"
                                               },
                                               "evidence": {
@@ -345,7 +307,6 @@
                                                   "lost",
                                                   "unclear"
                                                 ],
-                                                "title": "Evidence",
                                                 "type": "string"
                                               },
                                               "causality": {
@@ -355,7 +316,6 @@
                                                   "lost",
                                                   "unclear"
                                                 ],
-                                                "title": "Causality",
                                                 "type": "string"
                                               },
                                               "boundary": {
@@ -365,7 +325,6 @@
                                                   "lost",
                                                   "unclear"
                                                 ],
-                                                "title": "Boundary",
                                                 "type": "string"
                                               },
                                               "permission": {
@@ -375,7 +334,6 @@
                                                   "lost",
                                                   "unclear"
                                                 ],
-                                                "title": "Permission",
                                                 "type": "string"
                                               },
                                               "scope": {
@@ -385,7 +343,6 @@
                                                   "lost",
                                                   "unclear"
                                                 ],
-                                                "title": "Scope",
                                                 "type": "string"
                                               }
                                             },
@@ -400,10 +357,8 @@
                                               "permission",
                                               "scope"
                                             ],
-                                            "title": "ReportOmissionPreservation",
                                             "type": "object"
                                           },
-                                          "title": "Omissions",
                                           "type": "array"
                                         }
                                       },
@@ -414,7 +369,6 @@
                                         "units",
                                         "omissions"
                                       ],
-                                      "title": "ReportPreservationJudgment",
                                       "type": "object"
                                     },
                                     {
@@ -433,7 +387,6 @@
                                 "successor_statements",
                                 "basis"
                               ],
-                              "title": "UpdateMeaningJudgment",
                               "type": "object"
                             },
                             {
@@ -474,7 +427,6 @@
                         "properties": {
                           "candidate_index": {
                             "minimum": 0,
-                            "title": "Candidate Index",
                             "type": "integer"
                           },
                           "semantic_support": {
@@ -483,7 +435,6 @@
                               "partial",
                               "contradicted"
                             ],
-                            "title": "Semantic Support",
                             "type": "string"
                           },
                           "future_scope": {
@@ -492,7 +443,6 @@
                               "session_only",
                               "unclear"
                             ],
-                            "title": "Future Scope",
                             "type": "string"
                           },
                           "source_use": {
@@ -504,13 +454,11 @@
                               "task_context",
                               "unclear"
                             ],
-                            "title": "Source Use",
                             "type": "string"
                           },
                           "reason": {
                             "maxLength": 1000,
                             "minLength": 8,
-                            "title": "Reason",
                             "type": "string"
                           },
                           "scope_segments": {
@@ -520,7 +468,6 @@
                               "properties": {
                                 "text": {
                                   "minLength": 1,
-                                  "title": "Text",
                                   "type": "string"
                                 },
                                 "source_use": {
@@ -531,7 +478,6 @@
                                     "task_context",
                                     "unclear"
                                   ],
-                                  "title": "Source Use",
                                   "type": "string"
                                 },
                                 "future_scope": {
@@ -540,12 +486,10 @@
                                     "session_only",
                                     "unclear"
                                   ],
-                                  "title": "Future Scope",
                                   "type": "string"
                                 },
                                 "standalone": {
                                   "default": false,
-                                  "title": "Standalone",
                                   "type": "boolean"
                                 },
                                 "content_role": {
@@ -556,7 +500,6 @@
                                     "temporary_context",
                                     "unclear"
                                   ],
-                                  "title": "Content Role",
                                   "type": "string"
                                 },
                                 "source_support": {
@@ -567,7 +510,6 @@
                                     "contradicted",
                                     "unclear"
                                   ],
-                                  "title": "Source Support",
                                   "type": "string"
                                 }
                               },
@@ -579,10 +521,8 @@
                                 "content_role",
                                 "source_support"
                               ],
-                              "title": "CandidateScopeSegment",
                               "type": "object"
                             },
-                            "title": "Scope Segments",
                             "type": "array",
                             "minItems": 1
                           },
@@ -598,28 +538,24 @@
                                       "drops_applicable_meaning",
                                       "unclear"
                                     ],
-                                    "title": "Relationship",
                                     "type": "string"
                                   },
                                   "predecessor_conditions": {
                                     "items": {
                                       "type": "string"
                                     },
-                                    "title": "Predecessor Conditions",
                                     "type": "array"
                                   },
                                   "predecessor_statements": {
                                     "items": {
                                       "type": "string"
                                     },
-                                    "title": "Predecessor Statements",
                                     "type": "array"
                                   },
                                   "predecessor_versions": {
                                     "items": {
                                       "type": "string"
                                     },
-                                    "title": "Predecessor Versions",
                                     "type": "array"
                                   },
                                   "undecided_state": {
@@ -631,21 +567,18 @@
                                         "type": "null"
                                       }
                                     ],
-                                    "default": null,
-                                    "title": "Undecided State"
+                                    "default": null
                                   },
                                   "successor_statements": {
                                     "items": {
                                       "type": "string"
                                     },
                                     "minItems": 1,
-                                    "title": "Successor Statements",
                                     "type": "array"
                                   },
                                   "basis": {
                                     "maxLength": 1000,
                                     "minLength": 8,
-                                    "title": "Basis",
                                     "type": "string"
                                   },
                                   "report_preservation": {
@@ -654,17 +587,14 @@
                                         "additionalProperties": false,
                                         "properties": {
                                           "owner_candidate_id": {
-                                            "title": "Owner Candidate Id",
                                             "type": "string"
                                           },
                                           "inventory_sha256": {
                                             "maxLength": 64,
                                             "minLength": 64,
-                                            "title": "Inventory Sha256",
                                             "type": "string"
                                           },
                                           "inventory_complete": {
-                                            "title": "Inventory Complete",
                                             "type": "boolean"
                                           },
                                           "units": {
@@ -673,13 +603,11 @@
                                               "properties": {
                                                 "unit_index": {
                                                   "minimum": 0,
-                                                  "title": "Unit Index",
                                                   "type": "integer"
                                                 },
                                                 "unit_sha256": {
                                                   "maxLength": 64,
                                                   "minLength": 64,
-                                                  "title": "Unit Sha256",
                                                   "type": "string"
                                                 },
                                                 "verdict": {
@@ -689,7 +617,6 @@
                                                     "lost",
                                                     "unclear"
                                                   ],
-                                                  "title": "Verdict",
                                                   "type": "string"
                                                 },
                                                 "successor_spans": {
@@ -698,23 +625,19 @@
                                                     "properties": {
                                                       "successor_index": {
                                                         "minimum": 0,
-                                                        "title": "Successor Index",
                                                         "type": "integer"
                                                       },
                                                       "char_start": {
                                                         "minimum": 0,
-                                                        "title": "Char Start",
                                                         "type": "integer"
                                                       },
                                                       "char_end": {
                                                         "minimum": 1,
-                                                        "title": "Char End",
                                                         "type": "integer"
                                                       },
                                                       "text_sha256": {
                                                         "maxLength": 64,
                                                         "minLength": 64,
-                                                        "title": "Text Sha256",
                                                         "type": "string"
                                                       }
                                                     },
@@ -724,10 +647,8 @@
                                                       "char_end",
                                                       "text_sha256"
                                                     ],
-                                                    "title": "ReportRetainedSpan",
                                                     "type": "object"
                                                   },
-                                                  "title": "Successor Spans",
                                                   "type": "array"
                                                 }
                                               },
@@ -737,10 +658,8 @@
                                                 "verdict",
                                                 "successor_spans"
                                               ],
-                                              "title": "ReportUnitPreservation",
                                               "type": "object"
                                             },
-                                            "title": "Units",
                                             "type": "array"
                                           },
                                           "omissions": {
@@ -749,20 +668,17 @@
                                               "properties": {
                                                 "omission_index": {
                                                   "minimum": 0,
-                                                  "title": "Omission Index",
                                                   "type": "integer"
                                                 },
                                                 "omission_sha256": {
                                                   "maxLength": 64,
                                                   "minLength": 64,
-                                                  "title": "Omission Sha256",
                                                   "type": "string"
                                                 },
                                                 "affected_units": {
                                                   "items": {
                                                     "type": "integer"
                                                   },
-                                                  "title": "Affected Units",
                                                   "type": "array"
                                                 },
                                                 "claim": {
@@ -772,7 +688,6 @@
                                                     "lost",
                                                     "unclear"
                                                   ],
-                                                  "title": "Claim",
                                                   "type": "string"
                                                 },
                                                 "evidence": {
@@ -782,7 +697,6 @@
                                                     "lost",
                                                     "unclear"
                                                   ],
-                                                  "title": "Evidence",
                                                   "type": "string"
                                                 },
                                                 "causality": {
@@ -792,7 +706,6 @@
                                                     "lost",
                                                     "unclear"
                                                   ],
-                                                  "title": "Causality",
                                                   "type": "string"
                                                 },
                                                 "boundary": {
@@ -802,7 +715,6 @@
                                                     "lost",
                                                     "unclear"
                                                   ],
-                                                  "title": "Boundary",
                                                   "type": "string"
                                                 },
                                                 "permission": {
@@ -812,7 +724,6 @@
                                                     "lost",
                                                     "unclear"
                                                   ],
-                                                  "title": "Permission",
                                                   "type": "string"
                                                 },
                                                 "scope": {
@@ -822,7 +733,6 @@
                                                     "lost",
                                                     "unclear"
                                                   ],
-                                                  "title": "Scope",
                                                   "type": "string"
                                                 }
                                               },
@@ -837,10 +747,8 @@
                                                 "permission",
                                                 "scope"
                                               ],
-                                              "title": "ReportOmissionPreservation",
                                               "type": "object"
                                             },
-                                            "title": "Omissions",
                                             "type": "array"
                                           }
                                         },
@@ -851,7 +759,6 @@
                                           "units",
                                           "omissions"
                                         ],
-                                        "title": "ReportPreservationJudgment",
                                         "type": "object"
                                       },
                                       {
@@ -870,7 +777,6 @@
                                   "successor_statements",
                                   "basis"
                                 ],
-                                "title": "UpdateMeaningJudgment",
                                 "type": "object"
                               },
                               {
@@ -908,23 +814,19 @@
                   "unrelated",
                   "unclear"
                 ],
-                "title": "Relationship",
                 "type": "string"
               },
               "predecessor_title": {
                 "minLength": 1,
-                "title": "Predecessor Title",
                 "type": "string"
               },
               "successor_title": {
                 "minLength": 1,
-                "title": "Successor Title",
                 "type": "string"
               },
               "basis": {
                 "maxLength": 1000,
                 "minLength": 8,
-                "title": "Basis",
                 "type": "string"
               }
             },
@@ -934,7 +836,6 @@
               "successor_title",
               "basis"
             ],
-            "title": "ReportTopicJudgment",
             "type": "object"
           },
           "report_split": {
@@ -957,12 +858,10 @@
                   "properties": {
                     "topic_title": {
                       "minLength": 1,
-                      "title": "Topic Title",
                       "type": "string"
                     },
                     "text": {
                       "minLength": 1,
-                      "title": "Text",
                       "type": "string"
                     },
                     "exchange_indexes": {
@@ -970,7 +869,6 @@
                         "type": "integer"
                       },
                       "minItems": 1,
-                      "title": "Exchange Indexes",
                       "type": "array"
                     },
                     "source_support": {
@@ -981,7 +879,6 @@
                         "contradicted",
                         "unclear"
                       ],
-                      "title": "Source Support",
                       "type": "string"
                     },
                     "source_use": {
@@ -993,7 +890,6 @@
                         "task_context",
                         "unclear"
                       ],
-                      "title": "Source Use",
                       "type": "string"
                     },
                     "future_scope": {
@@ -1003,7 +899,6 @@
                         "session_only",
                         "unclear"
                       ],
-                      "title": "Future Scope",
                       "type": "string"
                     },
                     "qualifiers": {
@@ -1013,7 +908,6 @@
                         "properties": {
                           "text": {
                             "minLength": 1,
-                            "title": "Text",
                             "type": "string"
                           },
                           "source_support": {
@@ -1024,7 +918,6 @@
                               "contradicted",
                               "unclear"
                             ],
-                            "title": "Source Support",
                             "type": "string"
                           },
                           "source_use": {
@@ -1036,12 +929,10 @@
                               "task_context",
                               "unclear"
                             ],
-                            "title": "Source Use",
                             "type": "string"
                           },
                           "independently_useful": {
                             "default": false,
-                            "title": "Independently Useful",
                             "type": "boolean"
                           }
                         },
@@ -1049,10 +940,8 @@
                           "text",
                           "source_support"
                         ],
-                        "title": "ReportQualifier",
                         "type": "object"
                       },
-                      "title": "Qualifiers",
                       "type": "array"
                     },
                     "topic_judgment": {
@@ -1065,23 +954,19 @@
                             "unrelated",
                             "unclear"
                           ],
-                          "title": "Relationship",
                           "type": "string"
                         },
                         "predecessor_title": {
                           "minLength": 1,
-                          "title": "Predecessor Title",
                           "type": "string"
                         },
                         "successor_title": {
                           "minLength": 1,
-                          "title": "Successor Title",
                           "type": "string"
                         },
                         "basis": {
                           "maxLength": 1000,
                           "minLength": 8,
-                          "title": "Basis",
                           "type": "string"
                         }
                       },
@@ -1091,7 +976,6 @@
                         "successor_title",
                         "basis"
                       ],
-                      "title": "ReportTopicJudgment",
                       "type": "object"
                     },
                     "scope_segments": {
@@ -1101,7 +985,6 @@
                         "properties": {
                           "text": {
                             "minLength": 1,
-                            "title": "Text",
                             "type": "string"
                           },
                           "source_use": {
@@ -1112,7 +995,6 @@
                               "task_context",
                               "unclear"
                             ],
-                            "title": "Source Use",
                             "type": "string"
                           },
                           "future_scope": {
@@ -1121,12 +1003,10 @@
                               "session_only",
                               "unclear"
                             ],
-                            "title": "Future Scope",
                             "type": "string"
                           },
                           "standalone": {
                             "default": true,
-                            "title": "Standalone",
                             "type": "boolean"
                           },
                           "content_role": {
@@ -1137,7 +1017,6 @@
                               "temporary_context",
                               "unclear"
                             ],
-                            "title": "Content Role",
                             "type": "string"
                           },
                           "source_support": {
@@ -1149,7 +1028,6 @@
                               "contradicted",
                               "unclear"
                             ],
-                            "title": "Source Support",
                             "type": "string"
                           }
                         },
@@ -1158,11 +1036,9 @@
                           "source_use",
                           "future_scope"
                         ],
-                        "title": "ReportScopeSegment",
                         "type": "object"
                       },
                       "minItems": 1,
-                      "title": "Scope Segments",
                       "type": "array"
                     }
                   },
@@ -1174,7 +1050,6 @@
                     "topic_judgment",
                     "scope_segments"
                   ],
-                  "title": "ReportOutputProposal",
                   "type": "object"
                 }
               },
@@ -1186,12 +1061,10 @@
                   "properties": {
                     "text": {
                       "minLength": 1,
-                      "title": "Text",
                       "type": "string"
                     },
                     "classification": {
                       "const": "temporary_context",
-                      "title": "Classification",
                       "type": "string"
                     }
                   },
@@ -1199,7 +1072,6 @@
                     "text",
                     "classification"
                   ],
-                  "title": "ReportOmission",
                   "type": "object"
                 }
               }

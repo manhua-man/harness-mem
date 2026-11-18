@@ -11,6 +11,7 @@ import pytest
 from harness_mem.adapters.antigravity.adapter import AntigravityAdapter
 from harness_mem.adapters.cursor.adapter import CursorAdapter
 from harness_mem.adapters.hermes.adapter import HermesAdapter
+from harness_mem.adapters.opencode.adapter import OpenCodeAdapter
 from harness_mem.adapters.protocol import SessionRecord
 from harness_mem.adapters.source_inspection import InspectedSource, inspect_native_source, read_native_source
 from harness_mem.capture_policy import PRIVATE_REDACTION, redact_private_bytes
@@ -309,13 +310,22 @@ def test_native_sqlite_reads_only_selected_session_without_owner(tmp_path, clien
             db.execute("CREATE TABLE part (id TEXT, session_id TEXT, message_id TEXT, content TEXT)")
             db.executemany("INSERT INTO session VALUES (?, ?)", [("selected", workspace), ("unrelated", workspace)])
             db.executemany("INSERT INTO message VALUES (?, ?, 1, ?)", [("a", "selected", "selected message"), ("b", "unrelated", "unrelated message")])
-    adapter = HermesAdapter(None, sessions_dir=tmp_path / "sessions", state_db=path, home_dir=tmp_path / "home") if client == "hermes" else None
+    if client == "hermes":
+        adapter = HermesAdapter(None, sessions_dir=tmp_path / "sessions", state_db=path, home_dir=tmp_path / "home")
+    else:
+        adapter = OpenCodeAdapter(None, database_path=path, home_dir=tmp_path / "home")
     record: SessionRecord = {"path": path, "session_id": "selected"}
     before = path.read_bytes()
     inspected = inspect_native_source(adapter, client, record, project_root=None, config=MergedConfig())
     assert (inspected.ownership, inspected.readability) == ("source", "readable")
     assert "selected message" in inspected.text and "unrelated message" not in inspected.text
-    assert inspected.native_input_bytes == inspected.captured_bytes
+    exported = read_native_source(adapter, client, record)
+    assert inspected.captured_bytes == exported.get("capture_bytes", exported["raw_bytes"])
+    if exported.get("capture_bytes") is not None:
+        assert inspected.native_input_bytes is None
+        assert inspected.native_input_digest == sha256_bytes(exported["raw_bytes"])
+    else:
+        assert inspected.native_input_bytes == inspected.captured_bytes
     assert inspected.authored_user_texts is None
     strict = inspect_native_source(adapter, client, record, project_root=tmp_path, config=MergedConfig())
     assert strict.ownership == ("other" if binding == "other" else "unknown")

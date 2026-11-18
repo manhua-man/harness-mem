@@ -198,10 +198,11 @@ def run_device_memory_variant(*, native_containers: bool) -> dict:
                 assert _frozen_user_exchange_indexes(backend, source_id=job.source_id,
                     source_revision=job.source_revision, rendering=observation.raw_content) == {1}
             statement = PREFERENCES[client]
+            title = f"{client} collaboration preference"
             suggestion = _rpc("govern_memory", {"action": "suggest", "arguments": {
                 "kind": "memory", "project_name": job.project_name, "category": "preference",
                 "content": statement, "source": f"distill-job:{job.id}", "distill_job_id": job.id,
-                "canonical_title": f"{client} collaboration preference", "topic_path": ["Preferences"],
+                "canonical_title": title, "topic_path": ["Preferences"],
                 "evidence_basis": "user_statement", "verification_outcome": "verified",
                 "verification_refs": [{"kind": "user_statement", "exchange_index": 1,
                                        "content_sha256": windows[0]["content_sha256"], "role": "user"}],
@@ -216,7 +217,17 @@ def run_device_memory_variant(*, native_containers: bool) -> dict:
                 "semantic_review": {"session_summary": "Verified an explicit future preference.",
                     "final_user_request": statement, "final_outcome": "Saved the verified preference.",
                     "last_turn_status": "answered", "contradictions": [], "unfinished_work": [],
-                    "evidence_status": "answered", "promotion_decision": "promote"}})
+                    "evidence_status": "answered", "promotion_decision": "promote",
+                    "final_scope_judgment": {suggestion["entry_id"]: {"points": [{
+                        "candidate_index": 0, "semantic_support": "supported",
+                        "future_scope": "durable", "source_use": "standing_decision",
+                        "reason": "The selected fixture source explicitly sets the complete future preference.",
+                        "scope_segments": [{
+                            "text": f"{title}\n{statement}", "source_use": "standing_decision",
+                            "future_scope": "durable", "standalone": True,
+                            "content_role": "claim", "source_support": "supported",
+                        }],
+                    }]}}}})
             assert len(final["knowledge_changes"]) == 1 and final["knowledge_changes"][0]["change"] == "added", final
             note = Path(final["note"]["path"])
             assert note.resolve().is_relative_to(backend.data_dir.resolve()), note

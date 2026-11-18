@@ -20,6 +20,7 @@ from harness_mem.commands.separated_assimilation import (
     create_separated_candidates,
     prepare_separated_assimilation,
     separated_job_candidate_ids,
+    target_version,
 )
 from harness_mem.core.schemas import (
     AssimilationDecision,
@@ -41,6 +42,32 @@ def _run(coro):
 
 
 VERIFIED_AT = datetime(2026, 8, 18, tzinfo=timezone.utc)
+
+
+def _fixture_verdict(items, *, predecessor=None, source_use="reusable_knowledge"):
+    meaning = None
+    if predecessor is not None:
+        meaning = {
+            "relationship": "preserves_applicable_meaning",
+            "predecessor_statements": [predecessor.statement],
+            "predecessor_versions": [target_version({
+                "title": predecessor.title, "statement": predecessor.statement,
+                "topic_path": predecessor.module_path, "source_report": None,
+            })],
+            "successor_statements": [item["statement"] for item in items],
+            "basis": "The fixture retains the applicable meaning while changing the stated decision.",
+        }
+    return {"points": [{
+        "candidate_index": index, "semantic_support": "supported",
+        "future_scope": "durable", "source_use": source_use,
+        "reason": "The fictional source supports the complete intended knowledge.",
+        "scope_segments": [{
+            "text": item["title"] + "\n" + item["statement"], "source_use": source_use,
+            "future_scope": "durable", "standalone": True, "source_support": "supported",
+            "content_role": "claim",
+        }],
+        **({"update_meaning_judgment": meaning} if meaning else {}),
+    } for index, item in enumerate(items)]}
 
 
 def _project_root(tmp_path):
@@ -257,24 +284,31 @@ def test_apply_accepts_multiple_atomic_results_for_one_candidate(tmp_path) -> No
             },
         ]
 
-        result = _run(
-            apply_separated_assimilation(
-                backend,
-                project_name="demo",
-                project_root=str(project_root),
-                candidate_ids=[candidate.id],
-                plan={
-                    "version": "separated-v1",
-                    "candidate_ids": [candidate.id],
-                    "point_count": 2,
-                    "provider_candidate_ids": [candidate.id],
-                    "points": points,
+        for point in points:
+            point["final_scope_judgment"] = _fixture_verdict(point["knowledge_items"])
+        async def apply(plan_points):
+            return await apply_separated_assimilation(
+                backend, project_name="demo", project_root=str(project_root),
+                candidate_ids=[candidate.id], plan={
+                    "version": "separated-v1", "candidate_ids": [candidate.id],
+                    "point_count": len(plan_points), "provider_candidate_ids": [candidate.id],
+                    "points": plan_points,
                 },
             )
-        )
 
-        assert result["promoted"] == 2
-        assert len(result["points"]) == 2
+        with pytest.raises(ValueError, match="candidate exactly once"):
+            _run(apply(points))
+        assert _run(store.list_entries("demo")) == []
+        assert _run(store.get_candidate(candidate.id)).status == "pending"
+
+        items = [item for point in points for item in point["knowledge_items"]]
+        result = _run(apply([{
+            **points[0], "knowledge_items": items, "final_scope_judgment": _fixture_verdict(items),
+            "reason": "The session established independent ingestion and retrieval rules.",
+        }]))
+        assert result["promoted"] == 1
+        assert len(result["points"]) == 1
+        assert len(result["points"][0]["canonical_truth_ids"]) == 2
         assert {entry.title for entry in _run(store.list_entries("demo"))} == {
             "Ingestion rule",
             "Retrieval rule",
@@ -391,6 +425,14 @@ def test_apply_does_not_report_success_when_normal_search_cannot_read_write(
             RuntimeError,
             match="not readable through normal search",
         ):
+            items = [
+                {
+                    "title": "Search readback is required",
+                    "statement": candidate.statement,
+                    "topic_path": ["Memory consistency"],
+                    "claim_kind": "procedure",
+                }
+            ]
             _run(
                 apply_separated_assimilation(
                     backend,
@@ -408,14 +450,8 @@ def test_apply_does_not_report_success_when_normal_search_cannot_read_write(
                                 "answer_status": "ANSWERED",
                                 "disposition": "add",
                                 "matched_truth_ids": [],
-                                "knowledge_items": [
-                                    {
-                                        "title": "Search readback is required",
-                                        "statement": candidate.statement,
-                                        "topic_path": ["Memory consistency"],
-                                        "claim_kind": "procedure",
-                                    }
-                                ],
+                                "knowledge_items": items,
+                                "final_scope_judgment": _fixture_verdict(items),
                                 "reason": "The verified write must be visible to its normal reader.",
                             }
                         ],
@@ -464,20 +500,22 @@ def test_review_does_not_report_success_when_normal_search_cannot_read_write(
             RuntimeError,
             match="not readable through normal search",
         ):
+            items = [
+                {
+                    "title": "Review search readback",
+                    "statement": candidate.statement,
+                    "topic_path": ["Memory consistency"],
+                    "claim_kind": "procedure",
+                }
+            ]
             _run(
                 resolve_separated_review(
                     backend,
                     candidate_id=candidate.id,
                     disposition="add",
                     reason="Review must prove the user-visible write.",
-                    knowledge_items=[
-                        {
-                            "title": "Review search readback",
-                            "statement": candidate.statement,
-                            "topic_path": ["Memory consistency"],
-                            "claim_kind": "procedure",
-                        }
-                    ],
+                    knowledge_items=items,
+                    final_scope_judgment=_fixture_verdict(items),
                     project_root=project_root,
                 )
             )
@@ -561,6 +599,7 @@ def test_apply_validates_structure_without_rejecting_normal_words(
             assert _run(store.list_entries("demo", project_root=project_root)) == []
             return
 
+        plan["points"][0]["final_scope_judgment"] = _fixture_verdict([item])
         result = apply()
         assert result["promoted"] == 1
         entries = _run(store.list_entries("demo", project_root=project_root))
@@ -809,6 +848,10 @@ def test_refine_assimilation_replays_after_predecessor_was_deleted(
             ],
         }
 
+        point = plan["points"][0]
+        verdict = _fixture_verdict(point["knowledge_items"], predecessor=old)
+        point["final_scope_judgment"] = verdict
+        point["update_meaning_judgment"] = verdict["points"][0]["update_meaning_judgment"]
         from harness_mem.read_knowledge import search_current_knowledge
 
         search_calls = 0
@@ -1009,20 +1052,22 @@ def test_review_rejects_unverified_dream_candidate_and_writes_verified_resolutio
                 _verified_evidence(candidate, "review-evidence", project_root)
             )
         )
+        items = [
+            {
+                "title": "Verified review output",
+                "statement": "Review writes current knowledge only after verification.",
+                "topic_path": ["governance"],
+                "claim_kind": "procedure",
+            }
+        ]
         payload = _run(
             resolve_separated_review(
                 backend,
                 candidate_id=candidate.id,
                 disposition="add",
                 reason="Verified review decision.",
-                knowledge_items=[
-                    {
-                        "title": "Verified review output",
-                        "statement": "Review writes current knowledge only after verification.",
-                        "topic_path": ["governance"],
-                        "claim_kind": "procedure",
-                    }
-                ],
+                knowledge_items=items,
+                final_scope_judgment=_fixture_verdict(items),
                 project_root=project_root,
             )
         )
@@ -1148,6 +1193,16 @@ def test_mcp_repository_suggestion_uses_saved_project_root(tmp_path, monkeypatch
         )
         assert evidence[0].verification_outcome == "verified"
 
+        items = [
+            {
+                "title": "Repository-backed maintenance",
+                "statement": (
+                    "Repository-backed maintenance can write current knowledge."
+                ),
+                "topic_path": ["governance"],
+                "claim_kind": "procedure",
+            }
+        ]
         decided = governance_handlers.tool_govern_memory(
             "decide",
             {
@@ -1157,16 +1212,8 @@ def test_mcp_repository_suggestion_uses_saved_project_root(tmp_path, monkeypatch
                 "candidate_id": candidate_id,
                 "disposition": "add",
                 "reason": "Exercise the project-scoped repository maintenance path.",
-                "knowledge_items": [
-                    {
-                        "title": "Repository-backed maintenance",
-                        "statement": (
-                            "Repository-backed maintenance can write current knowledge."
-                        ),
-                        "topic_path": ["governance"],
-                        "claim_kind": "procedure",
-                    }
-                ],
+                "knowledge_items": items,
+                "final_scope_judgment": _fixture_verdict(items),
             },
         )
         assert decided["success"] is True
@@ -1322,7 +1369,7 @@ def test_scope_clarification_is_not_treated_as_durable_knowledge() -> None:
         evidence_basis="user_statement",
         verification_outcome="verified",
         verification_reason_codes=[
-            "explicit_scope_clarification",
+            "source_use_task_context",
             "user_statement_refs_current",
         ],
     )
@@ -1367,6 +1414,20 @@ def test_review_replace_splits_a_broad_current_entry_without_overlap(
             )
         )
 
+        items = [
+            {
+                "title": "Transactional publication",
+                "statement": "Publish related product records in one transaction.",
+                "topic_path": ["publication"],
+                "claim_kind": "procedure",
+            },
+            {
+                "title": "Final API validation",
+                "statement": "Validate final API output after product assembly.",
+                "topic_path": ["api"],
+                "claim_kind": "procedure",
+            },
+        ]
         result = _run(
             resolve_separated_review(
                 backend,
@@ -1374,20 +1435,8 @@ def test_review_replace_splits_a_broad_current_entry_without_overlap(
                 disposition="replace",
                 reason="The current entry mixes independent publication and API rules.",
                 target_knowledge_ids=[broad.id],
-                knowledge_items=[
-                    {
-                        "title": "Transactional publication",
-                        "statement": "Publish related product records in one transaction.",
-                        "topic_path": ["publication"],
-                        "claim_kind": "procedure",
-                    },
-                    {
-                        "title": "Final API validation",
-                        "statement": "Validate final API output after product assembly.",
-                        "topic_path": ["api"],
-                        "claim_kind": "procedure",
-                    },
-                ],
+                knowledge_items=items,
+                final_scope_judgment=_fixture_verdict(items, predecessor=broad),
                 project_root=project_root,
             )
         )
@@ -1460,20 +1509,22 @@ def test_review_preflights_target_and_rejects_a_second_terminal_decision(
         assert _run(store.list_decisions(candidate.id)) == []
         assert _run(store.get_candidate(candidate.id)).status == "pending"
 
+        items = [
+            {
+                "title": "One terminal outcome",
+                "statement": "A candidate receives one terminal assimilation decision.",
+                "topic_path": ["review"],
+                "claim_kind": "procedure",
+            }
+        ]
         first = _run(
             resolve_separated_review(
                 backend,
                 candidate_id=candidate.id,
                 disposition="add",
                 reason="The verified candidate has one atomic durable outcome.",
-                knowledge_items=[
-                    {
-                        "title": "One terminal outcome",
-                        "statement": "A candidate receives one terminal assimilation decision.",
-                        "topic_path": ["review"],
-                        "claim_kind": "procedure",
-                    }
-                ],
+                knowledge_items=items,
+                final_scope_judgment=_fixture_verdict(items),
                 project_root=project_root,
             )
         )
@@ -1580,20 +1631,22 @@ def test_truth_transaction_failure_keeps_candidate_retryable(
 
         monkeypatch.setattr(store, "apply_current_change", fail_transaction)
         with pytest.raises(RuntimeError, match="simulated SQLite failure"):
+            items = [
+                {
+                    "title": "Retryable commit",
+                    "statement": "Failed truth commits do not terminalize candidates.",
+                    "topic_path": ["storage"],
+                    "claim_kind": "procedure",
+                }
+            ]
             _run(
                 resolve_separated_review(
                     backend,
                     candidate_id=candidate.id,
                     disposition="add",
                     reason="Exercise the commit boundary.",
-                    knowledge_items=[
-                        {
-                            "title": "Retryable commit",
-                            "statement": "Failed truth commits do not terminalize candidates.",
-                            "topic_path": ["storage"],
-                            "claim_kind": "procedure",
-                        }
-                    ],
+                    knowledge_items=items,
+                    final_scope_judgment=_fixture_verdict(items),
                     project_root=project_root,
                 )
             )
@@ -1763,20 +1816,22 @@ def test_review_blocks_stale_confirmation_but_allows_verified_replacement(
             )
         assert _run(store.get_candidate(candidate.id)).status == "pending"
 
+        items = [
+            {
+                "title": "Source-bound truth",
+                "statement": "Current truth now follows the fresh candidate source.",
+                "topic_path": ["review"],
+                "claim_kind": "implementation_fact",
+            }
+        ]
         replacement = _run(
             resolve_separated_review(
                 backend,
                 candidate_id=candidate.id,
                 disposition="refine",
                 reason="Fresh evidence may replace truth whose old source is stale.",
-                knowledge_items=[
-                    {
-                        "title": "Source-bound truth",
-                        "statement": "Current truth now follows the fresh candidate source.",
-                        "topic_path": ["review"],
-                        "claim_kind": "implementation_fact",
-                    }
-                ],
+                knowledge_items=items,
+                final_scope_judgment=_fixture_verdict(items, predecessor=current),
                 target_knowledge_ids=[current.id],
                 project_root=project_root,
             )

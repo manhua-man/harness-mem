@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from harness_mem.autonomous.models import (
     CandidateVerificationDecision, DREAM_SOURCE_RECHECK_CONTRACT,
+    NativeFinalScopeDecision,
     SourceClassificationDecision,
 )
 from harness_mem.autonomous.executors.host_structured_cli import HostStructuredCliProvider
@@ -109,20 +110,23 @@ def test_source_json_schema_cannot_request_unused_proof_fields():
 
 @pytest.mark.parametrize("host", ["codex", "claude-code", "cursor", "grok", "hermes", "opencode", "antigravity"])
 def test_every_host_uses_source_transport_only_for_source_classification(tmp_path, monkeypatch, host):
+    from test_native_final_scope_transport import fixture_manifest, native_payload
+
     provider = HostStructuredCliProvider(host_client=host, executable="fictional", timeout_seconds=30)
     seen = []
     def run(manifest, **kwargs):
         seen.append(kwargs["decision_model"])
-        packet = _packet()
-        if manifest["contract_version"] != DREAM_SOURCE_RECHECK_CONTRACT:
-            packet["points"][0]["claim_units"] = []
+        packet = (_packet() if manifest["contract_version"] == DREAM_SOURCE_RECHECK_CONTRACT
+                  else native_payload(manifest))
         return _result(kwargs["decision_model"].model_validate(packet))
     monkeypatch.setattr(provider, "_run", run)
     result = provider.verify({"contract_version": DREAM_SOURCE_RECHECK_CONTRACT}, runtime_dir=tmp_path)
     assert isinstance(result.decision, CandidateVerificationDecision)
     assert result.decision.points[0].claim_units[0].retained_text == ""
-    provider.verify({"contract_version": "final-knowledge-scope-v1"}, runtime_dir=tmp_path)
-    assert seen == [SourceClassificationDecision, CandidateVerificationDecision]
+    final_manifest, _ = fixture_manifest()
+    final = provider.verify(final_manifest, runtime_dir=tmp_path)
+    assert isinstance(final.decision, CandidateVerificationDecision)
+    assert seen == [SourceClassificationDecision, NativeFinalScopeDecision]
 
 
 def test_hermes_native_invocation_builder_accepts_source_inventory_contract(tmp_path, monkeypatch):

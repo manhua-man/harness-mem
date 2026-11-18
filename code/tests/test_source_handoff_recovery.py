@@ -540,7 +540,7 @@ def enqueue_fixture(fixture, monkeypatch):
         return SimpleNamespace(spawned=True, coalesced=False)
 
     structured.get_dream_run, structured.list_dream_runs, structured.save_dream_run = get_run, list_runs, save_run
-    structured._index = SimpleNamespace(upsert=lambda *args: None)
+    structured.index = SimpleNamespace(upsert=lambda *args: None)
     monkeypatch.setattr(dream_continuation, "_bound_origin", bound)
     monkeypatch.setattr(dream_continuation, "_bound_source_account", source_account)
     monkeypatch.setattr(hook_background, "dispatch_bound_continuation", dispatch)

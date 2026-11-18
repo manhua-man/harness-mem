@@ -437,27 +437,31 @@ The populated-library blind comparison used two previously unprocessed
 matching pre-existing titles and statements from two projects. A separate
 grader froze six original questions and 24 scoring facets before each source
 was organized. Both isolated stores reached 792 rows. The HM path used the
-public MCP messages through the source checkout. The upstream path used the
-pinned `42fb1c0` Codex CLI with the documented date-only Markdown format.
+public MCP messages through the source checkout. The comparison project,
+`session-distill-skills` at `42fb1c0`, used its Codex Skill workflow and the
+documented date-only Markdown format. The independent reader worked from the
+Markdown knowledge base. The repository's `review-kb` Python helper was also
+tested as a diagnostic.
 128 focused regression checks passed.
 
 | Result over six questions and 24 scoring facets | HM | Upstream |
 | --- | ---: | ---: |
 | Long-term statements | 21.5/24 | 20/24 |
-| First response to each verbatim question | 16/24, 1/6 questions covered | 0/24, 0/6 |
+| First response to each verbatim question | 16/24, 1/6 questions covered | No comparable natural-language search entry |
 | Evidence delivered after follow-up | 17/24 | 19/24 with Markdown lookup |
-| Retrieval calls | 16 MCP calls, up to 6 per question | 18 CLI queries and one shared Markdown read |
+| Retrieval operations | 16 MCP calls, up to 6 per question | One shared Markdown read and 18 helper probes |
 | Independent answers | 17/24, 1/6 fully answered | 18.5/24, 0/6 fully answered |
 
 The HM scores count evidence delivered for its own question. The first page
 covered all four image-board facets. The local Open Design installation checks
 were stored but absent from all six reads for that question. The local HTTP
-check was returned for Q3 and missed by the Q2 answer. Upstream's
-`review-kb` skipped date-only entries carrying no legacy `Source` tag. All
-six original and twelve focused queries returned empty. Its fallback rendered
-89 lines from one Markdown read. One CLI help call is excluded from retrieval
-counts. The documented workspace is the repository root. The upstream answer
-named the prototype subdirectory.
+check was returned for Q3 and missed by the Q2 answer. The Markdown reader
+reviewed 89 lines from one file read. The separate `review-kb` diagnostic
+skipped date-only entries carrying no legacy `Source` tag. Its six verbatim
+probes scored 0/24 and its twelve focused probes also returned empty. One
+helper help invocation is excluded from the operation count. The documented
+Open Design workspace is the repository root. The comparison answer named the
+prototype subdirectory.
 [Independent scoring and receipts](../.tmp/hm-retrieval-populated-20261118/grade/ac/score.md).
 
 The original selection included a Kaiju archive with three native

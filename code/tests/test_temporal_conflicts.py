@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from harness_mem.adapters.snapshot import persist_session_snapshot
-from harness_mem.commands.wake import assemble_context_plan
+from harness_mem.context_assembly import assemble_context_plan
 from harness_mem.core.schemas import (
     AssimilationDecision,
     KnowledgeCandidate,

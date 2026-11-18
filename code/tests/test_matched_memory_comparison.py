@@ -194,9 +194,9 @@ def test_prompts_no_oracle_and_explicit_real_product_work(tmp_path):
         if product == "harness-mem":
             assert "product-instructions" in prompt and "hm.md" in prompt
             assert mod.daily_reply_instructions() in prompt
-            assert "knowledge_changes" in prompt and "展示实际保存的标题和正文" in prompt
+            assert "knowledge_changes" in prompt and "展示实际标题、正文" in prompt
             assert "unfinished_work" in prompt and "单列" in prompt
-            assert "保留已保存成果" in prompt
+            assert "失败保留来源" in prompt
         if product == "session-distill-skills":
             assert "只是待验证材料" in prompt
             preflight = mod.workflow_prompt(product, path, preflight=True)

@@ -132,22 +132,22 @@ def tool_get_project_status(
                 "Run harness-mem doctor to check the existing settings before editing them.",
             ),
             "conflict": (
-                "Existing project Hook files were preserved because they conflict with setup.",
+                "Existing host Hook files were preserved because they conflict with setup.",
                 "Run harness-mem doctor and compare the existing files with setup. "
                 "Only after confirming they are unmodified generated files, update them "
                 "with harness-mem integration hooks sync --client "
-                f"{resolved_host} --project-root . --force from the intended workspace.",
+                f"{resolved_host} --scope user --project-root . --force from the intended workspace.",
             ),
             "permission": (
-                "Project Hook files could not be written because access was denied.",
-                "Check workspace write access, then retry hm.",
+                "Host Hook files could not be written because access was denied.",
+                "Check write access to the host Hook configuration, then retry hm.",
             ),
             "unavailable": (
                 "The installed Hook program is unavailable.",
                 "Run harness-mem doctor in the environment where harness-mem is installed.",
             ),
             "invalid": (
-                "The project Hook configuration could not be read.",
+                "The host Hook configuration could not be read.",
                 "Run harness-mem doctor to check the existing configuration before editing it.",
             ),
             "unsupported": (
@@ -157,7 +157,7 @@ def tool_get_project_status(
         }
         message, action = recoveries.get(
             failure_kind or "unknown",
-            ("The project Hook could not be prepared; the cause is not yet known.",
+            ("Host Hooks could not be prepared. Run diagnostics to identify the cause.",
              "Run harness-mem doctor."),
         )
         return {

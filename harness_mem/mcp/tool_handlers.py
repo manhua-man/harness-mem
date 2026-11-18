@@ -374,6 +374,13 @@ def _explicit_history(arguments: dict[str, Any]) -> bool:
 
     if arguments.get("batch_sessions") is not None or arguments.get("batch_id") is not None:
         return True
+    if (arguments.get("scope") == "all" and arguments.get("session_id")
+            and not arguments.get("distill_job_id") and not arguments.get("target_knowledge")
+            and not arguments.get("project_name") and not arguments.get("project_root")
+            and arguments.get("run_ingest", True) and not arguments.get("retry_failures")):
+        # The core binds this explicit device selector into a one-session
+        # frozen batch before it can read, import or schedule anything.
+        return True
     if arguments.get("pause") or arguments.get("continue_batch"):
         return True
     return bool(

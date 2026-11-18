@@ -22,7 +22,9 @@ from harness_mem.autonomous.models import (
     AssimilationDecision,
     AssimilationPoint,
     CanonicalKnowledgeItem,
+    CandidateVerificationDecision,
 )
+from harness_mem.autonomous.provider import ProviderResult
 from harness_mem.commands.dream import dream_once
 from harness_mem.commands.separated_assimilation import (
     apply_separated_assimilation,
@@ -31,6 +33,7 @@ from harness_mem.commands.separated_assimilation import (
     validate_separated_assimilation_decision,
 )
 from harness_mem.commands.wake import build_wake_injection
+from harness_mem.mcp.distill_handlers import _consume_supplied_final_scope
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 _SAFE_REASON_CODES = frozenset(
@@ -49,6 +52,45 @@ _SAFE_REASON_CODES = frozenset(
         "promoted_candidate_missing_from_wake",
     }
 )
+
+
+class _ReplayVerifier:
+    """Deterministically recheck the exact repository fact in this replay."""
+
+    name = "qualification-replay"
+
+    def __init__(self, fact: str):
+        self.fact = fact
+
+    def verify(self, manifest: dict[str, Any], *, runtime_dir: Path, heartbeat=None) -> ProviderResult:
+        points = []
+        for candidate in manifest["candidates"]:
+            if candidate["statement"] != self.fact or not any(
+                source["content"].strip() == self.fact for source in candidate["sources"]
+            ):
+                raise ValueError("Replay source does not support the exact fact")
+            points.append({
+                "candidate_index": candidate["candidate_index"],
+                "semantic_support": "supported",
+                "future_scope": "durable",
+                "source_use": "reusable_knowledge",
+                "reason": "The reopened repository file states the complete qualification fact.",
+                "scope_segments": [{
+                    "text": candidate["scope_text"],
+                    "source_use": "reusable_knowledge",
+                    "future_scope": "durable",
+                    "content_role": "claim",
+                    "source_support": "supported",
+                    "standalone": True,
+                }],
+            })
+        decision = CandidateVerificationDecision.model_validate({"points": points})
+        return ProviderResult(
+            decision=decision, provider=self.name, model=None, duration_seconds=0,
+            input_sha256=hashlib.sha256(json.dumps(manifest, sort_keys=True).encode("utf-8")).hexdigest(),
+            response_sha256=hashlib.sha256(decision.model_dump_json().encode("utf-8")).hexdigest(),
+            input_tokens=0, output_tokens=0, total_tokens=0, event_count=1,
+        )
 
 
 @dataclass(frozen=True)
@@ -242,6 +284,7 @@ async def run_host_replay(
         )
         if prepared.eligible_candidate_ids != tuple(candidate_ids):
             raise RuntimeError("candidate_not_promoted")
+        qualification_title = "Native host replay qualification"
         plan = validate_separated_assimilation_decision(
             prepared,
             AssimilationDecision(
@@ -255,7 +298,7 @@ async def run_host_replay(
                         ),
                         knowledge_items=[
                             CanonicalKnowledgeItem(
-                                title="Native host replay qualification",
+                                title=qualification_title,
                                 statement=grounded_candidate,
                                 topic_path=["Native host integration"],
                                 claim_kind="implementation_fact",
@@ -265,6 +308,32 @@ async def run_host_replay(
                 ]
             ),
         )
+        if repository_evidence.read_text(encoding="utf-8").strip() != grounded_candidate:
+            raise RuntimeError("candidate_not_promoted")
+        refusal = await _consume_supplied_final_scope(
+            backend,
+            project_name=project_name,
+            project_root=str(project_root),
+            candidate_ids=candidate_ids,
+            plan=plan,
+            contract={candidate_id: {"points": [{
+                "candidate_index": 0,
+                "semantic_support": "supported",
+                "future_scope": "durable",
+                "source_use": "reusable_knowledge",
+                "reason": "The qualification source states the whole replay fact.",
+                "scope_segments": [{
+                    "text": f"{qualification_title}\n{grounded_candidate}",
+                    "source_use": "reusable_knowledge",
+                    "future_scope": "durable",
+                    "content_role": "claim",
+                    "standalone": True,
+                    "source_support": "supported",
+                }],
+            }]}},
+        )
+        if refusal is not None:
+            raise RuntimeError("candidate_not_promoted")
         assimilation = await apply_separated_assimilation(
             backend,
             project_name=project_name,
@@ -306,6 +375,7 @@ async def run_host_replay(
             project_name=project_name,
             project_root=project_root,
             source="agent",
+            semantic_provider=_ReplayVerifier(grounded_candidate),
         )
         if dream.status != "completed":
             raise RuntimeError("dream_postprocess_failed")

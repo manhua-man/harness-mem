@@ -13,10 +13,11 @@ from harness_mem.config.merge import MergedConfig
 
 def test_agent_host_clients_cover_cli_executors() -> None:
     assert AGENT_HOST_CLIENTS == frozenset(
-        {"codex", "claude-code", "hermes", "opencode"}
+        {"codex", "claude-code", "hermes", "opencode", "antigravity"}
     )
     assert host_cli_provider_name("codex") == "codex_cli"
     assert host_cli_provider_name("hermes") == "hermes_cli"
+    assert host_cli_provider_name("antigravity") == "antigravity_cli"
 
 
 def test_hook_guard_blocks_all_host_entry_actions(monkeypatch: pytest.MonkeyPatch) -> None:

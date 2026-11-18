@@ -195,6 +195,7 @@ async def current_distill_result(backend: Any, job: SessionDistillJob) -> dict[s
         unfinished_work=distill_unfinished_work(job),
         source_review_complete=(getattr(job, "status", None) == "completed"
             and job.promotion_summary.get("readback", {}).get("verified") is True
+            and job.promotion_summary.get("readback", {}).get("source_revision") == job.source_revision
             and job.semantic_review.get("evidence_status") == "answered"
             and job.semantic_review.get("promotion_decision") == "promote"),
     )

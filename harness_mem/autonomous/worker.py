@@ -2402,7 +2402,7 @@ def _run_source_coverage_attempt(
                 proxy = DistillCandidate(kind="memory", category="knowledge", content=candidate.statement,
                     confidence=0.5, evidence_basis=evidence[0].evidence_basis,
                     verification_outcome="unverified",
-                    verification_refs=[item.model_dump(mode="json", exclude={"locator_sha256"})
+                    verification_refs=[item.model_dump(mode="json", exclude={"locator_sha256", "bindings"})
                                        for item in evidence[0].verification_refs])
                 values.append((proxy, {"kind": "memory", "content": candidate.statement}))
             return values

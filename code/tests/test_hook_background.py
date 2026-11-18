@@ -9,7 +9,7 @@ from harness_mem.hook_background import (
 )
 
 
-def test_post_turn_dispatch_coalesces_while_worker_is_active(tmp_path: Path) -> None:
+def test_post_turn_dispatch_retains_distinct_sessions_while_worker_is_active(tmp_path: Path) -> None:
     calls: list[tuple[list[str], dict]] = []
 
     def popen(command, **kwargs):
@@ -46,7 +46,7 @@ def test_post_turn_dispatch_coalesces_while_worker_is_active(tmp_path: Path) -> 
         client="codex",
     )
     assert latest is not None
-    assert latest.trigger_id == "turn-2"
+    assert latest.trigger_id == "turn-1"
 
 
 def test_finished_worker_hands_off_request_that_arrived_during_sync(tmp_path: Path) -> None:

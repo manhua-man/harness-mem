@@ -234,7 +234,7 @@ def test_explicit_single_cjk_character_remains_searchable():
 def test_blank_query_keeps_existing_title_order_and_dedup(query):
     b = _entry("b", "B title", "Second fact.")
     a = _entry("a", "A title", "First fact.")
-    duplicate = a.model_copy(update={"id": "duplicate", "project_name": "zeta"})
+    duplicate = a.model_copy(update={"id": "duplicate"})
     assert _search([b, duplicate, a], query) == [a, b]
 
 
@@ -283,13 +283,13 @@ def lease_examples():
 # Move the winning duplicate before/after its peers; limits and scope do not
 # depend on every permutation of the same entries.
 @pytest.mark.parametrize("order", [(0, 1, 2, 3), (3, 2, 1, 0), (1, 0, 3, 2)])
-def test_determinism_and_cross_project_dedup(lease_examples, order):
-    a, _z, _b, other = lease_examples
-    assert _search([lease_examples[index] for index in order], "lease") == [a, other]
+def test_determinism_and_project_scoped_dedup(lease_examples, order):
+    a, z, _b, other = lease_examples
+    assert _search([lease_examples[index] for index in order], "lease") == [a, z, other]
 
 
 @pytest.mark.parametrize("limit, expected_ids", [
-    (1, ["a"]), (2, ["a", "other"]), (0, []), (-1, []),
+    (1, ["a"]), (2, ["a", "z"]), (3, ["a", "z", "other"]), (0, []), (-1, []),
 ])
 def test_search_limits_after_dedup(lease_examples, limit, expected_ids):
     found = _search(lease_examples, "lease", limit=limit)
@@ -301,6 +301,6 @@ def test_explicit_project_keeps_its_own_duplicate(lease_examples):
     assert _search(lease_examples, "lease", project_name="zeta") == [z, other]
 
 
-def test_listing_deduplicates_across_projects(lease_examples):
-    a, _z, _b, other = lease_examples
-    assert asyncio.run(list_current_knowledge(_backend(lease_examples))) == [a, other]
+def test_listing_preserves_separate_project_provenance(lease_examples):
+    a, z, _b, other = lease_examples
+    assert asyncio.run(list_current_knowledge(_backend(lease_examples))) == [a, other, z]

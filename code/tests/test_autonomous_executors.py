@@ -172,20 +172,21 @@ def _authorized_config() -> MergedConfig:
 
 
 def test_windows_hermes_shim_resolves_to_native_executable(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
     if os.name != "nt":
         pytest.skip("Windows launcher behavior")
     native = (
-        Path.home()
+        tmp_path
         / ".hermes"
         / "hermes-agent"
         / "venv"
         / "Scripts"
         / "hermes.exe"
     )
-    if not native.is_file():
-        pytest.skip("Hermes native install is not present")
+    native.parent.mkdir(parents=True)
+    native.write_bytes(b"synthetic launcher path; the test never executes it")
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.delenv("HARNESS_MEM_HERMES_EXECUTABLE", raising=False)
     importlib.reload(host_cli)
     monkeypatch.setattr(host_cli.shutil, "which", lambda _name: r"C:\tools\hermes.CMD")

@@ -92,7 +92,7 @@ def test_original_deadline_drains_bound_terminal_and_each_late_response(tail_pee
     count = 2 if initial_response else 1
     assert record["usage"] == {key: number * count for key, number in protocol.KNOWN.items()}
     assert len(record["responses"]) == record["known_usage_response_count"] == count
-    assert record["request_timeout_seconds"] <= 0.8
+    assert record["request_timeout_seconds"] == pytest.approx(0.8, rel=0, abs=1e-9)
     assert record["cancel_drain_state"] == "terminal_closed"
 
 

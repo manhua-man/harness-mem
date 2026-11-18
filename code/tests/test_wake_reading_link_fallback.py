@@ -87,11 +87,13 @@ def test_long_memory_candidate_has_strict_full_read_and_no_surface_effect(select
     assert not selection[1].effects
 
 
-def test_zero_matches_with_long_query_keeps_original_empty_output(selection):
+def test_zero_matches_with_long_query_gives_bounded_empty_result_guidance(selection):
     selection[1].entries = []
     query = "未匹配的完整任务🧠" * 500
     receipt = {}
-    assert inject(selection, current_task=query, budget_tokens=200, selection_receipt=receipt) == "# Memory candidates"
+    result = inject(selection, current_task=query, budget_tokens=200, selection_receipt=receipt)
+    assert result.startswith("# Memory candidates\nNo lexical candidates matched.")
+    assert query not in result
     assert selection[1].searches == [{"query": query, "expand_long_query": True}]
     assert receipt == {"query_present": True, "matched_count": 0, "returned_count": 0,
                        "candidate_count": 0, "index_only": False}

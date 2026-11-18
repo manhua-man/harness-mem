@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,6 +36,7 @@ class _SequencedProvider:
     def __init__(self) -> None:
         self.extraction_calls = 0
         self.verification_calls = 0
+        self.final_scope_calls = 0
         self.assimilation_calls = 0
         self.assimilation_manifest: dict[str, Any] | None = None
         self.verification_manifest: dict[str, Any] | None = None
@@ -179,19 +181,31 @@ class _SequencedProvider:
 
     def verify(self, manifest: dict[str, Any], *, runtime_dir: Path, heartbeat=None):
         del runtime_dir
-        self.verification_calls += 1
-        self.verification_manifest = manifest
+        final = manifest.get("contract_version") == "final-knowledge-scope-v1"
+        if final:
+            self.final_scope_calls += 1
+        else:
+            self.verification_calls += 1
+            self.verification_manifest = manifest
         if heartbeat is not None:
             heartbeat()
         points = []
         for item in manifest["candidates"]:
-            statement = item.get("statement") or item.get("content") or ""
+            statement = item.get("scope_text") or item.get("statement") or item.get("content") or ""
             session_only = statement == "Show every long-term memory now."
+            source_use = "task_context" if session_only else "standing_decision"
             points.append(
                 {
                     "candidate_index": item["candidate_index"],
                     "semantic_support": "supported",
                     "future_scope": "session_only" if session_only else "durable",
+                    "source_use": source_use,
+                    "scope_segments": [{
+                        "text": statement, "source_use": source_use,
+                        "future_scope": "session_only" if session_only else "durable",
+                        "content_role": "temporary_context" if session_only else "claim",
+                        "standalone": True, "source_support": "supported",
+                    }],
                     "reason": (
                         "This is a one-off request for current output."
                         if session_only
@@ -314,7 +328,7 @@ def run_memory_assimilation_outcome_probe() -> dict[str, Any]:
                                 label="README.md",
                                 target=source_file.as_uri(),
                                 kind="repository",
-                                digest="a" * 64,
+                                digest=hashlib.sha256(source_file.read_bytes()).hexdigest(),
                             )
                         ]
                     },
@@ -325,15 +339,21 @@ def run_memory_assimilation_outcome_probe() -> dict[str, Any]:
                     seed_candidate.id
                 )
             )
-            transcript = "\n\n".join(
-                [
-                    "User: Add a reusable rule for clean memory search.\n\nAssistant: Recorded.",
-                    "User: Confirm the existing search projection.\n\nAssistant: Recorded.",
-                    "User: Show every long-term memory now.\n\nAssistant: Recorded.",
-                    "User: In future memory audits, provide an itemized list.\n\nAssistant: Recorded.",
-                    "User: Run the remaining rollout after verification.\n\nAssistant: Recorded.",
-                ]
-            )
+            turns = [
+                "Normal memory search excludes audit metadata.",
+                "The legacy projection remains visible.",
+                "Show every long-term memory now.",
+                "When presenting a memory audit, provide an itemized list rather than aggregate counts.",
+                "Run the remaining rollout after verification.",
+            ]
+            transcript = "\n\n".join(f"User: {turn}\n\nAssistant: Recorded." for turn in turns)
+            native = "\n".join(json.dumps({
+                "type": "response_item", "payload": {
+                    "type": "message", "role": role, "content": [{"type": content_type, "text": text}],
+                },
+            }) for turn in turns for role, content_type, text in (
+                ("user", "input_text", turn), ("assistant", "output_text", "Recorded."),
+            )) + "\n"
             snapshot = asyncio.run(
                 persist_session_snapshot(
                     backend,
@@ -350,8 +370,9 @@ def run_memory_assimilation_outcome_probe() -> dict[str, Any]:
                     client="codex",
                     session_id="assimilation-session",
                     source_kind="jsonl",
-                    source_uri="file:///assimilation-session.jsonl",
-                    source_text=transcript,
+                    source_uri=(root / "assimilation-session.jsonl").as_uri(),
+                    source_text=native,
+                    parser_version="codex-jsonl-v1",
                 )
             )
             provider = _SequencedProvider()
@@ -370,6 +391,7 @@ def run_memory_assimilation_outcome_probe() -> dict[str, Any]:
             replay_provider_calls = (
                 provider.extraction_calls,
                 provider.verification_calls,
+                provider.final_scope_calls,
                 provider.assimilation_calls,
             )
             replay = run_autonomous_distill_batch(
@@ -440,9 +462,12 @@ def run_memory_assimilation_outcome_probe() -> dict[str, Any]:
                     replay.get("outcomes") == []
                     and provider.extraction_calls == replay_provider_calls[0]
                     and provider.verification_calls == replay_provider_calls[1]
-                    and provider.assimilation_calls == replay_provider_calls[2]
+                    and provider.final_scope_calls == replay_provider_calls[2]
+                    and provider.assimilation_calls == replay_provider_calls[3]
                 ),
-                "verification_provider_executed_once": provider.verification_calls == 1,
+                "verification_provider_executed_once": (
+                    provider.verification_calls == 1 and provider.final_scope_calls == 1
+                ),
             }
             result_fields["verified"] = all(result_fields.values())
             return result_fields

@@ -287,7 +287,7 @@ async def _project_handoff_carrier(backend: Any, identity: str) -> None:
         "reflection_job_id", "policy_version", "duration_ms")}
     # Atomic index upsert also handles concurrent callers publishing the same
     # newly created ID. It has no authority over the canonical payload.
-    await asyncio.to_thread(backend.structured_store._index.upsert, "dream_runs", projection)
+    await asyncio.to_thread(backend.structured_store.index.upsert, "dream_runs", projection)
 
 
 class _RecoveryProvider:
@@ -463,7 +463,7 @@ def _run_attempt(backend: Any, *, binding: dict[str, Any], state: dict[str, Any]
                 job = backend.transcript_store.get_distill_job(binding["source_job_id"])
                 point = next(point for point in job.promotion_summary["points"]
                              if point["candidate_id"] == row["original_candidate_id"])
-                refs = [{key: value for key, value in ref.items() if key != "locator_sha256"}
+                refs = [{key: value for key, value in ref.items() if key not in {"locator_sha256", "bindings"}}
                         for ref in point["verification_refs"]]
                 proxy = DistillCandidate(kind="memory", category="knowledge", content=report.text,
                     evidence_basis="source_report", verification_refs=refs)
@@ -539,7 +539,8 @@ def _run_attempt(backend: Any, *, binding: dict[str, Any], state: dict[str, Any]
         evidence = asyncio.run(store.list_evidence(identity))
         _require(candidate is not None and len(evidence) == 1
             and evidence[0].distill_job_id == binding["source_job_id"], "workspace_missing")
-        refs = [ref.model_dump(mode="json", exclude={"locator_sha256"}) for ref in evidence[0].verification_refs]
+        refs = [ref.model_dump(mode="json", exclude={"locator_sha256", "bindings"})
+                for ref in evidence[0].verification_refs]
         proxy = DistillCandidate(kind=candidate.candidate_type, content=candidate.statement,
             evidence_basis=evidence[0].evidence_basis, verification_refs=refs)
         # The verifier projection carries the exact already-rendered statement.

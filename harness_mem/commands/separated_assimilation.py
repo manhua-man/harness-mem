@@ -1104,6 +1104,11 @@ async def apply_separated_assimilation(
     actual = [str(item.get("candidate_id") or "") for item in points]
     if set(actual) != set(expected):
         raise ValueError("separated assimilation plan does not cover this job's candidates")
+    # Proposal parsing still accepts legacy split proposals. A commit plan
+    # must bind the whole candidate once, with its outputs in knowledge_items,
+    # before any terminal status or current row changes.
+    if len(actual) != len(set(actual)):
+        raise ValueError("separated assimilation plan must include each candidate exactly once")
 
     # Resolve the complete candidate/evidence set before the first mutation.
     # A disappearing later point must not leave earlier points committed while

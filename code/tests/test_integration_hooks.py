@@ -141,7 +141,8 @@ def test_json_and_opencode_templates_bind_the_verified_runner(tmp_path: Path, ho
     assert "event.properties.info.id" in opencode
     assert "event.properties.sessionID" in opencode
     assert "--trigger-id ${sessionId}" in opencode
-    assert "appendPrompt({ body:" in opencode
+    assert '"experimental.chat.system.transform"' in opencode
+    assert "output.system.push(wakeText)" in opencode
     assert "opencode-session-idle" not in opencode
 
 
@@ -399,24 +400,23 @@ def test_generated_opencode_plugin_transmits_distinct_native_sessions(tmp_path: 
     replay.write_text('''import assert from "node:assert/strict";
 import plugin from "./plugin.mts";
 const calls = [];
-const prompts = [];
 const shell = (strings, ...values) => {
   calls.push({ strings: [...strings], values });
   return { text: async () => "known context", quiet: async () => {} };
 };
-const hooks = await plugin({ $: shell, client: { tui: {
-  appendPrompt: async (input) => { assert.equal(typeof input.body.text, "string"); prompts.push(input); }
-}}});
+const hooks = await plugin({ $: shell });
 for (const id of ["session-one", "session-two"]) {
   await hooks.event({ event: { type: "session.created", properties: { info: { id } } } });
+  const output = { system: ["existing instructions"] };
+  await hooks["experimental.chat.system.transform"]({ sessionID: id }, output);
+  assert.deepEqual(output.system, ["existing instructions", "known context"]);
   await hooks.event({ event: { type: "session.idle", properties: { sessionID: id } } });
 }
 assert.equal(calls.length, 4);
 assert.deepEqual(calls.map(call => call.values[2]), ["session-one", "session-one", "session-two", "session-two"]);
-assert.equal(prompts.length, 2);
 await hooks.event({ event: { type: "session.idle", properties: {} } });
 assert.equal(calls.length, 4);
-console.log("native session identities and SDK prompt body verified");
+console.log("native session identities and system context verified");
 ''', encoding="utf-8")
     result = subprocess.run([node, "--experimental-strip-types", str(replay)], capture_output=True, text=True, timeout=20)
     assert result.returncode == 0, result.stdout + result.stderr

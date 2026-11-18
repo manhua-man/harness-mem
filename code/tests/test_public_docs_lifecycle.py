@@ -345,7 +345,8 @@ def test_distill_agent_surfaces_use_lossless_finalize_contract() -> None:
     assert "max_chars_per_observation=6000" not in combined
     assert "auto_review_candidates(project_name=<project>, apply=True)" not in combined
     assert "auto_review_candidates` is the final `/hm:distill` stage" not in combined
-    assert "session_summary" in combined
+    assert "semantic_review" in combined
+    assert "finalize_contract" in combined and "args_template" in combined
     legacy_tool_path = str(Path("tools") / ("session" + "-distill")).replace("\\", "/")
     assert legacy_tool_path not in combined
 
@@ -371,7 +372,7 @@ def test_repo_local_duplicate_distill_runtime_is_removed() -> None:
     assert not Path("code/tools/hm-distill/SYNC_POLICY.md").exists()
     assert not Path("code/tools/hm-distill/UPSTREAM_ALIGNMENT.md").exists()
     assert "name: hm-distill" in skill
-    assert "不是用户要学习的命令清单" in skill
+    assert "不要把处理格式变成用户的工作" in skill
 
 
 def test_hm_distill_keeps_one_public_flow_without_helper_skills() -> None:
@@ -381,8 +382,9 @@ def test_hm_distill_keeps_one_public_flow_without_helper_skills() -> None:
         "smart-search",
         "trellis",
     )
-    assert "完整读选中的会话" in skill
-    assert "完整来源、逐点证据、最终实际内容判断、写前重开和目标版本检查" in skill
+    assert "完整阅读准备结果的正文" in skill
+    assert "运行时绑定最终正文、来源身份和目标版本" in skill
+    assert "`review.evidence` 逐项引用正文断言" in skill
     assert "final_scope_judgment" in skill
     assert "source_report" in skill
     assert not any(term in skill for term in retired_terms)
@@ -475,9 +477,11 @@ def test_legacy_storage_cutoff_and_delete_semantics_are_documented() -> None:
 def test_write_convergence_guides_advertise_manual_judgment_and_native_limits() -> None:
     for name in ("code/plugins/harness-mem/commands/hm/hm.md", "code/tools/hm-distill/SKILL.md"):
         guide = Path(name).read_text(encoding="utf-8")
-        for field in ("final_scope_judgment", "scope_segments", "candidate_index", "update_meaning_judgment", "predecessor_conditions", "predecessor_statements", "predecessor_versions", "successor_statements", "undecided_state", "continue_batch=true"):
+        for field in ("finalize_contract", "memory_points", "support", "conditions",
+                      "undecided_state", "continue_batch=true"):
             assert field in guide, (name, field)
-        assert "不要求 `distill.autonomous.enabled`" in guide
+        assert "后台 CLI" in guide
+        assert "分段证明" in guide
     for name in ("AGENTS.md", "CLAUDE.md", "DESIGN.md", "README.md", "docs/roadmap.md", "docs/memory-adoption.md"):
         body = Path(name).read_text(encoding="utf-8")
         assert "task_model_budget" in body or "Cumulative background budgets" in body, name

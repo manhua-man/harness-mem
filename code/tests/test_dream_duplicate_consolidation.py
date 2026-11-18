@@ -26,9 +26,11 @@ def item(subject="Cache"):
 class MergeProvider:
     name = "isolated-duplicate-merge"
 
-    def __init__(self, *, shape="merge", repair="merge", failure=None, remove_goal=False, after_final=None):
+    def __init__(self, *, shape="merge", repair="merge", failure=None, remove_goal=False,
+                 after_final=None, make_output=item):
         self.shape, self.repair, self.failure = shape, repair, failure
         self.remove_goal, self.after_final = remove_goal, after_final
+        self.make_output = make_output
         self.proposals, self.finals = [], []
 
     def assimilate(self, manifest, **_kwargs):
@@ -53,7 +55,7 @@ class MergeProvider:
                 points.append(dict(candidate_id=candidate["candidate_id"], disposition="defer" if shape == "defer" else "no_write",
                     matched_truth_handles=[], reason="Do not independently rewrite another member or combine unrelated topics."))
                 continue
-            outputs = [item(subject)]
+            outputs = [self.make_output(subject)]
             if shape == "fragments":
                 outputs = [dict(title=subject + " " + title, statement=subject + " " + text,
                     topic_path=[subject.lower()], claim_kind="design_requirement") for title, text in [

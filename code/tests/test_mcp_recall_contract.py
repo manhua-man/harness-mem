@@ -151,12 +151,14 @@ def test_search_memory_and_wake_do_not_hide_current_entries_behind_default_count
     search = server.tool_search_memory(
         query="unboundedrecalltoken",
         project_name="demo",
+        budget_tokens=12_000,
     )
     assert len(search["memories"]) == 25
 
     wake = server.tool_wake(
         project_name="demo",
         current_task="unboundedrecalltoken",
+        budget_tokens=12_000,
     )
     assert len(wake["long_term_memory"]) == 25
 
@@ -323,8 +325,14 @@ def test_wake_uses_only_current_knowledge(
         current_task="wakeauthoritytoken",
     )
 
-    assert "current project decision" in str(payload)
-    assert "obsolete compatibility decision" not in str(payload)
+    candidate, = payload["long_term_memory"]
+    assert "statement" not in candidate
+    full = server.tool_search_memory(
+        query="wakeauthoritytoken", scope="all", detail="full", cursor=candidate["read_cursor"],
+    )
+    assert [row["statement"] for row in full["memories"]] == [
+        "wakeauthoritytoken current project decision."
+    ]
     assert current_search_calls == 1
     assert set(payload) == {
         "success",
@@ -332,6 +340,8 @@ def test_wake_uses_only_current_knowledge(
         "long_term_memory",
         "active_context",
         "maintenance_available",
+        "detail",
+        "message",
     }
 
 
@@ -579,6 +589,7 @@ def test_context_outcome_keeps_retrieval_correlation_without_prefilling_use(
         query="correlated retrieval",
         project_name="demo",
         _include_diagnostics=True,
+        budget_tokens=8_000,
     )
     call = search["record_outcome_call"]
 
@@ -620,6 +631,7 @@ def test_context_outcome_rejects_unmatched_sources_when_correlated(backend) -> N
         query="current search feedback",
         project_name="demo",
         _include_diagnostics=True,
+        budget_tokens=8_000,
     )
     arguments = {
         **search["record_outcome_call"]["arguments"],

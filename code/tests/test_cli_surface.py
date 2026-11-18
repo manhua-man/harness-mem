@@ -37,25 +37,27 @@ def test_cli_top_level_help_excludes_import_and_purge(
     assert "skill-governance" not in out
 
 
-def test_quickstart_is_global_and_accepts_only_a_host(
+def test_quickstart_is_global_and_forwards_explicit_confirmation(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     _assert_help_exit(["quickstart", "--help"])
     help_text = capsys.readouterr().out
     assert "--client" in help_text
+    assert "--confirm" in help_text
     assert "--limit" not in help_text
     assert "project" not in help_text.lower()
 
-    calls: list[str] = []
+    calls: list[tuple[str, bool]] = []
 
-    def quickstart(client: str) -> int:
-        calls.append(client)
+    def quickstart(client: str, *, confirm: bool) -> int:
+        calls.append((client, confirm))
         return 0
 
     monkeypatch.setattr(cli, "cmd_quickstart", quickstart)
     assert cli.main(["quickstart", "--client", "codex"]) == 0
-    assert calls == ["codex"]
+    assert cli.main(["quickstart", "--client", "codex", "--confirm"]) == 0
+    assert calls == [("codex", False), ("codex", True)]
 
 
 def test_removed_top_level_import_and_purge_are_invalid(
@@ -104,11 +106,11 @@ def test_integration_hook_sync_dispatches_one_suite_installer(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    calls: list[tuple[str, str, bool]] = []
+    calls: list[tuple[str, str, bool, str]] = []
     monkeypatch.setattr(
         cli,
         "cmd_install_hook_suite",
-        lambda client, root, force: calls.append((client, root, force)) or 0,
+        lambda client, root, force, *, scope: calls.append((client, root, force, scope)) or 0,
     )
 
     assert (
@@ -126,18 +128,18 @@ def test_integration_hook_sync_dispatches_one_suite_installer(
         )
         == 0
     )
-    assert calls == [("codex", str(tmp_path), True)]
+    assert calls == [("codex", str(tmp_path), True, "project")]
 
 
 def test_integration_hook_sync_dispatches_all_hosts(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    calls: list[tuple[str, str, bool]] = []
+    calls: list[tuple[str, str, bool, str]] = []
     monkeypatch.setattr(
         cli,
         "cmd_install_hook_suite",
-        lambda client, root, force: calls.append((client, root, force)) or 0,
+        lambda client, root, force, *, scope: calls.append((client, root, force, scope)) or 0,
     )
 
     assert (
@@ -148,13 +150,15 @@ def test_integration_hook_sync_dispatches_all_hosts(
                 "sync",
                 "--client",
                 "all",
+                "--scope",
+                "user",
                 "--project-root",
                 str(tmp_path),
             ]
         )
         == 0
     )
-    assert calls == [("all", str(tmp_path), False)]
+    assert calls == [("all", str(tmp_path), False, "user")]
 
 
 def test_maintenance_import_and_purge_help_succeeds(

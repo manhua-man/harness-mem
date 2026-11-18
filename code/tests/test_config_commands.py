@@ -101,7 +101,7 @@ def test_project_can_select_background_cli(tmp_path: Path, monkeypatch) -> None:
     assert load_merged_config(project).distill_autonomous_cli == "hermes"
 
 
-def test_user_config_cannot_choose_cli_for_every_project(
+def test_user_config_chooses_default_cli_and_project_can_override_it(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -116,6 +116,10 @@ def test_user_config_cannot_choose_cli_for_every_project(
         encoding="utf-8",
     )
 
+    assert load_merged_config(project).distill_autonomous_cli == "hermes"
+    (project / ".harness-mem.toml").write_text(
+        '[distill.autonomous]\ncli = "current"\n', encoding="utf-8",
+    )
     assert load_merged_config(project).distill_autonomous_cli == "current"
 
 
@@ -317,7 +321,7 @@ def test_enabling_autonomous_distill_requires_persistent_confirmation(
     assert load_merged_config(project).distill_autonomous_enabled is True
 
 
-def test_user_autonomous_authorization_is_ignored_and_cannot_be_written(
+def test_user_autonomous_authorization_requires_confirmation_and_respects_project_override(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -329,18 +333,25 @@ def test_user_autonomous_authorization_is_ignored_and_cannot_be_written(
     user_config = home / ".harness-mem" / "config.toml"
     user_config.parent.mkdir()
     user_config.write_text(
-        "[distill.autonomous]\nenabled = true\n",
+        "[distill.autonomous]\nenabled = false\n",
         encoding="utf-8",
     )
 
     assert load_merged_config(project).distill_autonomous_enabled is False
     assert cmd_config_list(str(project)) == 0
     listed = capsys.readouterr().out
-    assert "distill.autonomous.enabled = false  (default)" in listed
+    assert "distill.autonomous.enabled = false  (user)" in listed
+    assert cmd_config_set(
+        "distill.autonomous.enabled", "true", "user", str(project)
+    ) == 1
+    assert "confirmation required" in capsys.readouterr().err
+    assert load_merged_config(project).distill_autonomous_enabled is False
     assert cmd_config_set(
         "distill.autonomous.enabled", "true", "user", str(project), confirm=True
-    ) == 1
-    assert "project scope" in capsys.readouterr().err
+    ) == 0
+    assert load_merged_config(project).distill_autonomous_enabled is True
+    assert cmd_config_set("distill.autonomous.enabled", "false", "project", str(project)) == 0
+    assert load_merged_config(project).distill_autonomous_enabled is False
 
 
 def test_config_get_and_list_include_only_public_policy_keys(

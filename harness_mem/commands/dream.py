@@ -2023,7 +2023,7 @@ async def _report_bootstrap_writer(backend: Any, *, origin: DreamRun,
         child_sha = hashlib.sha256(saved.encode()).hexdigest()
         # The canonical transaction owns truth; this is the existing query
         # index projection needed to discover a newly created child.
-        await asyncio.to_thread(backend.structured_store._index.upsert, "dream_runs", {
+        await asyncio.to_thread(backend.structured_store.index.upsert, "dream_runs", {
             "id": value.id, "project_name": value.project_name, "started_at": value.started_at,
             "completed_at": value.completed_at, "status": value.status,
             "trigger_source": value.trigger_source, "reflection_job_id": value.reflection_job_id,

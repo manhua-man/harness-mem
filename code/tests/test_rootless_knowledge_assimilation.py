@@ -20,6 +20,7 @@ from harness_mem.commands.knowledge_assimilation import (
     resolve_candidate_source_context,
     resolve_separated_review,
 )
+from harness_mem.commands.separated_assimilation import target_version
 from harness_mem.core.schemas import EvidenceRef, KnowledgeCandidate, KnowledgeEvidence
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.mcp.distill_projection import render_distill_exchange_windows
@@ -52,15 +53,15 @@ async def backend(tmp_path, monkeypatch):
         await value.close()
 
 
-async def _point(backend, *, name="point", root="", native_role="user"):
-    rendering = f"User: {STATEMENT}\n\nAssistant: Understood."
+async def _point(backend, *, name="point", root="", native_role="user", statement=STATEMENT):
+    rendering = f"User: {statement}\n\nAssistant: Understood."
     native = "\n".join(json.dumps({
         "type": "response_item",
         "payload": {
             "type": "message", "role": role,
             "content": [{"type": "input_text" if role == "user" else "output_text", "text": text}],
         },
-    }) for role, text in [(native_role, STATEMENT), ("assistant", "Understood.")]) + "\n"
+    }) for role, text in [(native_role, statement), ("assistant", "Understood.")]) + "\n"
     snapshot = await persist_session_snapshot(
         backend,
         Observation(
@@ -75,7 +76,7 @@ async def _point(backend, *, name="point", root="", native_role="user"):
     job = backend.transcript_store.get_distill_job(snapshot.distill_job_id)
     assert job is not None and job.project_root == root
     candidate = KnowledgeCandidate(
-        id=name, project_name=PROJECT, candidate_type="memory", statement=STATEMENT,
+        id=name, project_name=PROJECT, candidate_type="memory", statement=statement,
     )
     evidence = KnowledgeEvidence(
         project_name=PROJECT, candidate_id=candidate.id,
@@ -107,11 +108,38 @@ def _decision(disposition="add", targets=(), statement=STATEMENT):
     return {
         "disposition": disposition, "matched_truth_ids": list(targets),
         "reason": "Fictional verified user decision.",
-        "knowledge_items": [{
+        "knowledge_items": [] if disposition == "confirm" else [{
             "title": "Evidence retention", "statement": statement,
             "topic_path": ["Preferences"], "claim_kind": "durable_preference",
         }],
     }
+
+
+def _judgment(item, *, predecessors=()):
+    statement = item["statement"]
+    verdict = {
+        "candidate_index": 0, "semantic_support": "supported", "future_scope": "durable",
+        "source_use": "standing_decision", "reason": "The immutable user statement establishes the whole preference.",
+        "scope_segments": [{
+            "text": f"{item['title']}\n{statement}", "source_use": "standing_decision",
+            "future_scope": "durable", "standalone": True, "content_role": "claim",
+            "source_support": "supported",
+        }],
+    }
+    if predecessors:
+        verdict["update_meaning_judgment"] = {
+            "relationship": "preserves_applicable_meaning",
+            "predecessor_conditions": [],
+            "predecessor_statements": [entry.statement for entry in predecessors],
+            "predecessor_versions": [target_version({
+                "title": entry.title, "statement": entry.statement,
+                "topic_path": entry.module_path, "source_report": None,
+            }) for entry in predecessors],
+            "successor_statements": [statement],
+            "undecided_state": None,
+            "basis": "The correction retains independent verification and sets a retention period.",
+        }
+    return {"points": [verdict]}
 
 
 @pytest.mark.asyncio
@@ -121,7 +149,8 @@ async def test_rootless_add_confirm_replace_and_replay(backend, root_argument, s
     store = backend.structured_store.knowledge_store
 
     async def apply(name, point):
-        candidate, evidence = await _point(backend, name=name)
+        knowledge, = point["knowledge_items"] or _decision()["knowledge_items"]
+        candidate, evidence = await _point(backend, name=name, statement=knowledge["statement"])
         assert (await _validate(backend, candidate, evidence)).verification_outcome == "verified"
         root, refs, verified_at = await resolve_candidate_source_context(
             backend, candidate=candidate, evidence_items=[evidence],
@@ -137,6 +166,13 @@ async def test_rootless_add_confirm_replace_and_replay(backend, root_argument, s
             "exchange": ["1"],
         }
         assert refs[0].digest == evidence.verification_refs[0].content_sha256
+        predecessors = [await store.get_entry(identity, project_name=PROJECT)
+                        for identity in point["matched_truth_ids"]] if name == "replace" else []
+        point["final_scope_judgment"] = _judgment(knowledge, predecessors=predecessors)
+        if predecessors:
+            point["update_meaning_judgment"] = (
+                point["final_scope_judgment"]["points"][0]["update_meaning_judgment"]
+            )
         kwargs = {"source_refs": refs} if supply_refs else {}
         ids = await record_assimilation_result(
             backend, candidate=candidate, point=point, project_root=root_argument, **kwargs,
@@ -183,6 +219,7 @@ async def test_historical_absolute_root_need_not_exist(backend, tmp_path, root_l
     result = await resolve_separated_review(
         backend, candidate_id=candidate.id, disposition="add", reason="Verified preference.",
         knowledge_items=_decision()["knowledge_items"], project_root=argument,
+        final_scope_judgment=_judgment(_decision()["knowledge_items"][0]),
     )
     assert [entry.id for entry in await search_current_knowledge(
         backend, project_name=PROJECT, query=STATEMENT,
@@ -257,7 +294,7 @@ async def test_repository_writes_still_require_current_attributable_files(backen
         root.mkdir()
     store = backend.structured_store.knowledge_store
     await store.save_evidence(evidence)
-    with pytest.raises(ValueError, match="project root|verified evidence"):
+    with pytest.raises(ValueError, match="project root|verified evidence|repository evidence unavailable"):
         await resolve_separated_review(
             backend, candidate_id=candidate.id, disposition="add", reason="Repository gate.",
             knowledge_items=_decision()["knowledge_items"], project_root=root,
@@ -276,13 +313,15 @@ async def test_rootless_commit_cannot_skip_ordinary_search_readback(backend, mon
         return []
 
     monkeypatch.setattr("harness_mem.read_knowledge.search_current_knowledge", empty_search)
+    point = _decision()
+    point["final_scope_judgment"] = _judgment(point["knowledge_items"][0])
     with pytest.raises(RuntimeError, match="not readable through normal search"):
-        await record_assimilation_result(backend, candidate=candidate, point=_decision())
+        await record_assimilation_result(backend, candidate=candidate, point=point)
     store = backend.structured_store.knowledge_store
     assert (await store.get_candidate(candidate.id)).status == "pending"
     assert len(await store.list_entries(PROJECT)) == 1  # Commit precedes readback.
     with pytest.raises(RuntimeError, match="not readable through normal search"):
-        await record_assimilation_result(backend, candidate=candidate, point=_decision())
+        await record_assimilation_result(backend, candidate=candidate, point=point)
     assert (await store.get_candidate(candidate.id)).status == "pending"
     assert len(await store.list_entries(PROJECT)) == 1
 
@@ -293,6 +332,7 @@ async def test_rootless_review_can_confirm_and_correct_exact_search_text(backend
     saved = await resolve_separated_review(
         backend, candidate_id=candidate.id, disposition="add", reason="Verified future preference.",
         knowledge_items=_decision()["knowledge_items"],
+        final_scope_judgment=_judgment(_decision()["knowledge_items"][0]),
     )
     old_id, = saved["canonical_truth_ids"]
     old = await backend.structured_store.knowledge_store.get_entry(old_id, project_name=PROJECT)
@@ -301,12 +341,16 @@ async def test_rootless_review_can_confirm_and_correct_exact_search_text(backend
     confirmation = await resolve_separated_review(
         backend, candidate_id=candidate.id, disposition="confirm", reason="Unchanged explicit preference.",
         target_knowledge=[target],
+        final_scope_judgment=_judgment(_decision()["knowledge_items"][0]),
     )
     assert confirmation["canonical_truth_ids"] == [old_id]
-    candidate, _ = await _point(backend, name="review-correct")
+    text = "Keep independently verifiable facts for fourteen days."
+    candidate, _ = await _point(backend, name="review-correct", statement=text)
+    knowledge = _decision(statement=text)["knowledge_items"]
     replacement = await resolve_separated_review(
         backend, candidate_id=candidate.id, disposition="replace", reason="Verified correction.",
-        target_knowledge=[target], knowledge_items=_decision(statement="Keep facts for fourteen days.")["knowledge_items"],
+        target_knowledge=[target], knowledge_items=knowledge,
+        final_scope_judgment=_judgment(knowledge[0], predecessors=[old]),
     )
     assert replacement["canonical_truth_ids"] != [old_id]
     assert await backend.structured_store.knowledge_store.get_entry(old_id, project_name=PROJECT) is None

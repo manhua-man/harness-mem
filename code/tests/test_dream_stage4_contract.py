@@ -50,7 +50,9 @@ from harness_mem.core.schemas.source_report import (
     ReportScopeSegment,
     ReportTopicJudgment,
     SourceReport,
+    bind_report_preservation_inventory,
     report_output_scope_text,
+    report_preservation_digest,
     source_report_snapshot,
 )
 from harness_mem.mcp.distill_projection import render_distill_exchange_windows
@@ -519,31 +521,72 @@ def test_report_split_commits_once_and_rejects_partial_or_unbound_outputs(backen
     second, written_second = _output(report, "Beta cache", "Beta cache stays signed.")
     omission = ReportOmission(text=" ", classification="temporary_context")
     statements = [written_first.render_statement(), written_second.render_statement()]
-    version = target_version({
+    target = {
+        "id": current.id,
         "title": current.title, "statement": current.statement,
         "topic_path": list(current.module_path),
         "source_report": source_report_snapshot(current.source_report),
-    })
+    }
+    target["version"] = target_version(target)
+    reports = (written_first, written_second)
+    items = [{
+        "title": item.render_title(), "statement": item.render_statement(),
+        "topic_path": ["reports"], "claim_kind": "source_report",
+    } for item in reports]
+    durable = dict(source_use="standing_decision", future_scope="durable", standalone=True, source_support="supported")
+    inventory = bind_report_preservation_inventory(
+        owner=candidate.id, target=target,
+        items=[{**item, "source_report": source_report_snapshot(report)} for item, report in zip(items, reports)],
+        omissions=[omission.model_dump(mode="json")],
+        classification={
+            "scope_segments": [
+                dict(text=written_first.text, content_role="claim", **durable),
+                dict(text=" ", content_role="temporary_context", source_use="task_context",
+                     future_scope="session_only", standalone=False, source_support="supported"),
+                dict(text=written_second.text, content_role="claim", **durable),
+            ],
+            "claim_units": [dict(first_segment=i, end_segment_exclusive=i + 1, **durable) for i in (0, 2)],
+        },
+    )
+    unit_votes = []
+    for index, unit in enumerate(inventory["units"]):
+        text = report.text[unit["start"]:unit["end"]]
+        spans = [
+            dict(successor_index=position, char_start=0, char_end=len(text),
+                 text_sha256=hashlib.sha256(text.encode()).hexdigest())
+            for position, successor in enumerate(reports) if text == successor.text
+        ]
+        unit_votes.append(dict(unit_index=index, unit_sha256=report_preservation_digest(unit),
+                               verdict="preserved" if spans else "disposable", successor_spans=spans))
+    omitted, = inventory["omissions"]
+    assert report.text[omitted["start"]:omitted["end"]] == " "
+    assert omitted["start"] == len(written_first.text)
     meaning = UpdateMeaningJudgment(
         relationship="preserves_applicable_meaning", predecessor_conditions=[],
         successor_statements=statements, predecessor_statements=[current.statement],
-        predecessor_versions=[version],
+        predecessor_versions=[target["version"]],
         basis="Both outputs keep the cited cache account.",
+        report_preservation={
+            "owner_candidate_id": candidate.id, "inventory_sha256": report_preservation_digest(inventory),
+            "inventory_complete": True, "units": unit_votes,
+            "omissions": [dict(omission_index=0, omission_sha256=report_preservation_digest(omitted),
+                               affected_units=omitted["affected_units"], claim="not_applicable",
+                               evidence="not_applicable", causality="not_applicable",
+                               boundary="not_applicable", permission="not_applicable", scope="not_applicable")],
+        },
     )
     scopes = [report_output_scope_text(written_first), report_output_scope_text(written_second)]
     replace = {
         "disposition": "replace",
         "matched_truth_ids": old_ids,
-        "knowledge_items": [{
-            "title": item.render_title(), "statement": item.render_statement(),
-            "topic_path": ["reports"], "claim_kind": "source_report",
-        } for item in (written_first, written_second)],
+        "knowledge_items": items,
         "reason": "Split the cited account into its two cache topics.",
         "report_split": {
             "original_support": "supported",
             "outputs": [item.model_dump(mode="json") for item in (first, second)],
             "omissions": [omission.model_dump(mode="json")],
         },
+        "report_preservation_inventory": inventory,
         "update_meaning_judgment": meaning.model_dump(mode="json"),
         "final_scope_judgment": CandidateVerificationDecision(points=[
             CandidateVerificationPoint(

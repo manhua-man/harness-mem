@@ -51,7 +51,8 @@ def device(tmp_path, monkeypatch):
     asyncio.run(backend.close())
 
 
-def preference_judgment(candidate_id, title, statement, *, target=None):
+def preference_judgment(candidate_id, title, statement, *, target=None,
+                        conditions=(), undecided_state=None):
     point = {
         "candidate_index": 0, "semantic_support": "supported", "future_scope": "durable",
         "source_use": "standing_decision", "reason": "The source explicitly sets a future preference.",
@@ -64,17 +65,18 @@ def preference_judgment(candidate_id, title, statement, *, target=None):
     if target:
         point["update_meaning_judgment"] = {
             "relationship": "preserves_applicable_meaning",
-            "predecessor_conditions": [],
+            "predecessor_conditions": list(conditions),
             "predecessor_statements": [target["statement"]],
-            "predecessor_versions": [target_version({**target, "topic_path": target.get("module")})],
+            "predecessor_versions": [target_version({**target, "topic_path": target["module"]})],
             "successor_statements": [statement],
-            "undecided_state": None,
-            "basis": "The correction preserves the evidence standard and future scope while setting the retention period.",
+            "undecided_state": undecided_state,
+            "basis": "The revised preference retains the applicable requirements and any unsettled state.",
         }
     return {candidate_id: {"points": [point]}}
 
 
-def remember(backend, packet, statement, *, disposition="add", targets=None):
+def remember(backend, packet, statement, *, disposition="add", targets=None,
+             conditions=(), undecided_state=None):
     job = backend.transcript_store.get_distill_job(packet["distill_job_id"])
     observation = asyncio.run(backend.verbatim_store.get(str(uuid5(NAMESPACE_URL, f"{job.source_id}:observation"))))
     digest = render_distill_exchange_windows(observation.raw_content, [1])[0]["content_sha256"]
@@ -93,7 +95,9 @@ def remember(backend, packet, statement, *, disposition="add", targets=None):
         "session_summary": "Verified an explicit future preference.", "final_user_request": statement,
         "final_outcome": "Saved the verified preference.", "last_turn_status": "answered",
         "contradictions": [], "unfinished_work": [], "evidence_status": "answered", "promotion_decision": "promote",
-        "final_scope_judgment": preference_judgment(result["entry_id"], title, statement, target=targets[0] if targets else None),
+        "final_scope_judgment": preference_judgment(
+            result["entry_id"], title, statement, target=targets[0] if targets else None,
+            conditions=conditions, undecided_state=undecided_state),
     })
     assert final["success"], final
     return final

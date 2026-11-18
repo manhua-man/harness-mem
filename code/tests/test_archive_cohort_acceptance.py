@@ -52,7 +52,7 @@ def test_quality_accepts_one_obligation_that_lists_required_fields() -> None:
     assert quality["broad_item_warnings"] == []
 
 
-def test_quality_rejects_multiple_pipeline_actions_as_one_item() -> None:
+def test_structural_quality_does_not_infer_independent_claims_from_punctuation() -> None:
     entries = [
         KnowledgeEntry(
             project_name="harness-mem",
@@ -67,11 +67,11 @@ def test_quality_rejects_multiple_pipeline_actions_as_one_item() -> None:
         render_knowledge_markdown("harness-mem", entries),
     )
 
-    assert quality["passed"] is False
-    assert quality["broad_item_warnings"][0]["title"] == "完整处理管线"
+    assert quality["passed"] is True
+    assert quality["broad_item_warnings"] == []
 
 
-def test_quality_rejects_internal_heading_and_audit_leak() -> None:
+def test_quality_rejects_audit_fields_under_a_natural_module_heading() -> None:
     entries = [
         KnowledgeEntry(
             project_name="harness-mem",
@@ -85,7 +85,7 @@ def test_quality_rejects_internal_heading_and_audit_leak() -> None:
     quality = _quality_findings(entries, markdown)
 
     assert quality["passed"] is False
-    assert quality["forbidden_headings"] == ["稳定操作规则"]
+    assert quality["forbidden_headings"] == []
     assert quality["leaked_markers"] == ["candidate_id"]
 
 

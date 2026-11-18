@@ -305,17 +305,22 @@ def test_membership_dependency_paths_cover_only_own_profile(tmp_path):
                 Path(str(first_workspace) + "-wal")} <= dependencies
         assert other not in dependencies and other_workspace not in dependencies
         assert other_workspace.parent / "workspace.json" not in dependencies
-        assert all(isinstance(path, Path) and path.exists() for path in dependencies)
+        allowed_missing = {first.parent / "workspace.json", Path(str(first) + "-wal")}
+        assert all(isinstance(path, Path) for path in dependencies)
+        assert {path for path in dependencies if not path.exists()} <= allowed_missing
     finally:
         writer.close()
 
 
 def test_selected_read_updates_dependencies_when_wal_appears(tmp_path):
+    from harness_mem.commands.session_inventory import _record_dependency_stamps, _unchanged
+
     path = workspace(tmp_path / "workspace/state.vscdb", tmp_path, "s")
     adapter = CursorAdapter(None, sqlite_databases=(path,))
     record, = adapter.list_session_metadata()
     wal = Path(str(path) + "-wal")
-    assert wal not in record["metadata_paths"]
+    before = _record_dependency_stamps(record)
+    assert (wal, -1, -1) in before
     writer = sqlite3.connect(path)
     writer.execute("PRAGMA journal_mode=WAL")
     writer.execute("UPDATE cursorDiskKV SET value=value")
@@ -323,6 +328,8 @@ def test_selected_read_updates_dependencies_when_wal_appears(tmp_path):
     try:
         adapter.read_session_source(path, "s")
         assert wal in record["metadata_paths"]
+        assert not _unchanged(before)
+        assert _unchanged(_record_dependency_stamps(record))
     finally:
         writer.close()
 

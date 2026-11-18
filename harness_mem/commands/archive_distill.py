@@ -1427,7 +1427,7 @@ async def _verify_archive_distill_run(
         source_valid = source_row is None or (cleanup_status == "deleted" and not selected_live_source)
         # A past deletion receipt cannot stand in for bytes reintroduced at
         # the same selected path, even when their conversation revision agrees.
-        if job and source_row is not None and (cleanup_status != "deleted" or selected_live_source):
+        if job and source_row is not None and cleanup_status != "deleted":
             from harness_mem.native_source_cleanup import path_from_local_file_uri
 
             source = backend.transcript_store.get_source(job.source_id)

@@ -67,20 +67,19 @@ def run_distill_outcome_probe() -> dict[str, Any]:
             )
 
             evidence_path = root / "verified-decision.txt"
-            evidence_path.write_text(
-                "The isolated outcome probe verifies one durable decision.",
-                encoding="utf-8",
+            title = "Isolated durable decision"
+            statement = (
+                "The isolated outcome probe verifies one durable decision while "
+                "unrelated follow-up work remains."
             )
+            evidence_path.write_text(statement, encoding="utf-8")
             candidate = governance_handlers.tool_govern_memory(
                 action="suggest",
                 arguments={
                     "kind": "memory",
                     "project_name": "outcome-probe",
                     "category": "decision",
-                    "content": (
-                        "The isolated outcome probe verifies one durable decision while "
-                        "unrelated follow-up work remains."
-                    ),
+                    "content": statement,
                     "source": f"distill-job:{job_id}",
                     "confidence": 0.99,
                     "distill_job_id": job_id,
@@ -99,7 +98,7 @@ def run_distill_outcome_probe() -> dict[str, Any]:
                     "assimilation_reason": (
                         "The verified decision remains useful after this session."
                     ),
-                    "canonical_title": "Isolated durable decision",
+                    "canonical_title": title,
                     "topic_path": ["qualification"],
                 },
             )
@@ -130,6 +129,21 @@ def run_distill_outcome_probe() -> dict[str, Any]:
                     "unfinished_work": ["Complete the isolated follow-up."],
                     "evidence_status": "partial",
                     "promotion_decision": "partial",
+                    "final_scope_judgment": {candidate["entry_id"]: {"points": [{
+                        "candidate_index": 0,
+                        "semantic_support": "supported",
+                        "future_scope": "durable",
+                        "source_use": "reusable_knowledge",
+                        "reason": "The isolated repository states the whole bounded decision.",
+                        "scope_segments": [{
+                            "text": f"{title}\n{statement}",
+                            "source_use": "reusable_knowledge",
+                            "future_scope": "durable",
+                            "content_role": "claim",
+                            "standalone": True,
+                            "source_support": "supported",
+                        }],
+                    }]}},
                 },
             )
 

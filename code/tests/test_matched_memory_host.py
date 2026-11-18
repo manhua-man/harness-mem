@@ -269,9 +269,18 @@ def test_stdio_schema_dispatch_audit_and_directory_isolation(experiment):
 
 def test_hm_prepare_uses_real_adapter_and_isolated_data(experiment):
     payload, _, source = experiment
+    inventory = invoke(experiment, requests=[call("inspect_sessions", {
+        "project_root": payload["project_root"], "project_name": "project",
+        "scope": "project", "clients": ["codex"],
+    })])
+    assert inventory.returncode == 0, inventory.stderr
+    selected, = json.loads(json.loads(inventory.stdout)["result"]["content"][0]["text"])["sessions"]
+    assert selected["session_id"] == payload["session_ids"][0]
     request = call("prepare_session_distill", {
-        "project_name": "project", "project_root": payload["project_root"],
-        "client": "codex", "session_id": payload["session_ids"][0], "evidence_mode": "raw",
+        "project_root": payload["project_root"], "project_name": "project", "client": "codex",
+        "batch_sessions": [{key: selected[key] for key in (
+            "client", "session_id", "source_id", "source_revision", "reference_id",
+        )}], "evidence_mode": "raw",
     })
     result = invoke(experiment, requests=[request])
     assert result.returncode == 0, result.stderr

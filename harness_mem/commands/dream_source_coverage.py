@@ -603,7 +603,7 @@ async def _persist_terminal_source_checkpoint(
         projection = {key: getattr(terminal_child, key) for key in (
             "id", "project_name", "started_at", "completed_at", "status", "trigger_source",
             "reflection_job_id", "policy_version", "duration_ms")}
-        index = backend.structured_store._index
+        index = backend.structured_store.index
         if index.get("dream_runs", terminal_child.id) is None:
             await asyncio.to_thread(index.insert, "dream_runs", projection)
         else:
@@ -1581,7 +1581,7 @@ def _carrier_heartbeat(backend: Any, carrier: Any, *, config: Any) -> Callable[[
             now = time.monotonic()
             if refreshed[0] is not None and now - refreshed[0] < 15:
                 return
-            with store._index.locked_connection() as connection:
+            with backend.structured_store.index.locked_connection() as connection:
                 connection.execute("BEGIN IMMEDIATE")
                 try:
                     row = connection.execute("SELECT data FROM reflection_jobs WHERE id = ?", (first.id,)).fetchone()

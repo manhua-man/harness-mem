@@ -78,7 +78,8 @@ def test_selected_supported_point_uses_common_final_and_canonical_commit_but_sou
 def test_selected_extract_negative_prevents_assimilation_and_writes(coverage, verdict):
     provider = PointAdmissionProvider(extract_verdict=verdict)
     run(_cover(coverage, provider))
-    assert state(coverage)["status"] == "failed"
+    assert state(coverage)["status"] == "unresolved"
+    assert state(coverage)["reason_code"] == "source_coverage_inventory_audit_unresolved"
     assert provider.calls == ["decide", "candidate_verify"]
     assert not state(coverage).get("commit_bindings")
     assert len(run(coverage[0].structured_store.knowledge_store.list_entries("demo"))) == 1
@@ -87,7 +88,7 @@ def test_selected_extract_negative_prevents_assimilation_and_writes(coverage, ve
 def test_zero_candidate_with_unclear_audit_keeps_global_no_write_gate(coverage):
     provider = PointAdmissionProvider(no_candidate=True)
     run(_cover(coverage, provider))
-    assert state(coverage)["status"] == "failed"
+    assert state(coverage)["status"] == "unresolved"
     assert "audit_unresolved" in state(coverage)["reason_code"]
     assert not state(coverage).get("candidate_ids")
     assert provider.calls == ["decide", "candidate_verify"]
@@ -96,9 +97,12 @@ def test_zero_candidate_with_unclear_audit_keeps_global_no_write_gate(coverage):
 def test_selected_mode_keeps_ordinary_point_verification_gate(coverage):
     provider = PointAdmissionProvider(candidate_unverified=True)
     run(_cover(coverage, provider))
-    assert state(coverage)["status"] == "failed"
+    saved = state(coverage)
+    assert saved["status"] == "unresolved"
+    assert saved["inventory_blocked_reason"] == "source_coverage_inventory_selected_point_unverified"
     assert provider.calls == ["decide", "candidate_verify"]
-    assert not state(coverage).get("candidate_ids")
+    assert not saved.get("commit_bindings")
+    assert len(run(coverage[0].structured_store.knowledge_store.list_entries("demo"))) == 1
 
 
 def test_selected_verified_workspace_resumes_without_changing_any_negative_audit(coverage):

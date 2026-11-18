@@ -41,6 +41,7 @@ def isolate_user_hook_installation(tmp_path, monkeypatch):
         return original(home_dir=target, **kwargs)
 
     monkeypatch.setattr(installer, "install_user_hook_suite", isolated_install)
+    return isolated_home
 
 
 SKILL_GOVERNANCE_TOOLS = {
@@ -213,6 +214,7 @@ def test_get_project_status_bootstraps_router_workspace_and_codex_hooks(
     backend,
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
+    isolate_user_hook_installation,
 ) -> None:
     workspace = tmp_path / "codex-workspace"
     workspace.mkdir()
@@ -248,11 +250,12 @@ def test_get_project_status_bootstraps_router_workspace_and_codex_hooks(
         "project_name": "codex-workspace",
         "message": (
             "Memory storage is ready; Hook files are prepared. "
-            "If not yet trusted, review project Hooks in Codex Settings, then start a new task."
+            "If not yet trusted, review user Hooks in Codex Settings, then start a new task."
         ),
     }
     assert token_estimator.count_tokens(json.dumps(payload)) < 50
-    hook_path = workspace / ".codex" / "hooks.json"
+    hook_path = isolate_user_hook_installation / ".codex" / "hooks.json"
+    assert not (workspace / ".codex" / "hooks.json").exists()
     hook_config = json.loads(hook_path.read_text(encoding="utf-8"))
     wake_command = hook_config["hooks"]["SessionStart"][0]["hooks"][0]["command"]
     stop_command = hook_config["hooks"]["Stop"][0]["hooks"][0]["command"]
@@ -280,7 +283,7 @@ def test_get_project_status_bootstraps_router_workspace_and_codex_hooks(
         "project_name": "codex-workspace",
         "message": (
             "Memory storage is ready; Hook files are prepared. "
-            "If not yet trusted, review project Hooks in Codex Settings, then start a new task."
+            "If not yet trusted, review user Hooks in Codex Settings, then start a new task."
         ),
     }
 
@@ -299,13 +302,13 @@ def test_get_project_status_dispatches_bootstrap_for_every_supported_host(
     workspace = tmp_path / f"{host_client}-workspace"
     workspace.mkdir()
     (workspace / ".git").mkdir()
-    installs: list[tuple[str, str, bool]] = []
+    installs: list[tuple[str, str, bool, str]] = []
 
     monkeypatch.setattr(support_module, "DEFAULT_DATA_DIR", backend.data_dir)
     monkeypatch.setattr(
         status_handlers,
         "cmd_install_hook_suite",
-        lambda client, root, force: installs.append((client, root, force)) or 0,
+        lambda client, root, force, *, scope: installs.append((client, root, force, scope)) or 0,
     )
 
     response = server.handle_request(
@@ -330,11 +333,11 @@ def test_get_project_status_dispatches_bootstrap_for_every_supported_host(
         "project_name": f"{host_client}-workspace",
         "message": (
             "Memory storage is ready; Hook files are prepared."
-            + (" If not yet trusted, review project Hooks in Codex Settings, then start a new task."
+            + (" If not yet trusted, review user Hooks in Codex Settings, then start a new task."
                if host_client == "codex" else "")
         ),
     }
-    assert installs == [(host_client, str(workspace.resolve()), False)]
+    assert installs == [(host_client, str(workspace.resolve()), False, "user")]
 
 
 def test_get_project_status_has_one_readiness_response() -> None:
@@ -387,7 +390,7 @@ def test_get_project_status_reports_hook_setup_failure_without_diagnostics(
     workspace.mkdir()
     (workspace / ".git").mkdir()
     monkeypatch.setattr(support_module, "DEFAULT_DATA_DIR", backend.data_dir)
-    monkeypatch.setattr(status_handlers, "cmd_install_hook_suite", lambda *_args: 1)
+    monkeypatch.setattr(status_handlers, "cmd_install_hook_suite", lambda *_args, scope: 1)
 
     response = server.handle_request(
         {
@@ -408,7 +411,7 @@ def test_get_project_status_reports_hook_setup_failure_without_diagnostics(
     assert _tool_result(response) == {
         "success": False,
         "project_name": "failed-hook-workspace",
-        "message": "The project Hook could not be prepared; the cause is not yet known.",
+        "message": "Host Hooks could not be prepared. Run diagnostics to identify the cause.",
         "action": "Run harness-mem doctor.",
     }
 
@@ -422,7 +425,7 @@ def test_get_project_status_does_not_report_queue_progress(
     workspace.mkdir()
     (workspace / ".git").mkdir()
     monkeypatch.setattr(support_module, "DEFAULT_DATA_DIR", backend.data_dir)
-    monkeypatch.setattr(status_handlers, "cmd_install_hook_suite", lambda *_args: 0)
+    monkeypatch.setattr(status_handlers, "cmd_install_hook_suite", lambda *_args, scope: 0)
     monkeypatch.setattr(
         backend.transcript_store,
         "count_pending_distill_jobs",
@@ -452,24 +455,29 @@ def test_get_project_status_does_not_report_queue_progress(
         "project_name": "pending-workspace",
         "message": (
             "Memory storage is ready; Hook files are prepared. "
-            "If not yet trusted, review project Hooks in Codex Settings, then start a new task."
+            "If not yet trusted, review user Hooks in Codex Settings, then start a new task."
         ),
     }
 
 
 def test_project_status_reports_real_file_conflict_and_safe_recovery(
-    backend, tmp_path, monkeypatch: pytest.MonkeyPatch,
+    backend, tmp_path, monkeypatch: pytest.MonkeyPatch, isolate_user_hook_installation,
 ) -> None:
     workspace = tmp_path / "conflicting-workspace"
     workspace.mkdir()
-    hook = workspace / ".codex" / "hooks.json"
-    hook.parent.mkdir()
-    original = '{"hooks": {}}\n'
-    hook.write_text(original, encoding="utf-8")
+    hook = isolate_user_hook_installation / ".codex" / "hooks.json"
     runner = tmp_path / "harness-mem-hook.exe"
     runner.write_text("fixture runner", encoding="utf-8")
     monkeypatch.setattr(support_module, "DEFAULT_DATA_DIR", backend.data_dir)
     monkeypatch.setattr(integration_cmds, "verified_hook_runner", lambda: runner)
+    assert status_handlers.tool_get_project_status(
+        project_root=str(workspace), host_client="codex",
+    )["success"]
+    installed = hook.read_bytes()
+    modified = json.loads(installed)
+    modified["hooks"]["SessionStart"][0]["hooks"][0]["timeout"] = 30
+    original = json.dumps(modified).encode("utf-8")
+    hook.write_bytes(original)
     payload = status_handlers.tool_get_project_status(
         project_root=str(workspace), host_client="codex",
     )
@@ -477,10 +485,10 @@ def test_project_status_reports_real_file_conflict_and_safe_recovery(
     assert "conflict" in payload["message"]
     assert "preserved" in payload["message"]
     assert "doctor" in payload["action"]
+    assert "--scope user" in payload["action"]
     assert str(hook) not in json.dumps(payload)
-    assert hook.read_text(encoding="utf-8") == original
-    # Only this fixture's owner removes the conflicting file, never the product.
-    hook.unlink()
+    assert hook.read_bytes() == original
+    hook.write_bytes(installed)
     recovered = status_handlers.tool_get_project_status(
         project_root=str(workspace), host_client="codex",
     )
@@ -608,7 +616,7 @@ def test_project_status_backend_open_failure_has_safe_recovery(
     workspace = tmp_path / "backend-failure"
     workspace.mkdir()
     monkeypatch.setattr(support_module, "DEFAULT_DATA_DIR", backend.data_dir)
-    monkeypatch.setattr(status_handlers, "cmd_install_hook_suite", lambda *_: 0)
+    monkeypatch.setattr(status_handlers, "cmd_install_hook_suite", lambda *_, scope: 0)
     monkeypatch.setattr(status_handlers, "_get_backend",
                         Mock(side_effect=error_type("private canonical path")))
     result = status_handlers.tool_get_project_status(

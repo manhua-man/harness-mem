@@ -3,75 +3,30 @@ import json
 from datetime import datetime, timedelta, timezone
 
 from test_dream_stage4_contract import (
-    backend as backend, _run, _result, _publish, _capture_report, _ConfirmProvider,
+    backend as backend, _run, _publish, _ConfirmProvider,
 )
-from harness_mem.autonomous.models import CandidateVerificationDecision, CandidateVerificationPoint, CandidateScopeSegment
+from test_dream_rendered_report_proposals import RenderedProvider, invoke, report_case as report_case
 from harness_mem.commands import dream
-from harness_mem.commands.knowledge_assimilation import record_assimilation_result
 from harness_mem.core.schemas.dream_run import DreamRun, DreamItem
-from harness_mem.core.schemas.knowledge import KnowledgeCandidate, KnowledgeEntry
-from harness_mem.core.schemas.source_report import report_output_scope_text
+from harness_mem.core.schemas.knowledge import KnowledgeEntry
 
 
-def segment(text, temporary=False):
-    return dict(text=text, source_support="supported", standalone=True,
-                content_role="temporary_context" if temporary else "claim",
-                source_use="task_context" if temporary else "reusable_knowledge",
-                future_scope="session_only" if temporary else "durable")
-
-
-def test_durable_report_body_with_mixed_final_scope_is_unresolved_without_mutation(backend):
-    temporary = "Trial completed today."
-    report, ref = _capture_report(backend, "Alpha cache stays local. " + temporary)
-    root = backend.data_dir / "report-project"
-    candidate = KnowledgeCandidate(id="confirmation-source", project_name="demo", candidate_type="memory",
-                                   statement=report.text, source_report=report)
-    ids = _run(record_assimilation_result(
-        backend, candidate=candidate, project_root=root, source_refs=[ref], point={
-            "disposition": "add", "reason": "Retain the complete attributed fixture account.",
-            "knowledge_items": [dict(title=report.render_title(), statement=report.render_statement(),
-                                     topic_path=["reports"], claim_kind="source_report")],
-            "final_scope_judgment": CandidateVerificationDecision(points=[CandidateVerificationPoint(
-                candidate_index=0, semantic_support="supported", source_use="reusable_knowledge", future_scope="durable",
-                reason="Fixture setup checks the complete rendered account.",
-                scope_segments=[CandidateScopeSegment.model_validate(segment(report_output_scope_text(report)))],
-            )]).model_dump(mode="json"),
-        },
-    ))
+def test_durable_report_body_with_mixed_final_scope_is_unresolved_without_mutation(report_case):
+    backend, _root, _report, before, _output, _retained = report_case
+    provider = RenderedProvider(report_case, failure="defer")
+    run = invoke(report_case, provider)
+    assert provider.phases == ["source", "rendered", "proposal"]
     store = backend.structured_store.knowledge_store
-    before = _run(store.get_entry(ids[0], project_name="demo"))
-
-    class Provider:
-        name = "isolated-final-mixed"
-        def __init__(self):
-            self.calls = 0
-        def verify(self, manifest, **kwargs):
-            self.calls += 1
-            rows = []
-            for row in manifest["candidates"]:
-                text = row["scope_text"]
-                parts = [segment(text)]
-                if manifest["contract_version"] == "final-knowledge-scope-v1":
-                    prefix, suffix = text.split(temporary, 1)
-                    parts = [segment(prefix), segment(temporary, True), segment(suffix)]
-                rows.append(dict(candidate_index=row["candidate_index"], semantic_support="supported",
-                                 source_use="reusable_knowledge", future_scope="durable",
-                                 reason="Check the actual complete source and rendered scope.", scope_segments=parts))
-            return _result(CandidateVerificationDecision.model_validate({"points": rows}))
-
-    provider = Provider()
-    run = _run(dream.dream_once(backend, project_name="demo", project_root=root, semantic_provider=provider))
-    assert provider.calls == 2
-    after = _run(store.get_entry(ids[0], project_name="demo"))
+    after = _run(store.get_entry(before.id, project_name="demo"))
     assert before.model_dump() == after.model_dump()
     assert run.resolution_status == "unresolved"
-    assert ids[0] in run.continuation["unresolved_scope"]
+    assert before.id in run.continuation["unresolved_scope"]
     assert run.items[0].final_action == "rejected"
     assert run.items[0].result["truth_change"] == "none"
-    assert ids[0] not in _run(dream._scope_upgrade_coverage(backend, "demo"))
+    assert before.id not in _run(dream._scope_upgrade_coverage(backend, "demo"))
     records = _run(dream._scope_upgrade_coverage(backend, "demo", include_rejections=True))
-    assert records[ids[0]]["scope_status"] != "source_scope_durable"
-    assert records[ids[0]]["fingerprint"] == dream._scope_fingerprint(after)
+    assert records[before.id]["scope_status"] != "source_scope_durable"
+    assert records[before.id]["fingerprint"] == dream._scope_fingerprint(after)
 
 
 def test_new_negative_current_fingerprint_supersedes_old_durable_coverage(backend):

@@ -25,22 +25,28 @@ def test_quickstart_installs_one_global_entry_without_touching_project(
         "sync_host_commands",
         lambda **kwargs: calls.append(kwargs) or SimpleNamespace(status="installed"),
     )
+    hook_calls = []
+    monkeypatch.setattr(
+        onboarding, "repair_project_hooks",
+        lambda **kwargs: hook_calls.append(kwargs) or SimpleNamespace(success=True),
+    )
 
     result = onboarding.cmd_quickstart(client="auto")
 
     assert result == 0
     assert calls == [{"client": "codex"}]
+    assert hook_calls == [{"clients": ("codex",), "scope": "user", "project_root": workspace}]
     assert list(workspace.iterdir()) == []
     output = capsys.readouterr().out
-    assert "Installed $hm for codex" in output
-    assert "Start a new Agent task" in output
-    assert "If harness-mem tools are already available, use $hm." in output
+    assert "Installed $hm and user-level lifecycle Hooks for codex" in output
+    assert "then start a new task" in output
+    assert "Background authorization is unchanged" in output
+    assert "Use $hm to inspect, review or correct stored memory" in output
     assert "Otherwise, ask the Agent, MCP Router, plugin, or existing setup tool" in output
     assert "that manages your MCP connection to connect harness-mem" in output
     assert "See docs/mcp-setup.md." in output
     assert "Quickstart does not inspect or change MCP connections." in output
-    assert "project" not in output.lower()
-    assert "Hooks" not in output
+    assert "Codex Settings > Hooks" in output
 
 
 def test_quickstart_uses_explicit_host_without_inspecting_workspace(
@@ -58,6 +64,11 @@ def test_quickstart_uses_explicit_host_without_inspecting_workspace(
         "sync_host_commands",
         lambda *, client: calls.append(client) or SimpleNamespace(status="installed"),
     )
+    install_calls = []
+    monkeypatch.setattr(
+        onboarding, "repair_project_hooks",
+        lambda **kwargs: install_calls.append(kwargs) or SimpleNamespace(success=True),
+    )
 
     monkeypatch.chdir(first)
     assert onboarding.cmd_quickstart(client="cursor") == 0
@@ -65,11 +76,12 @@ def test_quickstart_uses_explicit_host_without_inspecting_workspace(
     assert onboarding.cmd_quickstart(client="cursor") == 0
 
     assert calls == ["cursor", "cursor"]
+    assert [call["scope"] for call in install_calls] == ["user", "user"]
     assert list(first.iterdir()) == []
     assert list(second.iterdir()) == []
     output = capsys.readouterr().out
-    assert output.count("Installed /hm for cursor.") == 2
-    assert output.count("If harness-mem tools are already available, use /hm.") == 2
+    assert output.count("Installed /hm and user-level lifecycle Hooks for cursor.") == 2
+    assert output.count("Use /hm to inspect, review or correct stored memory") == 2
     assert output.count("See docs/mcp-setup.md.") == 2
 
 
@@ -106,7 +118,8 @@ def test_quickstart_does_not_claim_success_when_entry_install_fails(
 
     assert onboarding.cmd_quickstart(client="cursor") == 1
     output = capsys.readouterr().out
-    assert "Could not install the memory entry" in output
+    assert "Could not prepare automatic memory" in output
+    assert "permission denied" in output
     assert "Installed /hm" not in output
     assert "docs/mcp-setup.md" not in output
 
@@ -118,6 +131,8 @@ def test_quickstart_handoff_preserves_existing_mcp_project_and_memory(
     client: str,
     capsys,
 ) -> None:
+    from harness_mem.integration import installer
+
     home = tmp_path / "home"
     workspace = tmp_path / "project"
     source_dir = tmp_path / "source"
@@ -138,6 +153,10 @@ def test_quickstart_handoff_preserves_existing_mcp_project_and_memory(
     monkeypatch.chdir(workspace)
     monkeypatch.setattr(Path, "home", lambda: home)
     monkeypatch.setenv("LOCALAPPDATA", str(home / "AppData/Local"))
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    runner = tmp_path / "harness-mem-hook.exe"
+    runner.write_text("fixture runner", encoding="utf-8")
+    monkeypatch.setattr(installer, "verified_hook_runner", lambda: runner)
     sync = onboarding.sync_host_commands
     monkeypatch.setattr(
         onboarding,
@@ -149,14 +168,18 @@ def test_quickstart_handoff_preserves_existing_mcp_project_and_memory(
 
     entry = home / f".{client}/skills/hm/SKILL.md"
     assert "# HM fixture" in entry.read_text(encoding="utf-8")
+    hook = installer.user_hook_path(client, home_dir=home)
+    assert f"{client}-start" in hook.read_text(encoding="utf-8")
     assert all(path.read_bytes() == content for path, content in before.items())
     assert {path for path in tmp_path.rglob("*") if path.is_file()} == {
         *preserved,
         source_dir / "hm.md",
         entry,
+        hook,
+        runner,
     }
     output = capsys.readouterr().out
-    assert f"Installed {onboarding.command_hint(client)} for {client}." in output
+    assert f"Installed {onboarding.command_hint(client)} and user-level lifecycle Hooks for {client}." in output
     assert "docs/mcp-setup.md" in output
 
 

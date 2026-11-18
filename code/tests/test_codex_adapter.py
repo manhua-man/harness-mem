@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-import harness_mem.adapters.codex.adapter as codex_adapter_module
 import harness_mem.commands.ingest as ingest_module
 import harness_mem.commands.support as support_module
 import harness_mem.mcp.tool_handlers as tool_handlers
@@ -239,14 +238,14 @@ def test_tool_ingest_sessions_codex_uses_project_root_and_reports_resolved_clien
 
     monkeypatch.setattr(support_module, "DEFAULT_DATA_DIR", data_dir)
     monkeypatch.setattr(ingest_module, "DEFAULT_DATA_DIR", data_dir)
-    monkeypatch.setattr(codex_adapter_module, "DEFAULT_SESSIONS_DIR", sessions_dir)
+    monkeypatch.setenv("CODEX_HOME", str(sessions_dir.parent))
 
     payload = tool_handlers._ingest_sessions(
         client="codex",
         project_root=str(workspace),
     )
 
-    assert payload["success"] is True
+    assert payload["success"] is True, payload
     assert payload["project_name"] == "servers"
     assert payload["project_root"] == str(workspace.resolve())
     assert payload["project_resolution_source"] == "project_root"
@@ -295,7 +294,7 @@ def test_tool_ingest_sessions_targets_exact_codex_session_ahead_of_scan_frontier
 
     monkeypatch.setattr(support_module, "DEFAULT_DATA_DIR", data_dir)
     monkeypatch.setattr(ingest_module, "DEFAULT_DATA_DIR", data_dir)
-    monkeypatch.setattr(codex_adapter_module, "DEFAULT_SESSIONS_DIR", sessions_dir)
+    monkeypatch.setenv("CODEX_HOME", str(sessions_dir.parent))
 
     payload = tool_handlers._ingest_sessions(
         client="codex",
@@ -304,7 +303,7 @@ def test_tool_ingest_sessions_targets_exact_codex_session_ahead_of_scan_frontier
         session_id=target_id,
     )
 
-    assert payload["success"] is True
+    assert payload["success"] is True, payload
     assert payload["target_session_id"] == target_id
     assert "Candidates after cursor: 1" in payload["output"]
 

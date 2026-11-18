@@ -86,14 +86,14 @@ def test_search_defaults_all_even_with_project_context(backend, context_project)
     assert all(set(item) == {"title", "statement", "project_name"} for item in payload["memories"])
 
 
-def test_global_dedup_and_limit_follow_relevance_across_module_labels(backend):
+def test_global_limit_follows_relevance_and_browse_keeps_project_provenance(backend):
     first = _seed(backend, "alpha", "Shared procedure", "sqlite advice", module="storage")
     _seed(backend, "zeta", "Shared procedure", "sqlite advice", module="local storage")
     strongest = _seed(backend, "zeta", "Best match", "sqlite sqlite sqlite guidance")
     found = asyncio.run(search_current_knowledge(backend, query="sqlite", limit=2))
     assert found == [strongest, first]
     assert asyncio.run(search_current_knowledge(backend, query="sqlite", limit=1)) == [strongest]
-    assert len(asyncio.run(list_current_knowledge(backend))) == 2
+    assert len(asyncio.run(list_current_knowledge(backend))) == 3
     assert len(asyncio.run(list_current_knowledge(backend, project_name="zeta"))) == 2
 
 
@@ -186,7 +186,12 @@ def test_wake_explicit_project_filter_remains_available(backend, monkeypatch):
     assert availability["long_term_memory"] == []
     assert availability["available_count"] == 1
     payload = server.tool_wake(project_name="alpha", scope="project", current_task="sqlite")
-    assert payload["long_term_memory"] == [{"title": entry.title, "statement": entry.statement}]
+    candidate, = payload["long_term_memory"]
+    assert candidate["title"] == entry.title
+    assert "statement" not in candidate
+    result = server.tool_search_memory(query="sqlite", scope="project", project_name="alpha",
+                                       detail="full", read_cursor=candidate["read_cursor"])
+    assert result["memories"] == [{"title": entry.title, "statement": entry.statement}]
     monkeypatch.setattr(read_wake_handlers, "get_active_project", lambda: "alpha")
     assert server.tool_wake(scope="project", current_task="sqlite")["long_term_memory"] == payload["long_term_memory"]
     monkeypatch.setattr(read_wake_handlers, "get_active_project", lambda: None)
@@ -202,9 +207,9 @@ def test_wake_task_query_ranks_all_projects_and_excludes_unrelated(backend):
     assert [item["project_name"] for item in payload["long_term_memory"]] == ["zeta", "alpha"]
 
 
-def test_feedback_tracks_only_global_representatives_in_their_source_project(backend):
+def test_feedback_tracks_each_presented_fact_in_its_source_project(backend):
     a = _seed(backend, "alpha", "Shared rule", "sqlite shared rule")
-    hidden = _seed(backend, "zeta", "Shared rule", "sqlite shared rule")
+    separate = _seed(backend, "zeta", "Shared rule", "sqlite shared rule")
     z = _seed(backend, "zeta", "Z rule", "sqlite zeta rule")
     payload = server.tool_search_memory(
         query="sqlite", project_name="unrelated-workspace", _include_diagnostics=True,
@@ -213,8 +218,7 @@ def test_feedback_tracks_only_global_representatives_in_their_source_project(bac
     assert payload["record_outcome_call"] is None  # Multiple project receipts cannot become one call.
     calls = payload["record_outcome_calls"]
     assert {call["arguments"]["project_name"] for call in calls} == {"alpha", "zeta"}
-    assert set(payload["context_plan"]["source_ids"]) == {a.id, z.id}
-    assert hidden.id not in str(payload)
+    assert set(payload["context_plan"]["source_ids"]) == {a.id, separate.id, z.id}
     for call in calls:
         arguments = call["arguments"]
         assert arguments["surface"] == "search_all"
@@ -236,7 +240,7 @@ def test_feedback_tracks_only_global_representatives_in_their_source_project(bac
 
 
 @pytest.mark.parametrize("context_project", [None, "alpha", "unknown-project"])
-def test_autopilot_searches_all_and_preserves_feedback_bindings(backend, context_project):
+def test_autopilot_previews_all_projects_and_full_reads_enable_feedback(backend, context_project):
     _seed(backend, "alpha", "Timeout alpha", "pytest timeout alpha fix")
     _seed(backend, "zeta", "Timeout zeta", "pytest timeout zeta fix")
     payload = server.tool_autopilot_search_tick(
@@ -248,9 +252,16 @@ def test_autopilot_searches_all_and_preserves_feedback_bindings(backend, context
     injection = payload["context_injection"]
     assert {item["project_name"] for item in injection["memories"]} == {"alpha", "zeta"}
     assert injection["record_outcome_call"] is None
-    assert len(injection["record_outcome_calls"]) == 2
-    assert len(injection["source_ids"]) == 2
-    for call in injection["record_outcome_calls"]:
+    assert injection["record_outcome_calls"] == []
+    assert injection["source_ids"] == []
+    for preview in injection["memories"]:
+        assert "statement" not in preview
+        reading = server.tool_search_memory(
+            query=injection["query"], scope="all", detail="full", read_cursor=preview["read_cursor"],
+            _include_diagnostics=True, budget_tokens=8_000,
+        )
+        assert [row["project_name"] for row in reading["memories"]] == [preview["project_name"]]
+        call = reading["record_outcome_call"]
         assert server.tool_record_context_outcome(**call["arguments"], outcome="ignored")["success"] is True
 
 

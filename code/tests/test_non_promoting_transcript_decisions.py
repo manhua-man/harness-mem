@@ -23,6 +23,7 @@ from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.schemas.task_handoff import TaskHandoff
 from harness_mem.mcp.distill_projection import render_distill_exchange_windows
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from test_separated_knowledge_review import _fixture_verdict
 
 
 PROJECT = "non-promoting-test"
@@ -143,6 +144,16 @@ async def test_qualified_user_choice_retains_the_attributed_alternative(backend)
     )
     plan = await _plan(backend, candidate.id)
     assert plan["points"][0]["answer_status"] == "ANSWERED"
+    point = plan["points"][0]
+    verdict = _fixture_verdict(point["knowledge_items"], source_use="standing_decision")
+    segment, = verdict["points"][0]["scope_segments"]
+    claim, separator, alternative = segment["text"].partition("；")
+    assert separator and alternative
+    verdict["points"][0]["scope_segments"] = [
+        {**segment, "text": claim + separator},
+        {**segment, "text": alternative, "content_role": "qualifier", "standalone": False},
+    ]
+    point["final_scope_judgment"] = verdict
     result = await _apply(backend, plan)
     assert result["promoted"] == 1
     entries = await backend.structured_store.knowledge_store.list_entries(PROJECT)
@@ -246,7 +257,12 @@ async def test_transcript_truth_writes_and_confirmation_are_still_blocked(backen
 @pytest.mark.asyncio
 async def test_trusted_user_statement_write_is_unchanged(backend):
     candidate, _ = await _candidate(backend, disposition="add", basis="user_statement")
-    result = await _apply(backend, await _plan(backend, candidate.id))
+    plan = await _plan(backend, candidate.id)
+    point = plan["points"][0]
+    point["final_scope_judgment"] = _fixture_verdict(
+        point["knowledge_items"], source_use="standing_decision",
+    )
+    result = await _apply(backend, plan)
     entries = await backend.structured_store.knowledge_store.list_entries(PROJECT)
     assert result["promoted"] == 1
     assert result["points"][0]["answer_status"] == "ANSWERED"

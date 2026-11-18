@@ -161,7 +161,7 @@ def test_source_read_errors_still_propagate(monkeypatch, topic_entries, project,
 @pytest.mark.parametrize("query", ["", "  \n\t"])
 def test_blank_browse_keeps_order_and_dedup_without_tokenization(monkeypatch, query):
     a = _entry("a", "A title", "First fact.")
-    duplicate = a.model_copy(update={"id": "z", "project_name": "zeta"})
+    duplicate = a.model_copy(update={"id": "z"})
     b = _entry("b", "B title", "Second fact.")
     tokenize = Mock()
     monkeypatch.setattr(read_knowledge, "_term_counts", tokenize)
