@@ -341,6 +341,34 @@ def test_multipart_search_delivers_whole_statements_for_distinct_parts(backend, 
     assert "only suggest relevance" in result["answer_guidance"]
 
 
+def test_multipart_search_marks_questions_after_context_and_subjectless_followups(backend):
+    walk, remit, proof, mode = [
+        add_memories(backend, [body], title=title, number_titles=False)[0]
+        for title, body in (
+            ("Canvas Desk 主动走查", "应用能用但优化方向不明时，主动沿用户任务做产品走查。"),
+            ("走查发现的产品评估与迭代", "产品评估保留走查发现的场景和证据，持续迭代安排优先级。"),
+            ("Canvas Desk 走查验收层级", "验证了入口与独立试用，实际产品体验尚未验证。"),
+            ("Canvas Desk 分析模式", "深度分析模式加载清单。模型、推理档位和权限沿用当前设置。"),
+        )
+    ]
+    cases = [
+        ("应用已经能用了，但不知道该怎么打磨。Canvas Desk 当时是怎么走查的，发现怎么交给产品评估和持续迭代？",
+         ["Canvas Desk 当时是怎么走查的", "发现怎么交给产品评估和持续迭代？"], [walk, remit]),
+        ("那次 Canvas Desk 走查验收到了哪一层，能说明实际产品体验变好吗？",
+         ["那次 Canvas Desk 走查验收到了哪一层", "能说明实际产品体验变好吗？"], [proof, proof]),
+        ("Canvas Desk 的深度分析模式有什么区别？会自动切模型或改权限吗？",
+         ["Canvas Desk 的深度分析模式有什么区别？", "会自动切模型或改权限吗？"], [mode, mode]),
+    ]
+    for query, parts, expected in cases:
+        result = server.tool_search_memory(query=query)
+        assert result["query"] == query
+        assert result["question_parts"] == parts
+        assert reading_tokens(result) <= 3600
+        statements = [item["statement"] for item in result["memories"]]
+        for matches, row in zip(result["question_part_matches"], expected):
+            assert statements.index(row.statement) + 1 in matches
+
+
 def test_multipart_continuation_keeps_ranked_facts_and_original_request(backend, monkeypatch):
     monkeypatch.setattr(
         "harness_mem.mcp.read_projection.count_response_tokens", lambda text: (0, "char-heuristic")

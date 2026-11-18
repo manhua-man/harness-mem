@@ -50,19 +50,40 @@ _ENGLISH_QUESTION_CLAUSE = re.compile(
     re.IGNORECASE,
 )
 _QUESTION_PART_BREAK = re.compile(
-    r"(?<=[?？])\s*|[；;]\s*|[，,]\s*(?=(?:还有|另外|以及|同时|顺便|那|当时|后来|"
-    r"怎么|怎样|如何|为什么|哪些|有什么|有没有|能不能|能否|是否|是不是|什么|最后))|"
+    r"(?<=[?？])\s*|[；;]\s*|"
     r"(?<=[\u3400-\u9fff])(?=(?:以及|另外|再|又)(?:怎么|如何|为什么|有哪些|哪些|是否|能否))|"
     r"\s+(?=(?:and|also|or)\s+(?:how|what|why|when|where|which|did|can|does)\b)",
     re.IGNORECASE,
 )
+_CJK_DIRECT_QUESTION = re.compile(
+    r"怎么|怎样|如何|为什么|哪些|哪[个些种一步层]|什么|有没有|是不是|是否|"
+    r"能(?:不能|否|说明|证明|代表|看出)|[吗么][?？]?$"
+)
+_CJK_INDIRECT_QUESTION = re.compile(r"(?:不清楚|不确定|不知道|没想好)[^，,。]*")
 
 
 def question_parts(query: str) -> list[str]:
     """Keep explicit requests in their original wording and order."""
     if not is_natural_question(query) or len(query) > 1800:
         return []
-    segments = [part.strip() for part in _QUESTION_PART_BREAK.split(query) if part.strip()]
+    segments = []
+    for part in _QUESTION_PART_BREAK.split(query):
+        clauses = re.split(r"([，,]\s*|(?<=。)\s*)", part.strip())
+        current = clauses[0]
+        for separator, clause in zip(clauses[1::2], clauses[2::2]):
+            direct = _CJK_DIRECT_QUESTION.search(_CJK_INDIRECT_QUESTION.sub("", clause))
+            if current and direct:
+                segments.append(current)
+                current = clause
+            else:
+                current += separator + clause
+        if current:
+            segments.append(current)
+    # Context still contributes to ranking the intact question, but it should
+    # not be presented as something the reader must answer on its own.
+    if (len(segments) >= 3 and _CJK_INDIRECT_QUESTION.search(segments[0])
+            and not _CJK_DIRECT_QUESTION.search(_CJK_INDIRECT_QUESTION.sub("", segments[0]))):
+        segments = segments[1:]
     if not 2 <= len(segments) <= 6:
         return []
     return segments
@@ -263,6 +284,10 @@ def _prioritize_question_parts(
         matches = _rank_current_entries(entries, part, count_terms=count_terms)
         if not matches:
             matches = _rank_long_query_candidates(entries, part)
+        if not matches:
+            # A follow-up without its subject can share a few meaningful
+            # terms with a leading result while missing the standalone cutoff.
+            matches = _rank_current_entries(overall[:6], part, count_terms=count_terms, source_context=True)
         # A follow-up can omit its subject. The complete query contributes a
         # preference while a separate explicit topic can still win on its own.
         scores = {

@@ -157,11 +157,16 @@ def test_native_questions_catch_tool_only_conditions_before_write(device, tmp_pa
     applicability = "Only when import records uses a local source does the rule apply."
     patch = "\n".join(["*** Begin Patch", validation, applicability, "*** End Patch"])
     receipt = "Patch applied to the test copy."
+    unrelated = (
+        "On failure, recover the recording from its backup. "
+        "The import records workflow was inspected."
+    )
     tail = (
         {"type": "response_item", "payload": {
             "type": "custom_tool_call", "call_id": "import-check", "name": "apply_patch", "input": patch}},
         {"type": "response_item", "payload": {
-            "type": "custom_tool_call_output", "call_id": "import-check", "output": f"{receipt}\n{failure}"}},
+            "type": "custom_tool_call_output", "call_id": "import-check",
+            "output": f"{receipt}\n{failure}\n{unrelated}"}},
         {"type": "response_item", "payload": {
             "type": "custom_tool_call_output", "call_id": "no-call", "output": "Import records failed to open."}},
     )
@@ -179,7 +184,7 @@ def test_native_questions_catch_tool_only_conditions_before_write(device, tmp_pa
     questions = [json.loads(line) for line in (first["content"] + rest["content"]).splitlines()]
     assert {q["kind"] for q in questions} == {"validation", "failure", "applicability"}
     assert {q["call_id"] for q in questions} == {"import-check"}
-    assert {q["condition"] for q in questions} == {validation, failure, applicability}
+    assert {q["condition"] for q in questions} == {validation, failure, applicability, unrelated}
     assert {q["condition"] for q in questions if q["quote_field"] == "call_quote"} == {validation, applicability}
     point = {
         "content": report, "canonical_title": "Import records workflow", "topic_path": ["Import"],
@@ -190,7 +195,12 @@ def test_native_questions_catch_tool_only_conditions_before_write(device, tmp_pa
         "review": {"support": "supported", "use": "reusable_knowledge",
                    "reason": "Check the implementation from the native records.",
                    "conditions": [], "undecided_state": None,
-                   "evidence": [{"ref": 1, "target": "claim", "quote": report}]},
+                   "evidence": [{"ref": 1, "target": "claim", "quote": report}],
+                   "operations": [{
+                       **{key: questions[0][key] for key in ("call_id", "call_line", "result_line")},
+                       "ref": 1, "phrase": report, "observed_as": "inspection",
+                       "call_quote": "*** Begin Patch", "result_quote": receipt,
+                   }]},
     }
     request = {
         "project_name": prepared["project_name"], "job_id": prepared["distill_job_id"],
@@ -203,6 +213,7 @@ def test_native_questions_catch_tool_only_conditions_before_write(device, tmp_pa
     }
     rejected, _ = _rpc(backend, "finalize_session_distill", request)
     assert rejected["error"] == "source_conditions_need_review"
+    questions = [q for q in questions if q["condition"] != unrelated]
     assert {q["id"] for q in rejected["condition_checks"]} == {q["id"] for q in questions}
     assert tool_handlers.tool_search_memory(query="")["memories"] == []
 
@@ -247,6 +258,32 @@ def test_native_questions_catch_tool_only_conditions_before_write(device, tmp_pa
     replayed, _ = _rpc(backend, "finalize_session_distill", request)
     assert not replayed["success"]
     assert replayed["reason_codes"] == ["reviewed_source_detail_missing_from_current_knowledge"]
+
+
+def test_native_condition_review_coalesces_readbacks_and_keeps_table_cells_in_scope():
+    from harness_mem.commands.manual_condition_review import ConditionReviewRequired, review_source_conditions
+    from harness_mem.commands.native_review_questions import native_review_questions
+
+    required = "+| 操作反馈 | 上传失败后提示用户怎样继续，操作反馈需要说明文件是否保留 | 交互规范 |"
+    unrelated = "+| 录制失败后的下一版重点 | 先保留缓存再决定重试 | 仅作操作反馈的规划示例 |"
+    records = []
+    for index, result in enumerate([f"{required}\n{unrelated}", required]):
+        line = index * 2 + 1
+        records.extend([
+            {"type": "function_call", "call_id": str(index), "native_line": line, "text": "{}"},
+            {"type": "function_call_output", "call_id": str(index), "native_line": line + 1, "text": result},
+        ])
+    point = {
+        "canonical_title": "上传操作反馈与下一版重点",
+        "content": "上传操作反馈要让用户知道怎样继续，随后确定下一版重点。",
+        "assimilation_disposition": "add",
+        "review": {"use": "reusable_knowledge"},
+    }
+    assert len(list(native_review_questions(records, "revision"))) == 3
+    with pytest.raises(ConditionReviewRequired) as blocked:
+        review_source_conditions(revision="revision", transcript="", project_root=None,
+                                 points=[point], exclusions={}, native_records=records)
+    assert [item["condition"] for item in blocked.value.findings] == [required]
 
 
 @pytest.mark.parametrize("field", ["source_id", "source_revision", "native_sha256"])

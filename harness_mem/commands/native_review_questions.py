@@ -9,6 +9,7 @@ from typing import Any, Iterable
 
 
 _PASSAGES = re.compile(r"\r?\n|\\r\\n|\\n")
+_PROSE_SENTENCE = re.compile(r"[。！？]+|(?<=\.)\s+(?=[A-Z])")
 _PATCH = re.compile(r"\*\*\* (?:Begin Patch|Add File:|Update File:)|\bapply_patch\(")
 _QUESTION_PATTERNS = (
     (
@@ -44,6 +45,17 @@ _QUESTION_PATTERNS = (
         ),
     ),
 )
+
+
+def native_question_clauses(passage: str, kind: str) -> list[str]:
+    """Compare the clauses that triggered the question, keeping its full quote."""
+    pattern = next(pattern for question_kind, _, pattern in _QUESTION_PATTERNS if question_kind == kind)
+    cells = passage.split("|") if is_native_table_row(passage) else [passage]
+    return [clause for cell in cells for clause in _PROSE_SENTENCE.split(cell) if pattern.search(clause)]
+
+
+def is_native_table_row(passage: str) -> bool:
+    return passage.lstrip("+- ").startswith("|") and passage.count("|") >= 3
 
 
 def native_review_questions(

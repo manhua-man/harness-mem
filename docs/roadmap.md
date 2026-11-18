@@ -472,6 +472,28 @@ its earlier completed work, and the unanswered request was kept as open.
 [Selection and native lifecycle](../.tmp/hm-retrieval-populated-20261118/grade/ac/source-selection.json)
 · [HM blocked import](../.tmp/hm-retrieval-populated-20261118/hm/B-block-diagnosis.json).
 
+### Same-source Codex review and recall regression (2026-11-19)
+
+Native discovery still exposes the original questions and evidence locations.
+Before finalization, HM checks topical overlap in the clause or table cell
+that raised each question. It coalesces identical passages visible through
+multiple calls. The write still verifies exact quotes, call/result pairing,
+source revisions and persisted statements. Ordinary search recognizes the
+actual questions after Chinese context clauses and uses the original query
+to recover matches for follow-ups that omit their subject.
+
+Public MCP replay on the same seven-exchange archived Codex session, original
+draft and 792-row SQLite snapshot reduced blocking reviews from three to one,
+prompts from 35 to two and manual exclusions from 32 to zero. Both retained
+prompts produced source-bound details. The four finalized statements match the
+baseline verbatim, the 792 original rows and archive bytes match, and the
+finalizer replay returns the same statements without another write. Across
+three unchanged questions, the first responses contain supporting statements
+for 11 of 11 frozen facets, up from 3 of 11. All six question parts have a
+supporting statement marked, and total retrieval calls fell from six to three.
+This was a same-source regression using the existing draft and question set.
+[Comparison and raw MCP receipts](../.tmp/hm-live-codex-same-source-20261119/comparison.json).
+
 ### Archive capability follow-up (2026-11-13)
 
 The user requested a boost work plan against upstream feature coverage. Core cross-host history distillation is implemented, with a real Codex archive already verified through cleanup and knowledge readback. The follow-up targets archive selection, source formats and cleanup behavior. The upstream comparison was refreshed against remote HEAD `42fb1c0b26c2eeafe38104aae130c7e112f0d75d`. A read-only schema check confirmed that this device's Cursor global database has `composerHeaders.isArchived`, `ItemTable` and `cursorDiskKV`. Its schema is the first candidate for verification. [Existing Codex evidence](../.tmp/completed-history-20261104/real-history/post-cleanup-readback.json) · [Upstream Cursor implementation](https://github.com/manhua-man/session-distill-skills/blob/42fb1c0b26c2eeafe38104aae130c7e112f0d75d/adapters/cursor-session-distill/bin/purge-archived-cursor-sessions.py)

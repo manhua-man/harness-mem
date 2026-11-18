@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from hashlib import sha256
 import json
 import re
@@ -43,6 +44,7 @@ _NEGATION = re.compile(r"不得|不能|未经|不可|尚未|仍未|没有|\b(?:n
 _COMMON = {"可以", "使用", "问题", "情况", "需要", "必须", "不能", "不要", "如果", "这个", "当前",
            "when", "then", "only", "does", "that", "with", "without", "this", "have", "from", "must"}
 _WRITES = {"add", "refine", "replace", "confirm"}
+_DIFF_ADDITION = re.compile(r"^\+(?!\+)")
 
 
 class ConditionReviewRequired(ValueError):
@@ -217,6 +219,31 @@ def _literal_retained(sentence: str, output: str) -> bool:
     return "".join(_TERM.findall(sentence.casefold())) in "".join(_TERM.findall(output.casefold()))
 
 
+def _native_topic_matches(clause: str, topic: str, *, changed_line: bool, table_row: bool) -> bool:
+    """Require a shared subject phrase before blocking on a native excerpt."""
+    source = _TERM.findall(clause.casefold())
+    target = _TERM.findall(topic.casefold())
+    # Added patch text is already localized to a change. An incidental
+    # phrase from a whole document or tool report needs a stronger anchor.
+    width = 4 if changed_line else 5
+    source_runs = [term for term in source if not term.isascii()]
+    for term in target:
+        if term.isascii():
+            continue
+        for start in range(len(term) - width + 1):
+            anchor = term[start:start + width]
+            if not any(anchor in run for run in source_runs):
+                continue
+            # A table cell can repeat a short case label while describing a
+            # different outcome. Require another shared term in that cell.
+            if not table_row or _terms(clause.replace(anchor, " ")) & _terms(topic):
+                return True
+    source_pairs = set(zip(source, source[1:]))
+    return any(left.isascii() and right.isascii() and len(left) >= 4 and len(right) >= 4
+               and left not in _COMMON and right not in _COMMON and (left, right) in source_pairs
+               for left, right in zip(target, target[1:]))
+
+
 def _evidence_at(point: dict, origin: dict, item: dict | None = None) -> bool:
     refs = point.get("verification_refs")
     review = point.get("review")
@@ -326,31 +353,45 @@ def review_source_conditions(
             continue
 
     if native_records:
-        from harness_mem.commands.native_review_questions import native_review_questions
+        from harness_mem.commands.native_review_questions import (
+            is_native_table_row, native_question_clauses, native_review_questions,
+        )
 
+        native_topics = []
+        for point, output, topic in outputs:
+            review = point["review"]
+            text = f"{point.get('canonical_title') or ''} {output}"
+            operations = [item for item in review.get("operations") or () if isinstance(item, dict)]
+            native_topics.append((output, text, topic, operations))
+
+        grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for finding in native_review_questions(native_records, revision):
-            identity, passage = finding["id"], finding["condition"]
-            if str(exclusions.get(identity, "")).strip():
+            # The same added line can be visible in a patch and subsequent
+            # readbacks. Keep every original location for quote verification.
+            grouped[finding["condition"]].append(finding)
+        for passage, occurrences in grouped.items():
+            if any(str(exclusions.get(item["id"], "")).strip() for item in occurrences):
                 continue
-            terms = _terms(passage)
+            finding = occurrences[0]
+            clauses = native_question_clauses(passage, finding["kind"])
+            changed_line = bool(_DIFF_ADDITION.match(passage))
+            table_row = is_native_table_row(passage)
+            clause_terms = [(clause, _terms(clause)) for clause in clauses]
             relevance = 0
-            for point, output, topic in outputs:
-                operations = [item for item in point["review"].get("operations") or ()
-                              if isinstance(item, dict)]
-                matching = [item for item in operations if item.get("call_id") == finding["call_id"]
-                            and item.get("call_line") == finding["call_line"]
-                            and item.get("result_line") == finding["result_line"]]
-                quote_field = finding["quote_field"]
-                if any(isinstance(item.get(quote_field), str) and passage in item[quote_field]
+            for output, text, topic, operations in native_topics:
+                if any(all(item.get(key) == occurrence[key] for key in ("call_id", "call_line", "result_line"))
+                       and isinstance(item.get(occurrence["quote_field"]), str)
+                       and passage in item[occurrence["quote_field"]]
                        and isinstance(item.get("phrase"), str) and item["phrase"].strip()
-                       and item["phrase"] in output for item in matching):
+                       and item["phrase"] in output
+                       for item in operations for occurrence in occurrences):
                     break
-                # Terms alone open a question for review. An operation already
-                # cited for this point also warrants checking adjacent limits.
-                relevance = max(relevance, len(terms & topic), 2 if matching else 0)
+                for clause, terms in clause_terms:
+                    if _native_topic_matches(clause, text, changed_line=changed_line, table_row=table_row):
+                        relevance = max(relevance, len(terms & topic))
             else:
                 if relevance >= 2:
-                    findings[identity] = (relevance, {**finding, "source": "native_tool_record"})
+                    findings[finding["id"]] = (relevance, {**finding, "source": "native_tool_record"})
 
     missing = sorted(findings.values(), key=lambda item: -item[0])
     if missing:
