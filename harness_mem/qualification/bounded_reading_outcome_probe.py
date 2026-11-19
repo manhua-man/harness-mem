@@ -1,4 +1,4 @@
-"""Exercise complete reading through SQLite, MCP stdio and Hook rendering.
+"""Exercise complete reading through SQLite, the local Search API and Hook rendering.
 
 All knowledge is fictional and all data/configuration live in a temporary root.
 This measures tool output, not model quality, billing or a natural host event.
@@ -21,19 +21,11 @@ from harness_mem.commands.wake import build_wake_injection
 from harness_mem.core.schemas import (
     AssimilationDecision, KnowledgeCandidate, KnowledgeEntry, ProjectKnowledgeSourceRef,
 )
-from harness_mem.mcp import server
+from harness_mem.agent_runtime import active_backend
+from harness_mem.mcp import tool_handlers
+from harness_mem.search import search
 from harness_mem.mcp.read_projection import project_memory_entries, reading_tokens
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
-
-
-def _request(name: str, arguments: dict) -> dict:
-    return {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-            "params": {"name": name, "arguments": arguments}}
-
-
-def _payload(response: dict) -> tuple[dict, str]:
-    text = response["result"]["content"][0]["text"]
-    return json.loads(text), text
 
 
 async def _seed(backend: LocalMemoryBackend, root: Path) -> list[KnowledgeEntry]:
@@ -81,40 +73,32 @@ async def _seed(backend: LocalMemoryBackend, root: Path) -> list[KnowledgeEntry]
     return entries
 
 
+def _read_pages(data_dir: Path, maximum: int) -> list[dict]:
+    arguments = {"query": "", "budget_tokens": 900}
+    pages = []
+    for _ in range(maximum):
+        page = search(**arguments, data_dir=data_dir)
+        pages.append(page)
+        if "continuation" not in page:
+            return pages
+        arguments = page["continuation"]["arguments"]
+    raise RuntimeError("reading continuation did not finish")
+
+
 def run_bounded_reading_outcome_probe() -> dict[str, Any]:
     with TemporaryDirectory(prefix="harness-mem-bounded-reading-") as temporary:
         root = Path(temporary)
         backend = LocalMemoryBackend(root / "data")
         asyncio.run(backend.init())
-        server.set_backend_override(backend)
+        binding = active_backend.set(backend)
         try:
             entries = asyncio.run(_seed(backend, root))
-            requests: list[dict] = []
-            arguments: dict[str, Any] = {"query": "", "budget_tokens": 900}
-            # Collect the returned calls, then replay them through a separate
-            # stdio process that reopens the same durable SQLite database.
-            for _ in range(len(entries) * 2 + 1):
-                request = _request("search_memory", arguments)
-                requests.append(request)
-                response = server.handle_request(request)
-                assert response is not None
-                page, _text = _payload(response)
-                if "continuation" not in page:
-                    break
-                arguments = page["continuation"]["arguments"]
-            else:
-                raise RuntimeError("reading continuation did not finish")
-            browse_count = len(requests)
-            requests.extend([
-                _request("search_memory", {"query": "Aurora Quickstart", "budget_tokens": 900}),
-                _request("wake", {"current_task": " \t ", "budget_tokens": 900}),
-                _request("wake", {"current_task": "browsingtoken", "budget_tokens": 900}),
-                _request("autopilot_search_tick", {
-                    "event_name": "tool_result", "current_task": "browsingtoken",
-                    "tool_result": "browsingtoken failed", "is_error": True,
-                    "budget_tokens": 1400,
-                }),
-            ])
+            blank = tool_handlers.tool_wake(current_task=" ", budget_tokens=900)
+            wake = tool_handlers.tool_wake(current_task="browsingtoken", budget_tokens=900)
+            automatic = tool_handlers.tool_autopilot_search_tick(
+                event_name="tool_result", current_task="browsingtoken", tool_result="browsingtoken failed",
+                is_error=True, budget_tokens=1400,
+            )
             hook_blank = asyncio.run(build_wake_injection(
                 backend, "aurora", apply_surface_side_effects=False, budget_tokens=2000,
             ))
@@ -127,7 +111,7 @@ def run_bounded_reading_outcome_probe() -> dict[str, Any]:
                 "memories": project_memory_entries(entries, include_project=True, include_modules=True),
             })
         finally:
-            server.set_backend_override(None)
+            active_backend.reset(binding)
             asyncio.run(backend.close())
 
         environment = os.environ.copy()
@@ -141,56 +125,34 @@ def run_bounded_reading_outcome_probe() -> dict[str, Any]:
             ])),
         })
         process = subprocess.run(
-            [sys.executable, "-m", "harness_mem.mcp.server"],
-            input="".join(json.dumps(request, ensure_ascii=False) + "\n" for request in requests).encode("utf-8"),
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            cwd=root, env=environment, timeout=45, check=False,
+            [sys.executable, "-c",
+             "import json, sys; from pathlib import Path; "
+             "from harness_mem.qualification.bounded_reading_outcome_probe import _read_pages; "
+             "print(json.dumps(_read_pages(Path(sys.argv[1]), int(sys.argv[2]))))",
+             str(root / "data"), str(len(entries) * 2 + 1)],
+            cwd=root, env=environment, timeout=60, capture_output=True, check=True,
         )
-        responses = [json.loads(line) for line in process.stdout.splitlines() if line.strip()]
-        payloads = [_payload(response) for response in responses]
-        if process.returncode or len(payloads) != len(requests):
-            raise RuntimeError(
-                f"isolated MCP process returned {process.returncode} and {len(payloads)}/{len(requests)} "
-                f"responses: {process.stderr.decode('utf-8', errors='replace')[-2000:]}"
-            )
-        browse = payloads[:browse_count]
-        actual = [row["statement"] for page, _text in browse for row in page["memories"] if "statement" in row]
-        normal_sizes = [reading_tokens(text) for page, text in browse if page.get("detail") != "full"]
-        quickstart, blank, wake, automatic = [payload for payload, _text in payloads[browse_count:]]
+        pages = json.loads(process.stdout)
+        browse = [(page, json.dumps(page, ensure_ascii=False, separators=(",", ":"))) for page in pages]
+        browse_count = len(browse)
+        actual = [row["statement"] for page in pages for row in page["memories"] if "statement" in row]
+        normal_sizes = [reading_tokens(page) for page in pages if page.get("detail") != "full"]
+        quickstart = search("Aurora Quickstart", budget_tokens=900, data_dir=root / "data")
         injection = automatic.get("context_injection") or {}
         automatic_readable = any(row.get("statement") for row in injection.get("memories", []))
         candidate = next((row for row in injection.get("memories", []) if row.get("read_cursor")), None)
         if not automatic_readable and candidate:
-            selected = subprocess.run(
-                [sys.executable, "-m", "harness_mem.mcp.server"],
-                input=(json.dumps(_request("search_memory", {
-                    "query": injection["query"], "scope": "all", "detail": "full",
-                    "cursor": candidate["read_cursor"],
-                })) + "\n").encode(),
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                cwd=root, env=environment, timeout=45, check=False,
+            expanded = search(injection["query"], detail="full", read_cursor=candidate["read_cursor"], data_dir=root / "data")
+            automatic_readable = (
+                len(expanded.get("memories", [])) == 1
+                and expanded["memories"][0]["title"] == candidate["title"]
+                and bool(expanded["memories"][0].get("statement"))
             )
-            if selected.returncode == 0 and selected.stdout.splitlines():
-                response = json.loads(selected.stdout.splitlines()[0])
-                expanded, _text = _payload(response)
-                automatic_readable = (
-                    len(expanded.get("memories", [])) == 1
-                    and expanded["memories"][0].get("title") == candidate["title"]
-                    and bool(expanded["memories"][0].get("statement"))
-                )
         if not automatic_readable and injection.get("continuation"):
-            call = injection["continuation"]
-            followed = subprocess.run(
-                [sys.executable, "-m", "harness_mem.mcp.server"],
-                input=(json.dumps(_request(call["tool"], call["arguments"])) + "\n").encode(),
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                cwd=root, env=environment, timeout=45, check=False,
-            )
-            response = json.loads(followed.stdout.splitlines()[0])
-            expanded, _text = _payload(response)
-            automatic_readable = followed.returncode == 0 and any(row.get("statement") for row in expanded.get("memories", []))
+            expanded = search(**injection["continuation"]["arguments"], data_dir=root / "data")
+            automatic_readable = any(row.get("statement") for row in expanded.get("memories", []))
         fields = {
-            "stdio_process_succeeded": process.returncode == 0 and len(payloads) == len(requests),
+            "search_reopened_in_new_process": bool(pages),
             "all_facts_read_once_after_reopen": len(actual) == len(entries) and set(actual) == {entry.statement for entry in entries},
             "normal_pages_within_requested_size": all(size <= 900 for size in normal_sizes),
             "long_fact_complete": entries[-1].statement in actual,
@@ -226,10 +188,7 @@ def run_bounded_reading_outcome_probe() -> dict[str, Any]:
 
 def main() -> int:
     report = run_bounded_reading_outcome_probe()
-    # The imported MCP server protects descriptor 1 from incidental prints.
-    # Use its saved original descriptor for this command's sole JSON result.
-    payload = (json.dumps(report, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
-    os.write(getattr(server, "_REAL_STDOUT_FD", 1), payload)
+    print(json.dumps(report, ensure_ascii=False, sort_keys=True))
     return 0 if report["verified"] else 1
 
 

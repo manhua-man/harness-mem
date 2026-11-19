@@ -7,8 +7,8 @@
       "description": "Reading output is bounded and complete facts remain accessible through continuation and explicit full reading; relevance requires separate task-based evaluation.",
       "required": true,
       "checks": [{
-        "id": "isolated_stdio_and_hook_reading",
-        "description": "Read fictional durable SQLite knowledge through a separate MCP stdio process and exercise taskless/task-aware Hook rendering.",
+        "id": "isolated_search_and_hook_reading",
+        "description": "Read fictional durable SQLite knowledge through a new process using the local Search API and exercise taskless/task-aware Hook rendering.",
         "evidence_tier": "direct",
         "timeout_seconds": 90,
         "command": ["{python}", "-m", "harness_mem.qualification.bounded_reading_outcome_probe"],
@@ -31,7 +31,7 @@
       "required": true,
       "checks": [{
         "id": "isolated_device_memory_runtime",
-        "description": "Seven fictional native-host file and container/archive flows through public MCP, SQLite, Note and global search; no live app, Hook or model verdict.",
+        "description": "Seven fictional native-host file and container/archive flows through the local handlers, SQLite, Note and global search; no live app, Hook or model verdict.",
         "evidence_tier": "direct",
         "timeout_seconds": 120,
         "command": ["{python}", "-m", "harness_mem.qualification.device_memory_outcome_probe"],
@@ -52,7 +52,6 @@
           "manual_retain_source": {"equals": true},
           "no_profiles": {"equals": true},
           "no_background_cli": {"equals": true},
-          "public_twenty_tools": {"equals": true},
           "semantic_mode": {"equals": "deterministic_fixture_agent"},
           "native_apps_or_hooks": {"equals": "not_run"}
         }}
@@ -181,12 +180,12 @@
     },
     {
       "id": "codex_hook_lifecycle",
-      "description": "A built wheel configures Codex user Hooks and exposes the memory tools through MCP. Codex Desktop native start and post-turn hooks each have a fresh receipt for the current configuration.",
+      "description": "A built wheel provides Distill and Search for the host Agent and the native Hook callback. Codex Desktop native start and post-turn hooks each have a fresh receipt for the current configuration.",
       "required": true,
       "checks": [
         {
           "id": "fresh_install_and_first_use",
-          "description": "Verify user Hook registration, a clean workspace after Quickstart and MCP initialization, tool discovery, and the first MCP status response with the Codex trust step.",
+          "description": "Import Distill, query an empty local store using Search and verify an unchanged workspace and host configuration in a fresh wheel environment.",
           "evidence_tier": "direct",
           "timeout_seconds": 120,
           "command": ["{python}", "code/scripts/smoke_fresh_install.py", "--expected-version", "v0.0.1"],
@@ -194,15 +193,11 @@
             "exit_code": 0,
             "json": {
               "verified": {"equals": true},
-              "user_hooks_registered": {"equals": true},
-              "no_command_skill_installed": {"equals": true},
-              "quickstart_project_untouched": {"equals": true},
-              "mcp_initialize_project_untouched": {"equals": true},
-              "single_host_flow": {"equals": true},
-              "first_status_project_ready": {"equals": true},
-              "first_status_is_short": {"equals": true},
-              "first_status_preserves_hooks": {"equals": true},
-              "codex_hook_trust_step_reported": {"equals": true}
+              "distill_available": {"equals": true},
+              "agent_search_empty": {"equals": true},
+              "only_hook_callback": {"equals": true},
+              "workspace_untouched": {"equals": true},
+              "host_config_untouched": {"equals": true}
             }
           }
         },

@@ -1,4 +1,4 @@
-"""Handlers for the v2.4.3 ``harness-mem config`` maintenance subcommands.
+"""Handlers for the v2.4.3 ``python -m harness_mem.cli config`` maintenance subcommands.
 
 These four handlers are the CLI surface for managing the user-level and
 project-level Config_File set (Req 1-4). They are deliberately thin: every read

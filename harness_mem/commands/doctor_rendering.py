@@ -38,7 +38,7 @@ def _doctor_legacy_accepted_block(legacy_report: dict[str, Any]) -> None:
     parts = ", ".join(f"{table}={count}" for table, count in sorted(by_table.items()))
     print(
         f"⚠️  Legacy status={LEGACY_ACCEPTED_STATUS}: {total} record(s) ({parts}) "
-        "— invisible to readable_truth; preview with `harness-mem maintenance "
+        "— invisible to readable_truth; preview with `python -m harness_mem.cli maintenance "
         "migrate-legacy-accepted --dry-run`, then audit pending rows with list_candidates"
     )
 
@@ -173,11 +173,6 @@ def _doctor_runtime_health_block(runtime_report: dict[str, Any]) -> None:
         print(
             f"  retrieval: {len(surfaces)} active surface(s), {high} high-cost call(s)"
         )
-    drift = runtime_report.get("version_drift", {})
-    if drift.get("has_drift"):
-        print(f"⚠️  version/install drift: {len(drift.get('issues', []))} issue(s)")
-        for issue in drift.get("issues", [])[:3]:
-            print(f"    {issue.get('surface')}: {issue.get('message')}")
 
 
 def _doctor_storage_v2_block(storage_report: dict[str, Any]) -> None:

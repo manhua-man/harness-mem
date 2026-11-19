@@ -1,11 +1,7 @@
-# Search · 从当前知识回答问题
+# Search · 找回当前知识
 
-`search_memory` 默认跨项目检索。要限制到一个项目，同时给出 `scope="project"` 和 `project_name`。例如对某项目传入空查询，可以浏览该项目已有知识。诊断原始会话另有 `search_raw` 等证据读取入口。
+用户可以直接问“我们之前怎么决定的？”当前 Agent 用用户的问题检索，默认跨项目。只有用户指定项目范围时才缩小读取范围。
 
-1. 从 SQLite 取出当前知识，显式项目范围在读取时生效。
-2. 对自然语言问题匹配和排序。对于复合问题，同一次请求里的排序和分问提示复用一次拆问结果。
-3. 按调用的预算和详情级别返回正文、候选或后续读取参数。分问的匹配位置指向本页结果；回答时要核对对应正文。继续阅读时沿用工具返回的参数。
+一次请求读取相应的当前知识，按相关性排序并折叠重复结果。遇到复合问题时，排序和分问提示共用同一次拆问。结果较长时，Agent 按返回的位置继续读取完整正文。分问指向的结果仍需要核对适用条件；没有正文支持的部分在答复中标明。
 
-**相邻入口。** `wake` 根据当前任务调用相同的知识读取和检索逻辑，并提供后续读取入口。`autopilot_search_tick` 处理自动检索时机；`record_context_outcome` 记录本次结果在任务中的使用反馈。
-
-**验证记录。** 0.0.1 在 Windows 通过 MCP stdio 重放同一份 887 条知识快照上的 4 道复合问题。拆问总次数从 8 降到 4，四题完整排序和 10 个分问的提示位置一致。同项目 6 条知识的普通 Markdown 展示从 6 次来源查询降到 0 次，详情从 6 次降到 1 次，输出文本一致。该对照衡量固定样本的重复工作和行为兼容性。[跨项目读取测试](../../code/tests/test_global_memory_defaults.py) · [匹配与排序测试](../../code/tests/test_current_knowledge_relevance.py)
+调用方式和分页规则见 [Search Skill](../../.agents/skills/search/SKILL.md)。覆盖范围见 [跨项目读取测试](../../code/tests/test_global_memory_defaults.py) 和 [匹配与排序测试](../../code/tests/test_current_knowledge_relevance.py)。

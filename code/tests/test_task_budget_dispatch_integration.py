@@ -450,8 +450,8 @@ def test_govern_decide_requires_a_real_judgment(manual_fixture, monkeypatch) -> 
     from harness_mem.mcp import tool_handlers
     from harness_mem.mcp.session_handlers import tool_inspect_sessions
 
-    handlers = tool_handlers.build_tool_handlers()
-    packet = handlers["prepare_session_distill"](
+    handlers = tool_handlers
+    packet = handlers.tool_prepare_session_distill(
         project_name="project", project_root=str(root),
         batch_sessions=tool_inspect_sessions(str(root), clients=["cursor"])["sessions"],
     )
@@ -461,7 +461,7 @@ def test_govern_decide_requires_a_real_judgment(manual_fixture, monkeypatch) -> 
     policy = root / "Current-cache-policy.txt"
     policy.write_text(statement, encoding="utf-8")
     import hashlib
-    suggested = handlers["govern_memory"](action="suggest", arguments={
+    suggested = handlers.tool_govern_memory(action="suggest", arguments={
         "kind": "memory", "project_name": "project", "category": "decision", "content": statement,
         "source": "policy.txt", "distill_job_id": packet["distill_job_id"],
         "evidence_basis": "repository", "verification_outcome": "verified",
@@ -480,27 +480,27 @@ def test_govern_decide_requires_a_real_judgment(manual_fixture, monkeypatch) -> 
         "candidate_id": suggested["entry_id"], "disposition": "add",
         "reason": "Apply the verified source.", "knowledge_items": items,
     }
-    missing = handlers["govern_memory"](action="decide", arguments=dict(base))
+    missing = handlers.tool_govern_memory(action="decide", arguments=dict(base))
     assert missing.get("success") is False
     assert missing["reason_codes"] == ["final_scope_judgment_required"]
-    proof = handlers["govern_memory"](action="decide", arguments={
+    proof = handlers.tool_govern_memory(action="decide", arguments={
         **base, "final_scope_judgment": "fsv_" + "ab" * 30,
     })
     assert proof["reason_codes"] == ["final_scope_proof_string_rejected"]
-    only_proof = handlers["govern_memory"](action="decide", arguments={
+    only_proof = handlers.tool_govern_memory(action="decide", arguments={
         **base, "final_scope_judgment": {"proof": "fsv_" + "a" * 60},
     })
     assert only_proof["reason_codes"] == ["final_scope_proof_string_rejected"]
     negative = dict(_judgment(f"{title}\n{statement}"))
     negative["points"][0]["semantic_support"] = "contradicted"
     negative["points"][0]["scope_segments"][0]["source_support"] = "contradicted"
-    rejected = handlers["govern_memory"](action="decide", arguments={
+    rejected = handlers.tool_govern_memory(action="decide", arguments={
         **base, "final_scope_judgment": negative,
     })
     assert rejected["reason_codes"] == ["final_scope_judgment_rejected"]
     assert _statements(backend) == []
 
-    accepted = handlers["govern_memory"](action="decide", arguments={
+    accepted = handlers.tool_govern_memory(action="decide", arguments={
         **base, "final_scope_judgment": _judgment(f"{title}\n{statement}"),
     })
     assert accepted["success"] is True, accepted
@@ -536,7 +536,7 @@ def test_govern_decide_requires_a_real_judgment(manual_fixture, monkeypatch) -> 
     dropped["relationship"] = "drops_applicable_meaning"
     dropped["predecessor_conditions"] = []
     dropped["undecided_state"] = None
-    drop_response = handlers["govern_memory"](action="decide", arguments={
+    drop_response = handlers.tool_govern_memory(action="decide", arguments={
         "kind": "knowledge", "project_name": "project", "decision": "confirm",
         "candidate_id": replace_suggested["entry_id"], "disposition": "replace",
         "reason": "Replace the saved sample rule.",
@@ -550,7 +550,7 @@ def test_govern_decide_requires_a_real_judgment(manual_fixture, monkeypatch) -> 
     assert drop_response["reason_codes"] == ["final_scope_judgment_rejected"]
     assert old_statement in _statements(backend)
     assert successor not in _statements(backend)
-    kept = handlers["govern_memory"](action="decide", arguments={
+    kept = handlers.tool_govern_memory(action="decide", arguments={
         "kind": "knowledge", "project_name": "project", "decision": "confirm",
         "candidate_id": replace_suggested["entry_id"], "disposition": "replace",
         "reason": "Replace the saved sample rule.",
@@ -568,17 +568,17 @@ def test_govern_decide_requires_a_real_judgment(manual_fixture, monkeypatch) -> 
     import asyncio
     asyncio.run(backend.close())
     asyncio.run(backend.init())
-    fresh = handlers["search_memory"](query="Signed sample", project_name="project", scope="project")
+    fresh = handlers.tool_search_memory(query="Signed sample", project_name="project", scope="project")
     assert fresh["memories"] == [{"title": "Signed sample", "statement": successor}]
 
-    deleted_key = handlers["govern_memory"](action="decide", arguments={
+    deleted_key = handlers.tool_govern_memory(action="decide", arguments={
         "kind": "knowledge", "decision": "delete", "project_name": "project",
         "target_knowledge": [{"title": old.title, "statement": successor}],
         "final_scope_judgment": _judgment(f"{old.title}\n{successor}"),
     })
     assert deleted_key.get("success") is False
     assert successor in _statements(backend)
-    removed = handlers["govern_memory"](action="decide", arguments={
+    removed = handlers.tool_govern_memory(action="decide", arguments={
         "kind": "knowledge", "decision": "delete", "project_name": "project",
         "target_knowledge": [{"title": old.title, "statement": successor}],
     })

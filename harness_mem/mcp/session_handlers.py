@@ -18,8 +18,9 @@ def tool_inspect_sessions(
     offset: int = 0, page_chars: int = 16000, batch_id: str | None = None,
     sessions: list[dict] | None = None, coverage: list[dict] | None = None,
     topics: list[dict] | None = None, scope: str | None = None, archived_only: bool = False,
+    *, _data_dir: Path | None = None,
 ) -> dict:
-    data_dir = Path(_core._observer_data_dir())
+    data_dir = _data_dir if _data_dir is not None else Path(_core._observer_data_dir())
     try:
         if action != "overview" and any(value is not None for value in (sessions, coverage, topics)):
             raise ValueError("sessions, coverage and topics require overview action")

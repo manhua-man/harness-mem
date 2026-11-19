@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from harness_mem.agent_runtime import active_backend
 from harness_mem.adapters.snapshot import persist_session_snapshot
 from harness_mem.commands.wake import build_wake_injection
 from harness_mem.core.schemas.knowledge import (
@@ -18,7 +19,7 @@ from harness_mem.core.schemas.knowledge import (
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.schemas.project_knowledge_base import ProjectKnowledgeSourceRef
-from harness_mem.mcp import server
+from harness_mem.mcp import tool_handlers
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from tests.support.host_contracts import HOST_NAMES
 
@@ -43,7 +44,7 @@ def test_cross_host_transcript_distill_fact_wake_contract(
     async def run() -> None:
         backend = LocalMemoryBackend(tmp_path / f"data-{client}")
         await backend.init()
-        server.set_backend_override(backend)
+        binding = active_backend.set(backend)
         try:
             fact = f"{client} uses the shared lossless distill contract"
             observation = Observation(
@@ -163,7 +164,7 @@ def test_cross_host_transcript_distill_fact_wake_contract(
             assert len(cursors) == 1
             for cursor in cursors:
                 full = await asyncio.to_thread(
-                    server.tool_search_memory, query=query, scope="all", detail="full",
+                    tool_handlers.tool_search_memory, query=query, scope="all", detail="full",
                     cursor=cursor, _include_diagnostics=True,
                 )
                 assert full["detail"] == "full"
@@ -173,7 +174,7 @@ def test_cross_host_transcript_distill_fact_wake_contract(
                 call = full["record_outcome_call"]
                 assert call["arguments"]["source_ids"] == [current.id]
                 recorded = await asyncio.to_thread(
-                    server.tool_record_context_outcome, **call["arguments"], outcome="used",
+                    tool_handlers.tool_record_context_outcome, **call["arguments"], outcome="used",
                 )
                 assert recorded["success"] is True
                 assert recorded["truth_mutated"] is False
@@ -182,7 +183,7 @@ def test_cross_host_transcript_distill_fact_wake_contract(
             outcomes = await backend.structured_store.query_retrieval_signals("demo", signal_type="context_outcome")
             assert [outcome.target_id for outcome in outcomes] == [current.id]
         finally:
-            server.set_backend_override(None)
+            active_backend.reset(binding)
             await backend.close()
 
     asyncio.run(run())

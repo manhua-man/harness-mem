@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from harness_mem.agent_runtime import active_backend
 from harness_mem.autopilot_search import plan_autopilot_search
 from harness_mem.core.schemas import (
     AssimilationDecision,
@@ -13,7 +14,7 @@ from harness_mem.core.schemas import (
     ProjectKnowledgeSourceRef,
 )
 from harness_mem.core.schemas.memory_entry import MemoryEntry
-from harness_mem.mcp import server
+from harness_mem.mcp import tool_handlers
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
@@ -27,11 +28,11 @@ def backend(tmp_path, monkeypatch):
         return backend
 
     backend = asyncio.run(_build())
-    server.set_backend_override(backend)
+    binding = active_backend.set(backend)
     try:
         yield backend
     finally:
-        server.set_backend_override(None)
+        active_backend.reset(binding)
         asyncio.run(backend.close())
 
 
@@ -50,16 +51,16 @@ def test_context_event_detects_project_convention_uncertainty() -> None:
     decision = plan_autopilot_search(
         event_name="context",
         current_task=(
-            "Implement the runtime hook boundary in harness_mem/mcp/tool_specs.py; "
+            "Implement the runtime hook boundary in harness_mem/commands/manual_distill.py; "
             "not sure about the existing project convention."
         ),
-        changed_files=["harness_mem/mcp/tool_specs.py"],
+        changed_files=["harness_mem/commands/manual_distill.py"],
     )
 
     assert decision.should_search is True
     assert decision.trigger == "project_convention_uncertainty"
     assert decision.query is not None
-    assert "harness_mem/mcp/tool_specs.py" in decision.query
+    assert "harness_mem/commands/manual_distill.py" in decision.query
 
 
 def test_save_point_claims_trigger_prewrite_grounding() -> None:
@@ -155,7 +156,7 @@ def test_mcp_autopilot_tick_executes_search_on_tool_failure(backend) -> None:
         )
     )
 
-    payload = server.tool_autopilot_search_tick(
+    payload = tool_handlers.tool_autopilot_search_tick(
         event_name="PostToolUse",
         project_name="demo",
         current_task="Fix pytest timeout in Windows harness.",
@@ -181,7 +182,7 @@ def test_mcp_autopilot_tick_executes_search_on_tool_failure(backend) -> None:
     assert candidate["title"] == entry.title
     assert candidate["project_name"] == "demo"
     assert "statement" not in candidate
-    full = server.tool_search_memory(
+    full = tool_handlers.tool_search_memory(
         query=injection["query"], scope="all", detail="full",
         cursor=candidate["read_cursor"], _include_diagnostics=True,
     )
@@ -196,7 +197,7 @@ def test_mcp_autopilot_tick_executes_search_on_tool_failure(backend) -> None:
     assert feedback["source_ids"] == [entry.id]
     assert feedback["retrieval_id"] == full["retrieval_id"]
     assert feedback["surface"] == "search_all"
-    recorded = server.tool_record_context_outcome(**feedback, outcome="used")
+    recorded = tool_handlers.tool_record_context_outcome(**feedback, outcome="used")
     assert recorded["success"] is True
     assert recorded["truth_mutated"] is False
     outcomes = asyncio.run(backend.structured_store.query_retrieval_signals("demo", signal_type="context_outcome"))
@@ -204,7 +205,7 @@ def test_mcp_autopilot_tick_executes_search_on_tool_failure(backend) -> None:
 
 
 def test_mcp_autopilot_tick_skips_session_start_even_with_recall_words(backend) -> None:
-    payload = server.tool_autopilot_search_tick(
+    payload = tool_handlers.tool_autopilot_search_tick(
         event_name="SessionStart",
         project_name="demo",
         current_task="Remember the previous convention.",
@@ -219,7 +220,7 @@ def test_mcp_autopilot_tick_skips_session_start_even_with_recall_words(backend) 
 
 
 def test_autopilot_empty_search_is_not_an_error(backend) -> None:
-    payload = server.tool_autopilot_search_tick(
+    payload = tool_handlers.tool_autopilot_search_tick(
         event_name="tool_result", project_name="demo", is_error=True,
         tool_name="pytest", tool_result="TimeoutError",
     )

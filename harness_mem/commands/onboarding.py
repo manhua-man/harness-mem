@@ -19,7 +19,7 @@ def cmd_quickstart(client: str = "auto", *, confirm: bool = False) -> int:
     if selected_client is None:
         print(
             "Could not detect the current app. Run quickstart again with --client "
-            "and the app name, for example: harness-mem quickstart --client cursor."
+            "and the app name, for example: python -m harness_mem.cli quickstart --client cursor."
         )
         return 1
 
@@ -44,5 +44,5 @@ def cmd_quickstart(client: str = "auto", *, confirm: bool = False) -> int:
         print("Review and trust the user Hooks in Codex Settings > Hooks, then start a new task.")
     elif host_client == "hermes":
         print("On first use, review Hermes' native confirmation for these shell Hooks.")
-    print("For manual memory tools, connect harness-mem-mcp in your Agent's MCP settings.")
+    print("Ask your Agent to distill a finished conversation or search current memory.")
     return 0

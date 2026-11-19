@@ -1235,7 +1235,7 @@ def prepare_manual_batch(
                 return {**packet, "batch_id": batch_id, "batch_progress": progress["progress"], "batch_stopped": stop}
             if packet.get("distill_status") == "completed":
                 continue
-            return {**packet, "batch_id": batch_id, "batch_progress": progress["progress"], "next_after_finalize": "prepare_session_distill with this batch_id"}
+            return {**packet, "batch_id": batch_id, "batch_progress": progress["progress"], "next_after_finalize": "Distill.prepare(batch_id=original_batch_id)"}
         result = inspect_manual_batch(Path(backend.data_dir), project_name=project_name, project_root=project_root, batch_id=batch_id, check_new=False)
         if source_issues:
             result["source_issues"] = source_issues

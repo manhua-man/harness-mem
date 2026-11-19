@@ -7,26 +7,17 @@ from pathlib import Path
 from harness_mem.commands import token_estimator
 
 
-def test_mcp_console_script_uses_the_packaged_server_entrypoint() -> None:
+def test_package_has_no_user_command_or_memory_server_entrypoint() -> None:
     pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
 
-    assert 'harness-mem-mcp = "harness_mem.mcp.server:main"' in pyproject
+    assert "harness-mem-mcp" not in pyproject
+    assert 'harness-mem = "harness_mem.cli:main"' not in pyproject
 
 
 def test_hook_console_script_uses_the_packaged_host_entrypoint() -> None:
     pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
 
     assert 'harness-mem-hook = "harness_mem.host_entry.__main__:main"' in pyproject
-
-
-def test_mcp_setup_uses_the_packaged_server_command() -> None:
-    setup = Path("docs/mcp-setup.md").read_text(encoding="utf-8")
-    assert '"command": "harness-mem-mcp"' in setup
-    assert '"args": ["-m", "harness_mem.mcp.server"]' not in setup
-
-    readme = Path("README.md").read_text(encoding="utf-8")
-    assert "[MCP setup](docs/mcp-setup.md)" in readme
-    assert '"args": ["-m", "harness_mem.mcp.server"]' not in readme
 
 
 def test_missing_optional_tiktoken_logs_a_concise_fallback_warning(

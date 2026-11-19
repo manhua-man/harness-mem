@@ -454,7 +454,7 @@ def prompt_list_labeled(
 def suggested_purge_command(project_name: str | None) -> str:
     project_flag = f" -p {project_name}" if project_name else ""
     return (
-        f"harness-mem maintenance purge{project_flag} "
+        f"python -m harness_mem.cli maintenance purge{project_flag} "
         "--before <DATE> --category all --dry-run"
     )
 
@@ -780,22 +780,13 @@ def suggested_next_step(
         ):
             if sessions and (host == "Claude Code" or project_root is not None):
                 latest = session_identifier(sessions[0])
-                return "MCP inspect_sessions()", f"Inspect recent {host} conversations, including {latest}."
-        return "MCP inspect_sessions()", "Find a finished conversation to organize."
-
-    if current_knowledge_count == 0 and claude_sessions:
-        return "MCP prepare_session_distill()", "Prepare a finished conversation for complete reading and review."
+                return "Distill", f"Inspect recent {host} conversations, including {latest}."
+        return "Distill", "Find a finished conversation to organize."
 
     if current_knowledge_count == 0:
-        return (
-            'MCP search_memory(query="<query>")',
-            "Observations are searchable, but wake-up needs structured memory before it becomes useful.",
-        )
+        return "Distill", "Ask your Agent to organize a finished conversation into current knowledge."
 
-    return (
-        f'MCP wake(project_name="{project_name}")',
-        "Structured memory is ready, so MCP wake is the shortest path back into project context.",
-    )
+    return "Search", f"Ask your Agent to recall current knowledge about {project_name}."
 
 
 async def project_state(project_name: str) -> dict[str, int]:

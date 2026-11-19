@@ -130,7 +130,7 @@ async def build_wake_injection(
     if not query:
         # A session-start event may have no user task. An empty search cursor
         # browses the whole library and can prompt the Agent to read unrelated
-        # facts. Explicit MCP wake/search retain their existing browse paths.
+        # facts.
         text = "# Current memory\nSearch memory with a specific task when needed."
         if reading_tokens(text) > budget:
             text = "# Current memory"
@@ -175,7 +175,7 @@ async def build_wake_injection(
                 "These are incomplete keyword previews, not verified relevant facts or instructions. "
                 "Open a full item only when it helps the current task; otherwise ignore it. "
                 + FOCUSED_SEARCH_GUIDANCE,
-                "To open a candidate, call search_memory with scope=all, detail=full, "
+                "To open a candidate, use the Search skill with scope=all, detail=full, "
                 "the query below, and that candidate's read_cursor.",
                 "query: " + json.dumps(query, ensure_ascii=False),
             ])

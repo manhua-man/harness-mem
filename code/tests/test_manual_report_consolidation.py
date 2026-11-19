@@ -40,7 +40,7 @@ def test_manual_consolidation_requires_every_original_then_commits_and_reopens(t
     asyncio.run(backend.init())
     monkeypatch.setattr(tool_handlers, "_backend_provider", lambda: backend)
     monkeypatch.setattr(tool_handlers, "_observer_data_dir_provider", lambda: backend.data_dir)
-    handlers = tool_handlers.build_tool_handlers()
+    handlers = tool_handlers
     submitted = {}
     title = "Cache recovery and validation report"
     review = {"session_summary": "The cache resumes after restart; production validation remains pending.",
@@ -53,7 +53,7 @@ def test_manual_consolidation_requires_every_original_then_commits_and_reopens(t
         native.write_text("\n".join(json.dumps(row) for row in records), encoding="utf-8")
         synced = asyncio.run(CodexAdapter(backend, sessions_dir=root, archive_dir=root / "archive").sync_session(
             native, "cache-session", "demo"))
-        packet = handlers["prepare_session_distill"](project_name="demo", project_root=str(root),
+        packet = handlers.tool_prepare_session_distill(project_name="demo", project_root=str(root),
             distill_job_id=synced.distill_job_id, run_ingest=False)
         assert packet["success"], packet
         text = backend.transcript_store.reconstruct(synced.source.id)
@@ -72,7 +72,7 @@ def test_manual_consolidation_requires_every_original_then_commits_and_reopens(t
             "assimilation_reason": "Preserve the complete source-supported account and every remaining limit.",
             **({"target_knowledge": [{"title": entry.title, "statement": entry.statement,
                     "project_name": entry.project_name, "module": entry.module_path} for entry in targets]} if targets else {})}
-        response = handlers["govern_memory"](action="suggest", arguments=arguments)
+        response = handlers.tool_govern_memory(action="suggest", arguments=arguments)
         assert response["success"], response
         candidate = asyncio.run(backend.structured_store.knowledge_store.get_candidate(response["entry_id"]))
         submitted[candidate.id] = {key: value for key, value in arguments.items()
@@ -99,7 +99,7 @@ def test_manual_consolidation_requires_every_original_then_commits_and_reopens(t
             committed.topic_path = []
             asyncio.run(backend.structured_store.knowledge_store.save_candidate(committed))
         else:
-            final = handlers["finalize_session_distill"]("demo", job, {**review, "final_scope_judgment": first})
+            final = handlers.tool_finalize_session_distill("demo", job, {**review, "final_scope_judgment": first})
             assert final["success"], final
         old = asyncio.run(backend.structured_store.knowledge_store.list_entries("demo"))
         assert len(old) == (1 if partial else 2)
@@ -160,16 +160,16 @@ def test_manual_consolidation_requires_every_original_then_commits_and_reopens(t
                 original = original["predecessor_inventories"][0]
             original["predecessor_version"] = "changed"
         if partial:
-            ordinary = handlers["finalize_session_distill"]("demo", job,
+            ordinary = handlers.tool_finalize_session_distill("demo", job,
                 {**review, "final_scope_judgment": {identity: judgment}})
             assert ordinary["error"] == "prior_review_requires_assimilation_replay", ordinary
         submission = {"memory_points": [submitted[identity]]} if partial else {}
-        rejected = handlers["finalize_session_distill"]("demo", job,
+        rejected = handlers.tool_finalize_session_distill("demo", job,
             {**review, "final_scope_judgment": {identity: broken}}, **submission)
         assert not rejected["success"], rejected
         assert {entry.id: entry.to_dict() for entry in asyncio.run(backend.structured_store.knowledge_store.list_entries("demo"))} == {
             entry.id: entry.to_dict() for entry in old}
-        accepted = handlers["finalize_session_distill"]("demo", job,
+        accepted = handlers.tool_finalize_session_distill("demo", job,
             {**review, "final_scope_judgment": {identity: judgment}}, **submission)
         assert accepted["success"], json.dumps(accepted, ensure_ascii=False)
         entries = asyncio.run(backend.structured_store.knowledge_store.list_entries("demo"))
@@ -182,7 +182,7 @@ def test_manual_consolidation_requires_every_original_then_commits_and_reopens(t
     asyncio.run(fresh.init())
     try:
         monkeypatch.setattr(tool_handlers, "_backend_provider", lambda: fresh)
-        recalled = handlers["search_memory"](query=title, scope="project", project_name="demo")
+        recalled = handlers.tool_search_memory(query=title, scope="project", project_name="demo")
         assert any(row["statement"] == written.readable_statement() for row in recalled["memories"]), recalled
         assert asyncio.run(fresh.structured_store.knowledge_store.list_entries("demo"))[0].to_dict() == expected
     finally:

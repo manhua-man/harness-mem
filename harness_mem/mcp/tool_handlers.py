@@ -1,17 +1,10 @@
-"""MCP tool handler facade for harness-mem.
-
-``server.py`` owns stdio protection, backend initialization, and JSON-RPC
-routing. This module owns dependency binding, the small remaining ingest
-helpers, and the public registry bound to ``tool_specs``. Capability bodies
-live in bounded ``*_handlers.py`` modules.
-"""
+"""Dependency bindings and callbacks shared by memory processing operations."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-from functools import wraps
 from pathlib import Path
 from typing import Any, Callable
 from uuid import NAMESPACE_URL, uuid5
@@ -25,8 +18,9 @@ from harness_mem.commands.support import (
     resolve_ingest_client,
 )
 from harness_mem.event_log import StateEventType, append_state_event
+from harness_mem.agent_runtime import active_backend
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
-from harness_mem.mcp.governance_handlers import tool_govern_memory
+from harness_mem.mcp.governance_handlers import tool_govern_memory as tool_govern_memory
 
 BackendProvider = Callable[[], LocalMemoryBackend]
 ObserverDataDirProvider = Callable[[], Path]
@@ -35,7 +29,7 @@ CostSurfaceBudgetsProvider = Callable[[str | None], dict[str, int] | None]
 _backend_provider: BackendProvider | None = None
 _observer_data_dir_provider: ObserverDataDirProvider | None = None
 _cost_surface_budgets_provider: CostSurfaceBudgetsProvider | None = None
-logger = logging.getLogger("harness_mem_mcp")
+logger = logging.getLogger(__name__)
 _default_logger = logger
 
 
@@ -46,7 +40,7 @@ def configure_tool_handler_dependencies(
     cost_surface_budgets: CostSurfaceBudgetsProvider,
     logger_instance: logging.Logger,
 ) -> None:
-    """Bind server-owned dependencies needed by MCP tool handlers."""
+    """Bind the store and observers used by an isolated processing operation."""
     global _backend_provider, _observer_data_dir_provider
     global _cost_surface_budgets_provider, logger
     _backend_provider = backend_provider
@@ -66,20 +60,28 @@ def reset_tool_handler_dependencies() -> None:
 
 
 def _get_backend() -> LocalMemoryBackend:
+    bound = active_backend.get()
+    if bound is not None:
+        return bound
     if _backend_provider is None:
-        raise RuntimeError("MCP tool handlers are not configured")
+        raise RuntimeError("Memory processing has no bound backend")
     return _backend_provider()
 
 
 def _observer_data_dir() -> Path:
+    bound = active_backend.get()
+    if bound is not None:
+        return bound.data_dir
     if _observer_data_dir_provider is None:
-        raise RuntimeError("MCP tool handlers are not configured")
+        raise RuntimeError("Memory processing has no bound backend")
     return _observer_data_dir_provider()
 
 
 def _cost_surface_budgets(project_name: str | None) -> dict[str, int] | None:
+    if active_backend.get() is not None:
+        return None
     if _cost_surface_budgets_provider is None:
-        raise RuntimeError("MCP tool handlers are not configured")
+        raise RuntimeError("Memory processing has no bound backend")
     return _cost_surface_budgets_provider(project_name)
 
 
@@ -94,7 +96,7 @@ def _record_state_event(
     source_surface: str,
     payload: dict[str, Any] | None = None,
 ) -> str | None:
-    """Best-effort governance audit event for MCP-visible writes."""
+    """Record a best-effort audit event for a governed write."""
 
     try:
         return append_state_event(
@@ -105,7 +107,7 @@ def _record_state_event(
             target_id=target_id,
             status=status,
             source_surface=source_surface,
-            actor="mcp",
+            actor="agent" if active_backend.get() is not None else "runtime",
             payload=payload,
         )
     except Exception:
@@ -341,104 +343,31 @@ def _normalize_semantic_claim(value: Any) -> Any:
     return value
 
 
-# Runtime modules keep the registry facade stable while owning separate handler domains.
+# Re-export internal callbacks used by workers and independent business-level probes.
 from harness_mem.mcp.read_search_handlers import (  # noqa: E402
-    tool_autopilot_search_tick,
-    tool_search_memory,
+    tool_autopilot_search_tick as tool_autopilot_search_tick,
+    tool_search_memory as tool_search_memory,
 )
 from harness_mem.mcp.read_evidence_handlers import (  # noqa: E402
-    tool_file_context,
-    tool_get_observations,
-    tool_get_project_profile,
-    tool_get_task_handoffs,
-    tool_search_raw,
-    tool_timeline,
+    tool_file_context as tool_file_context,
+    tool_get_observations as tool_get_observations,
+    tool_get_project_profile as tool_get_project_profile,
+    tool_get_task_handoffs as tool_get_task_handoffs,
+    tool_search_raw as tool_search_raw,
+    tool_timeline as tool_timeline,
 )
-from harness_mem.mcp.read_feedback_handlers import tool_record_context_outcome  # noqa: E402
-from harness_mem.mcp.read_wake_handlers import tool_wake  # noqa: E402
+from harness_mem.mcp.read_feedback_handlers import tool_record_context_outcome as tool_record_context_outcome  # noqa: E402
+from harness_mem.mcp.read_wake_handlers import tool_wake as tool_wake  # noqa: E402
 # Distill resolves this callback through the facade proxy.
-from harness_mem.mcp.status_handlers import tool_get_project_status  # noqa: E402
-from harness_mem.mcp.session_handlers import tool_inspect_sessions  # noqa: E402
+from harness_mem.mcp.status_handlers import tool_get_project_status as tool_get_project_status  # noqa: E402
+from harness_mem.mcp.session_handlers import tool_inspect_sessions as tool_inspect_sessions  # noqa: E402
 from harness_mem.mcp.dream_handlers import (  # noqa: E402
     _run_command_to_payload,
-    tool_dream_ledger,
-    tool_dream_run,
+    tool_dream_ledger as tool_dream_ledger,
+    tool_dream_run as tool_dream_run,
 )
 from harness_mem.mcp.distill_handlers import (  # noqa: E402
-    tool_finalize_session_distill,
-    tool_prepare_session_distill,
-    tool_submit_distill_chunk,
+    tool_finalize_session_distill as tool_finalize_session_distill,
+    tool_prepare_session_distill as tool_prepare_session_distill,
+    tool_submit_distill_chunk as tool_submit_distill_chunk,
 )
-
-
-def _explicit_history(arguments: dict[str, Any]) -> bool:
-    """True when the caller named a frozen selection or a batch control."""
-
-    if arguments.get("batch_sessions") is not None or arguments.get("batch_id") is not None:
-        return True
-    if (arguments.get("scope") == "all" and arguments.get("session_id")
-            and not arguments.get("distill_job_id") and not arguments.get("target_knowledge")
-            and not arguments.get("project_name") and not arguments.get("project_root")
-            and arguments.get("run_ingest", True) and not arguments.get("retry_failures")):
-        # The core binds this explicit device selector into a one-session
-        # frozen batch before it can read, import or schedule anything.
-        return True
-    if arguments.get("pause") or arguments.get("continue_batch"):
-        return True
-    return bool(
-        arguments.get("retry_failures")
-        and not arguments.get("session_id")
-        and not arguments.get("distill_job_id")
-        and not arguments.get("target_knowledge")
-    )
-
-
-@wraps(tool_prepare_session_distill)
-def _prepare_memory_review(**arguments: Any) -> dict[str, Any]:
-    """Public review, correction, and explicit historical organization.
-
-    Ordinary agent calls do not discover sessions. Hooks and workers call the
-    core directly. Historical work uses the existing batch owner.
-    """
-    if arguments.get("_distill_source", "agent") != "agent":
-        return tool_prepare_session_distill(**arguments)
-    if _explicit_history(arguments):
-        return tool_prepare_session_distill(**arguments)
-    if not arguments.get("target_knowledge"):
-        job_id = arguments.get("distill_job_id")
-        if not job_id:
-            return {
-                "success": False,
-                "error": "Use automatic recording for new sessions. This entry reviews an existing memory or an existing processing job.",
-            }
-        if _get_backend().transcript_store.get_distill_job(job_id) is None:
-            return {"success": False, "error": "The processing job selected for review does not exist."}
-        # A review resumes its known immutable job, never discovers another session.
-        arguments["run_ingest"] = False
-    return tool_prepare_session_distill(**arguments)
-
-
-def build_tool_handlers() -> dict[str, Callable[..., dict[str, Any]]]:
-    """Return the MCP tool handler map keyed by public tool name."""
-    return {
-        "autopilot_search_tick": tool_autopilot_search_tick,
-        "search_memory": tool_search_memory,
-        "timeline": tool_timeline,
-        "search_raw": tool_search_raw,
-        "get_observations": tool_get_observations,
-        "get_task_handoffs": tool_get_task_handoffs,
-        "get_project_profile": tool_get_project_profile,
-        "file_context": tool_file_context,
-        "get_project_status": tool_get_project_status,
-        "inspect_sessions": tool_inspect_sessions,
-        "wake": tool_wake,
-        "prepare_session_distill": _prepare_memory_review,
-        "submit_distill_chunk": tool_submit_distill_chunk,
-        "finalize_session_distill": tool_finalize_session_distill,
-        "dream_ledger": tool_dream_ledger,
-        "dream_run": tool_dream_run,
-        "list_candidates": tool_list_candidates,
-        "get_candidate_detail": tool_get_candidate_detail,
-        "govern_memory": tool_govern_memory,
-        "record_context_outcome": tool_record_context_outcome,
-    }

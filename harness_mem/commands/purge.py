@@ -139,7 +139,7 @@ async def cmd_purge(
             print(f"No {scope}entries found before {before_date} in category '{category}'.")
 
         if not dry_run and total_deleted > 0:
-            print("Run 'harness-mem doctor' to check new memory budget.")
+            print("Run 'python -m harness_mem.cli doctor' to check new memory budget.")
             log_command_invoked(
                 "purge",
                 project_name=resolved_project,

@@ -1,4 +1,4 @@
-"""No-model, isolated MCP reading probe using frozen upstream code and fixtures.
+"""No-model, isolated Search probe using frozen upstream code and fixtures.
 
 Only pre-existing active facts are seeded. This does not exercise extraction,
 automatic recording, correction, answering, or the official benchmark suite.
@@ -10,11 +10,9 @@ import asyncio
 import json
 import os
 from pathlib import Path
-import queue
 import re
 import subprocess
 import sys
-import threading
 import time
 from uuid import NAMESPACE_URL, uuid5
 
@@ -113,63 +111,34 @@ def run_probe(artifact_root: Path, upstream: Path, *, run_name: str = "read-prob
     env = os.environ.copy()
     env.update(PYTHONDONTWRITEBYTECODE="1", HARNESS_MEM_DATA_DIR=str(run / "data"),
                HARNESS_MEM_AUTONOMOUS_PROVIDER="1")
-    channel: queue.Queue = queue.Queue()
     observations = []
-    cold_start = time.perf_counter()
+    started = time.perf_counter()
     with (run / "stderr.txt").open("w", encoding="utf-8") as error:
-        process = subprocess.Popen([sys.executable, "-B", str(SCRIPT_ROOT / "matched_memory_host.py"),
-            "--mode", "hm", "--manifest", str(manifest_path), "--_child"],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=error,
-            text=True, encoding="utf-8", env=env, cwd=project)
-
-        def pump() -> None:
-            for line in process.stdout:
-                channel.put(line)
-            channel.put(None)
-
-        threading.Thread(target=pump, daemon=True).start()
-        try:
-            for index in range(31):
-                case = prepared["cases"][max(0, index - 1) % len(prepared["cases"])]
-                started = cold_start if index == 0 else time.perf_counter()
-                request = {"jsonrpc": "2.0", "id": index + 1, "method": "tools/call",
-                    "params": {"name": "search_memory", "arguments": {
-                        "query": case["query"], "scope": "project", "project_name": "project",
-                        "budget_tokens": 20000}}}
-                process.stdin.write(json.dumps(request) + "\n")
-                process.stdin.flush()
-                line = channel.get(timeout=30)
-                if line is None:
-                    raise RuntimeError("isolated MCP exited before readback; see stderr.txt")
-                response = json.loads(line)
-                elapsed = (time.perf_counter() - started) * 1000
-                if response.get("id") != index + 1 or "error" in response:
-                    raise RuntimeError("isolated MCP rejected request; see recorded calls")
-                result = response["result"]
-                payload = json.loads(result["content"][0]["text"])
-                if result.get("isError") or payload.get("status") not in ("answered", "empty"):
-                    raise RuntimeError("isolated memory read failed")
-                if payload.get("continuation") or payload.get("next_cursor"):
-                    raise RuntimeError("incomplete response cannot be scored")
-                memories = payload.get("memories", [])
-                ids = []
-                for row in memories:
-                    identity = (row["title"], row["statement"])
-                    if identity not in lookup:
-                        raise RuntimeError("read returned content outside the frozen fixture")
-                    ids.append(lookup[identity])
-                observation = {"caseId": case["caseId"], "cold": index == 0,
-                               "latencyMs": elapsed, "ids": ids, "response": payload}
-                observations.append(observation)
-                write_json(run / "observations.json", observations)
-        finally:
-            process.stdin.close()
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=10)
-            process.stdout.close()
+        process = subprocess.run(
+            [sys.executable, "-B", str(SCRIPT_ROOT / "matched_memory_host.py"),
+             "--mode", "search-probe", "--manifest", str(manifest_path), "--_child"],
+            stdout=subprocess.PIPE, stderr=error, text=True, encoding="utf-8",
+            env=env, cwd=project, timeout=180, check=True,
+        )
+    rows = [json.loads(line) for line in process.stdout.splitlines()]
+    if len(rows) != 31:
+        raise RuntimeError("isolated Search did not complete the expected reads")
+    for index, row in enumerate(rows):
+        case = prepared["cases"][max(0, index - 1) % len(prepared["cases"])]
+        payload = row["response"]
+        if row["caseId"] != case["caseId"] or payload.get("status") not in ("answered", "empty"):
+            raise RuntimeError("isolated memory read failed")
+        if payload.get("continuation") or payload.get("next_cursor"):
+            raise RuntimeError("incomplete response cannot be scored")
+        ids = []
+        for memory in payload.get("memories", []):
+            identity = (memory["title"], memory["statement"])
+            if identity not in lookup:
+                raise RuntimeError("read returned content outside the frozen fixture")
+            ids.append(lookup[identity])
+        observations.append({**row, "cold": index == 0, "ids": ids})
+    elapsed = time.perf_counter() - started
+    write_json(run / "observations.json", observations)
     scored = upstream_bridge(upstream, "score", run / "observations.json")
     if scored.get("benchmarkQualification") != prepared.get("benchmarkQualification"):
         raise ValueError("benchmark capability assessment changed during probe")
@@ -181,14 +150,14 @@ def run_probe(artifact_root: Path, upstream: Path, *, run_name: str = "read-prob
     warm = sorted(row["latencyMs"] for row in observations if not row["cold"])
     report = {"status": "completed_read_probe_only", "model_provider_requests": 0,
         "model_tokens": 0, "model_execution_seconds": 0, "upstream_commit": commit,
-        "warm_requests": len(warm), "cold_start_and_first_read_ms": observations[0]["latencyMs"],
+        "warm_requests": len(warm), "first_read_ms": observations[0]["latencyMs"], "probe_seconds": elapsed,
         "warm_p50_ms": warm[14], "warm_p95_ms": warm[28], "warm_max_ms": warm[-1],
         "distinct_upstream_cases_read": len({row["caseId"] for row in observations}),
         "upstream_scoring": scored["summary"], "unsupported_cases": scored["unsupported"],
         "benchmark_qualification": prepared["benchmarkQualification"],
         "provenance": prepared["provenance"], "fixture_sha256": digest(initial),
         "source_hashes": source_hashes,
-        "claim_scope": "Unqualified raw assertion replay over preseeded facts and isolated MCP reads; no comparative quality, capture, correction, answer or official benchmark pass",
+        "claim_scope": "Unqualified raw assertion replay over preseeded facts and isolated Search reads; no comparative quality, capture, correction, answer or official benchmark pass",
         "artifact_bytes_before_report": artifact_bytes(artifact_root)}
     write_json(run / "report.json", report)
     artifact_bytes(artifact_root)
@@ -203,7 +172,7 @@ def main() -> int:
     args = parser.parse_args()
     report = run_probe(args.artifact_root, args.precision_root, run_name=args.run_name)
     print(json.dumps({key: report[key] for key in (
-        "status", "model_provider_requests", "warm_requests", "cold_start_and_first_read_ms",
+        "status", "model_provider_requests", "warm_requests", "first_read_ms",
         "warm_p50_ms", "warm_p95_ms", "warm_max_ms", "artifact_bytes_before_report")}, indent=2))
     return 0
 

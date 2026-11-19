@@ -9,14 +9,6 @@ import pytest
 import harness_mem.cli as cli
 import harness_mem.commands.import_bridge as import_command
 from harness_mem.commands.import_bridge import cmd_import
-from harness_mem.shell_completion import (
-    CLI_COMMANDS,
-    HOOK_SUITE_CLIENTS,
-    MAINTENANCE_ACTIONS,
-    completion_bash,
-    completion_fish,
-    completion_zsh,
-)
 
 
 def _assert_help_exit(argv: list[str], code: int = 0) -> None:
@@ -167,13 +159,13 @@ def test_maintenance_import_and_purge_help_succeeds(
 ) -> None:
     _assert_help_exit(["maintenance", "import", "--help"])
     import_help = capsys.readouterr().out
-    assert "harness-mem maintenance import" in import_help
+    assert "python -m harness_mem.cli maintenance import" in import_help
     assert "--source" in import_help
     assert "--apply" in import_help
 
     _assert_help_exit(["maintenance", "purge", "--help"])
     purge_help = capsys.readouterr().out
-    assert "harness-mem maintenance purge" in purge_help
+    assert "python -m harness_mem.cli maintenance purge" in purge_help
     assert "--before" in purge_help
     assert "--stale-only" in purge_help
 
@@ -233,7 +225,7 @@ def test_flat_operator_maintenance_help_paths_succeed(
     ]
     for path in paths:
         _assert_help_exit(path)
-        assert "usage: harness-mem " + " ".join(path[:-1]) in capsys.readouterr().out
+        assert "usage: python -m harness_mem.cli " + " ".join(path[:-1]) in capsys.readouterr().out
 
 
 def test_maintenance_import_dispatch_defaults_to_dry_run(
@@ -492,86 +484,3 @@ def test_import_dry_run_previews_without_opening_backend(
     assert "1 Relation Facts" in out
     assert "No candidate layer writes were performed." in out
     assert "No durable truth was confirmed." in out
-
-
-def test_completion_surface_moves_import_and_purge_under_maintenance() -> None:
-    assert "import" not in CLI_COMMANDS
-    assert "purge" not in CLI_COMMANDS
-    assert "skill-governance" not in CLI_COMMANDS
-    assert "import" in MAINTENANCE_ACTIONS
-    assert "purge" in MAINTENANCE_ACTIONS
-    assert "assign-memory-types" not in MAINTENANCE_ACTIONS
-    assert "rebuild-vector-index" in MAINTENANCE_ACTIONS
-    assert "migrate-store-v2" in MAINTENANCE_ACTIONS
-    assert "product-doc" not in MAINTENANCE_ACTIONS
-    assert "metabolism-run" not in MAINTENANCE_ACTIONS
-    assert "bench" not in MAINTENANCE_ACTIONS
-    assert "cache" not in MAINTENANCE_ACTIONS
-    assert HOOK_SUITE_CLIENTS == [
-        "cursor",
-        "claude-code",
-        "grok",
-        "codex",
-        "hermes",
-        "opencode",
-        "antigravity",
-    ]
-
-    bash = completion_bash()
-    zsh = completion_zsh()
-    fish = completion_fish()
-
-    assert (
-        'compgen -W "init quickstart doctor maintenance config integration qs"'
-    ) in bash
-    assert (
-        "commands=(init quickstart doctor maintenance config integration qs)"
-    ) in zsh
-    assert (
-        "complete -c harness-mem -n '__fish_use_subcommand' "
-        "-a 'init quickstart doctor maintenance config integration qs'"
-    ) in fish
-
-    for script in (bash, zsh, fish):
-        assert "import" in script
-        assert "purge" in script
-        assert "erase" in script
-        assert "migrate-legacy-accepted" in script
-        assert "hooks" in script
-        assert "transcript-evidence commands" not in script
-        assert "list sync" not in script
-        assert "install-cursor-wake-hook" not in script
-        assert "install-claude-wake-hook" not in script
-        assert "install-cursor-suite" not in script
-        assert "install-claude-suite" not in script
-        assert "transcript-evidence" in script
-        assert "skill-governance" not in script
-        assert "record-result" not in script
-        assert "labs" not in script
-        assert "product-doc" not in script
-        assert "commands enable" not in script
-        assert "--include" not in script
-        assert "maintenance full" not in script
-        assert "triggers.after_agent" not in script
-        assert "reflection dream preview metabolism" not in script
-        assert "rebuild-vector-index" in script
-        assert "migrate-store-v2" in script
-        assert "--confirm" in script or "-l confirm" in script
-        assert "wiki-bridge" not in script
-        assert "causal" not in script
-        assert "--source" in script or "-l source" in script
-        assert "--before" in script or "-l before" in script
-        assert "--session-id" in script or "-l session-id" in script
-        assert "--source-id" in script or "-l source-id" in script
-        assert "--reason" in script or "-l reason" in script
-        assert "--category" in script or "-l category" in script
-        assert "--stale-only" in script or "-l stale-only" in script
-        assert "--apply" in script or "-l apply" in script
-    for script in (bash, zsh, fish):
-        assert "all" in script
-        assert "grok" in script
-        assert "hermes" in script
-        assert "opencode" in script
-    assert "--client" in bash
-    assert "--client" in zsh
-    assert "-l client" in fish

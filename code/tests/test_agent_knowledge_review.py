@@ -37,9 +37,9 @@ def prepare(fixture, name="release", body=BODY):
     backend, root, write, handlers, _calls = fixture
     path = write(name, body)
     os.utime(path, (time.time() - 120, time.time() - 120))
-    inventory = handlers["inspect_sessions"](project_root=str(root), clients=["cursor"])
+    inventory = handlers.tool_inspect_sessions(project_root=str(root), clients=["cursor"])
     selected = [row for row in inventory["sessions"] if row["session_id"] == name]
-    packet = handlers["prepare_session_distill"](project_name="project", project_root=str(root), batch_sessions=selected)
+    packet = handlers.tool_prepare_session_distill(project_name="project", project_root=str(root), batch_sessions=selected)
     assert packet["success"], packet
     job = backend.transcript_store.get_distill_job(packet["distill_job_id"])
     source = load_source_observation_projection(backend, source_id=job.source_id, source_revision=job.source_revision)
@@ -53,7 +53,7 @@ def prepare(fixture, name="release", body=BODY):
 
 
 def finalize(fixture, packet, point, **kwargs):
-    return fixture[3]["finalize_session_distill"](
+    return fixture[3].tool_finalize_session_distill(
         "project", packet["distill_job_id"], session_review(), memory_points=[point], **kwargs)
 
 
@@ -135,19 +135,19 @@ def test_concise_review_writes_reopens_and_cleans_only_completed_source(public_h
     note = result.get("note_path")
     arguments = {"project_name": "project", "project_root": str(root),
                  "batch_id": packet["batch_id"], "cleanup_processed": True}
-    preview = handlers["prepare_session_distill"](**arguments)
+    preview = handlers.tool_prepare_session_distill(**arguments)
     assert preview["success"] and preview["counts"] == {"ready": 1}, preview
     assert path.read_bytes() == before
-    cleaned = handlers["prepare_session_distill"](**arguments, apply_cleanup=True)
+    cleaned = handlers.tool_prepare_session_distill(**arguments, apply_cleanup=True)
     assert cleaned["success"] and cleaned["counts"] == {"deleted": 1}, cleaned
     assert not path.exists() and other.read_bytes() == untouched
     saved = entries(public_history)[0].to_dict()
     asyncio.run(backend.close())
     asyncio.run(backend.init())
     assert entries(public_history)[0].to_dict() == saved
-    search = handlers["search_memory"](query=TITLE, project_name="project", scope="project")
+    search = handlers.tool_search_memory(query=TITLE, project_name="project", scope="project")
     assert BODY in str(search), search
-    assert handlers["prepare_session_distill"](**arguments, apply_cleanup=True)["counts"] == {"already_deleted": 1}
+    assert handlers.tool_prepare_session_distill(**arguments, apply_cleanup=True)["counts"] == {"already_deleted": 1}
     if note:
         from pathlib import Path
         assert Path(note).is_file()
@@ -182,7 +182,7 @@ def test_bad_judgments_cannot_write_and_changed_native_sources_cannot_be_cleaned
         assert not result["success"] or not result["knowledge_changes"], result
         assert not entries(public_history)
     before = path.read_bytes()
-    cleanup = handlers["prepare_session_distill"](project_name="project", project_root=str(root),
+    cleanup = handlers.tool_prepare_session_distill(project_name="project", project_root=str(root),
         batch_id=packet["batch_id"], cleanup_processed=True, apply_cleanup=True)
     assert not cleanup["success"] and path.read_bytes() == before, cleanup
 

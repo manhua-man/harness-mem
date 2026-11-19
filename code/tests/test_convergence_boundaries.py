@@ -3,22 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from harness_mem.config.merge import PUBLIC_CONFIG_KEY_PATHS
-from harness_mem.mcp.tool_handlers import build_tool_handlers
-from harness_mem.mcp.tool_specs import (
-    PUBLIC_MCP_TOOL_NAMES,
-    TOOL_CLUSTERS,
-    _SCHEMAS,
-)
 from harness_mem.version import legacy_storage_support_policy
-
-
-def test_public_mcp_contract_is_exactly_20_tools() -> None:
-    expected = set(PUBLIC_MCP_TOOL_NAMES)
-    assert len(expected) == 20
-    assert "dream_auto_tick" not in expected
-    assert set(_SCHEMAS) == expected
-    assert set(TOOL_CLUSTERS) == expected
-    assert set(build_tool_handlers()) == expected
 
 
 def test_processed_cleanup_and_privacy_erase_keep_distinct_owners() -> None:

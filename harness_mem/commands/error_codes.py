@@ -21,7 +21,7 @@ CLI_ERROR_CODES: dict[str, CliErrorCode] = {
         code="HM-001",
         level="error",
         summary="harness-mem data directory has not been initialized yet.",
-        fix_command="harness-mem quickstart",
+        fix_command="python -m harness_mem.cli quickstart",
         note="Creates the local runtime directory and walks through first-time setup.",
     ),
     "doctor_no_active_project": CliErrorCode(
@@ -36,7 +36,7 @@ CLI_ERROR_CODES: dict[str, CliErrorCode] = {
         level="warning",
         summary="wake-up context is trending too large for a lightweight resume.",
         fix_command=(
-            "harness-mem maintenance purge -p <project-name> "
+            "python -m harness_mem.cli maintenance purge -p <project-name> "
             "--before <yyyy-mm-dd> --category all --dry-run"
         ),
         note="Preview archival candidates before the wake-up payload grows further.",

@@ -6,64 +6,54 @@ from copy import deepcopy
 import hashlib
 import json
 from types import SimpleNamespace
+from typing import get_args
 from unittest.mock import AsyncMock
 
 import pytest
 
 from harness_mem.core.schemas import EvidenceRef
+from harness_mem.core.schemas.assimilation import AssimilationDisposition
+from harness_mem.core.schemas.evidence import EvidenceBasis, VerificationOutcome
 from harness_mem.core.schemas.session_distill import SessionSemanticReview
 from harness_mem.mcp import distill_handlers, tool_handlers
-from harness_mem.mcp.tool_specs import PUBLIC_MCP_TOOL_NAMES, _SCHEMAS, build_tools
 from test_device_memory_flow import device as device
 
 
 def test_contract_uses_canonical_required_fields_and_six_enum_sets():
-    schema = _SCHEMAS["finalize_session_distill"]["input_schema"]
-    point = schema["properties"]["memory_points"]["items"]
-    review = schema["properties"]["semantic_review"]
-    contract = distill_handlers._finalize_call_contract("selected-project", "selected-job")
-    assert contract["tool"] == "finalize_session_distill"
-    assert contract["required_fields"] == {
-        "arguments": schema["required"],
-        "memory_point": point["required"],
-        "semantic_review": review["required"],
-    }
+    contract = distill_handlers._finalize_call_contract("selected-job")
+    assert contract["method"] == "finish"
+    assert set(contract["required_fields"]["arguments"]) == set(contract["args_template"])
+    review_fields = SessionSemanticReview.model_fields
+    assert contract["required_fields"]["semantic_review"] == [
+        name for name, field in review_fields.items() if field.is_required()
+    ]
     assert contract["allowed_values"] == {
-        **{name: point["properties"][name]["enum"] for name in (
-            "evidence_basis", "verification_outcome", "assimilation_disposition",
-        )},
-        **{name: review["properties"][name]["enum"] for name in (
+        "evidence_basis": list(get_args(EvidenceBasis)),
+        "verification_outcome": list(get_args(VerificationOutcome)),
+        "assimilation_disposition": list(get_args(AssimilationDisposition)),
+        **{name: list(get_args(review_fields[name].annotation)) for name in (
             "last_turn_status", "evidence_status", "promotion_decision",
         )},
     }
-    assert "full canonical finalize_session_distill input schema" in contract["optional_contracts"]
 
 
-def test_contract_follows_canonical_changes_without_mutating_schema(monkeypatch):
-    schema = deepcopy(_SCHEMAS["finalize_session_distill"])
-    schema["input_schema"]["properties"]["memory_points"]["items"]["properties"]["verification_outcome"]["enum"].append("future-test-choice")
-    schema["input_schema"]["required"].append("future-test-required")
-    monkeypatch.setitem(_SCHEMAS, "finalize_session_distill", schema)
-    before = deepcopy(schema)
-    first = distill_handlers._finalize_call_contract("p", "job")
-    assert first["allowed_values"]["verification_outcome"][-1] == "future-test-choice"
-    assert first["required_fields"]["arguments"][-1] == "future-test-required"
-    second = distill_handlers._finalize_call_contract("p", "job")
+def test_mutating_template_does_not_change_other_requests():
+    first = distill_handlers._finalize_call_contract("job")
+    second = distill_handlers._finalize_call_contract("job")
     first["allowed_values"]["verification_outcome"].clear()
     first["required_fields"]["arguments"].clear()
     first["args_template"]["memory_points"][0]["verification_refs"][0]["role"] = "tool"
     first["target_knowledge_example"][0]["statement"] = "changed"
     assert first["targeted_point_fragment"]["memory_points"][0]["target_knowledge"][0]["statement"] != "changed"
     first["targeted_point_fragment"]["memory_points"][0]["target_knowledge"][0]["title"] = "changed fragment"
-    assert schema == before
-    assert second == distill_handlers._finalize_call_contract("p", "job")
+    assert second == distill_handlers._finalize_call_contract("job")
 
 
 def test_strict_json_template_keeps_two_optional_independent_typed_points():
-    project, job = "完整项目", "source-bound-job"
-    contract = distill_handlers._finalize_call_contract(project, job)
+    job = "source-bound-job"
+    contract = distill_handlers._finalize_call_contract(job)
     template = json.loads(json.dumps(contract["args_template"], allow_nan=False))
-    assert template["project_name"] == project and template["job_id"] == job
+    assert template["job_id"] == job and "project_name" not in template
     assert set(contract["required_fields"]["arguments"]) <= template.keys()
     assert len(template["memory_points"]) == 2
     assert contract["template_only"] is True
@@ -102,12 +92,7 @@ def test_strict_json_template_keeps_two_optional_independent_typed_points():
 
 @pytest.mark.parametrize("disposition", ["confirm", "refine", "replace"])
 def test_target_fragment_places_selected_rows_inside_each_affected_point(disposition):
-    contract = distill_handlers._finalize_call_contract("prepared-owner", "prepared-job")
-    final_schema = _SCHEMAS["finalize_session_distill"]["input_schema"]["properties"]
-    prepare_schema = _SCHEMAS["prepare_session_distill"]["input_schema"]["properties"]
-    assert "target_knowledge" in prepare_schema
-    assert "target_knowledge" not in final_schema
-    assert "target_knowledge" in final_schema["memory_points"]["items"]["properties"]
+    contract = distill_handlers._finalize_call_contract("prepared-job")
     assert contract["target_knowledge_path"] == "memory_points[i].target_knowledge"
     fragment = json.loads(json.dumps(contract["targeted_point_fragment"], allow_nan=False))
     assert set(fragment) == {"memory_points"}
@@ -129,8 +114,7 @@ def test_target_fragment_places_selected_rows_inside_each_affected_point(disposi
     assert all("target_knowledge" not in sample for sample in contract["args_template"]["memory_points"])
     instructions = " ".join(contract["instructions"])
     assert "Add points omit target_knowledge" in instructions
-    assert "never at the top level of finalize_session_distill" in instructions
-    assert "does not supply a finalization point's targets" in instructions
+    assert "never at the top level of finish" in instructions
 
 
 @pytest.fixture
@@ -153,7 +137,7 @@ def compact_source(monkeypatch):
 def test_only_full_source_ready_prepare_attaches_contract(compact_source):
     original = deepcopy(compact_source)
     result = distill_handlers._compact_prepare_result(compact_source)
-    assert result["finalize_contract"]["args_template"]["project_name"] == "p"
+    assert result["project_name"] == "p"
     assert result["finalize_contract"]["args_template"]["job_id"] == "job"
     assert result["semantic_evidence"]["content"].endswith("SOURCE-TAIL")
     assert result["semantic_evidence"]["content_sha256"] == hashlib.sha256(
@@ -229,7 +213,7 @@ def test_prepare_contract_preserves_sources_context_and_leaves_knowledge_candida
     before = deepcopy(full)
     packet = distill_handlers._compact_prepare_result(full)
     template = packet["finalize_contract"]["args_template"]
-    assert template["project_name"] == packet["project_name"] == "global"
+    assert "project_name" not in template and packet["project_name"] == "global"
     assert template["job_id"] == packet["distill_job_id"]
     assert packet["current_knowledge"] == context
     target_example = packet["finalize_contract"]["targeted_point_fragment"]["memory_points"][0]["target_knowledge"]
@@ -249,14 +233,3 @@ def test_prepare_contract_preserves_sources_context_and_leaves_knowledge_candida
     assert asyncio.run(store.list_entries("global")) == []
     assert asyncio.run(store.list_candidates("global")) == []
     assert len(list(backend.transcript_store.list_distill_jobs())) == 1
-
-
-def test_contract_projection_does_not_change_public_tools_or_input_schemas():
-    schemas = deepcopy(_SCHEMAS)
-    handlers = tool_handlers.build_tool_handlers()
-    before = build_tools(handlers)
-    distill_handlers._finalize_call_contract("p", "job")
-    after = build_tools(handlers)
-    assert _SCHEMAS == schemas
-    assert before == after
-    assert set(after) == PUBLIC_MCP_TOOL_NAMES and len(after) == 20

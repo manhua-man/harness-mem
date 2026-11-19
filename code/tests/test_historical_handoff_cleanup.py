@@ -47,7 +47,7 @@ def _source_revisions(history, *, revision_count=4):
     assert suggested["success"], suggested
     first_review = {**_memory_review(packet), **_review(tasks[0]), "promotion_decision": "partial"}
     first_review["final_scope_judgment"] = packet["_fixture_final_judgments"]
-    final = handlers["finalize_session_distill"]("project", packet["distill_job_id"], first_review)
+    final = handlers.tool_finalize_session_distill("project", packet["distill_job_id"], first_review)
     assert final["success"], final
     packets = [packet]
     for steps in tasks[1:]:
@@ -55,12 +55,12 @@ def _source_revisions(history, *, revision_count=4):
             stream.write("\n" + json.dumps({"role": "user", "cwd": str(root), "message": {"content": [{"type": "text", "text": " ".join(steps)}]}}))
             stream.write("\n" + json.dumps({"role": "assistant", "message": {"content": [{"type": "text", "text": "The original project work remains unfinished."}]}}))
         os.utime(path, (time.time() - 120, time.time() - 120))
-        inventory = handlers["inspect_sessions"](project_root=str(root), clients=["cursor"])
+        inventory = handlers.tool_inspect_sessions(project_root=str(root), clients=["cursor"])
         selected = [row for row in inventory["sessions"] if row["session_id"] == "historical" and row.get("origin") == "native"]
         assert len(selected) == 1, inventory
         packet = prepare(batch_sessions=selected)
         assert packet["success"], packet
-        final = handlers["finalize_session_distill"]("project", packet["distill_job_id"], _review(steps))
+        final = handlers.tool_finalize_session_distill("project", packet["distill_job_id"], _review(steps))
         assert final["success"], final
         packets.append(packet)
     jobs = [backend.transcript_store.get_distill_job(value["distill_job_id"]) for value in packets]
@@ -77,7 +77,7 @@ def test_current_complete_source_cleans_all_raw_revisions_but_keeps_historical_t
     assert len(current) == 1
     removed_identity = current[0].id
     if old_truth_removed:
-        result = handlers["govern_memory"](action="decide", arguments={
+        result = handlers.tool_govern_memory(action="decide", arguments={
             "kind": "knowledge", "decision": "delete", "project_name": "project",
             "target_knowledge": [{"title": current[0].title, "statement": current[0].statement, "project_name": "project"}],
         })
@@ -101,7 +101,7 @@ def test_current_complete_source_cleans_all_raw_revisions_but_keeps_historical_t
     assert set(receipt["preserved_outputs"]["historical_notes"]) == {job.id for job in jobs[:-1]}
     assert set(receipt["preserved_outputs"]["handoffs"]) == {row["id"] for row in handoffs}
     assert all(row["status"] == "in_progress" for row in handoffs)
-    inspected = handlers["inspect_sessions"](project_root=str(root), project_name="project", batch_id=packets[-1]["batch_id"])
+    inspected = handlers.tool_inspect_sessions(project_root=str(root), project_name="project", batch_id=packets[-1]["batch_id"])
     assert inspected["success"] and inspected["unfinished_work"] == tasks[-1], inspected
     replay = prepare(batch_id=packets[-1]["batch_id"], cleanup_processed=True, apply_cleanup=True)
     assert replay["success"] and replay["counts"] == {"already_deleted": 1}, replay
@@ -111,7 +111,7 @@ def test_current_complete_source_cleans_all_raw_revisions_but_keeps_historical_t
         proven, _ = completed_job_ids(backend.transcript_store.list_distill_jobs(), current_entries(backend.data_dir, None))
         assert jobs[0].id not in proven and jobs[-1].id in proven
     else:
-        found = handlers["search_memory"](query="Saved results", project_name="project", scope="project", detail="full")
+        found = handlers.tool_search_memory(query="Saved results", project_name="project", scope="project", detail="full")
         assert statement in json.dumps(found), found
 
 
@@ -215,7 +215,7 @@ def test_moved_native_alias_keeps_exact_frozen_batch_binding_after_eight_revisio
     archived_directory.parent.mkdir(parents=True)
     path.parent.rename(archived_directory)
     archived_path = archived_directory / path.name
-    inventory = handlers["inspect_sessions"](project_root=str(root), clients=["cursor"])
+    inventory = handlers.tool_inspect_sessions(project_root=str(root), clients=["cursor"])
     selected = [row for row in inventory["sessions"] if row["session_id"] == "historical" and row.get("origin") == "native"]
     assert len(selected) == 1, inventory
     assert selected[0]["source_id"] != canonical_job.source_id
@@ -238,7 +238,7 @@ def test_moved_native_alias_keeps_exact_frozen_batch_binding_after_eight_revisio
     result = prepare(batch_id=rebound["batch_id"], cleanup_processed=True, apply_cleanup=True)
     assert result["success"] and not archived_path.exists(), json.dumps(result, ensure_ascii=False)
     assert all(revision.raw_size_bytes == 0 for revision in backend.transcript_store.list_revisions(canonical_job.source_id))
-    inspected = handlers["inspect_sessions"](project_name="project", project_root=str(root), batch_id=rebound["batch_id"])
+    inspected = handlers.tool_inspect_sessions(project_name="project", project_root=str(root), batch_id=rebound["batch_id"])
     assert inspected["success"] and inspected["progress"]["completed"] == 1, inspected
     assert inspected["unfinished_work"] == tasks[-1]
     resumed = prepare(batch_id=rebound["batch_id"])
@@ -256,8 +256,8 @@ def test_moved_native_alias_keeps_exact_frozen_batch_binding_after_eight_revisio
             altered["bindings"] = {changed["reference_id"]: canonical_job.id}
         altered["sessions"] = [changed]
         manifest_path.write_text(json.dumps(altered), encoding="utf-8")
-        rejected = handlers["inspect_sessions"](project_name="project", project_root=str(root), batch_id=rebound["batch_id"])
+        rejected = handlers.tool_inspect_sessions(project_name="project", project_root=str(root), batch_id=rebound["batch_id"])
         assert not rejected["success"], rejected
         manifest_path.write_bytes(original_manifest)
     assert backend.transcript_store.list_deletion_audit(project_name="project") == receipt_before
-    assert handlers["inspect_sessions"](project_name="project", project_root=str(root), batch_id=rebound["batch_id"])["success"]
+    assert handlers.tool_inspect_sessions(project_name="project", project_root=str(root), batch_id=rebound["batch_id"])["success"]

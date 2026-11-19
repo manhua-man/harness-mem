@@ -1,16 +1,18 @@
+from inspect import signature
 from pathlib import Path
 
 from harness_mem.core.schemas.assimilation import AgentKnowledgeReview
+from harness_mem.core.schemas.session_distill import SessionSemanticReview
+from harness_mem.distill import Distill
 from harness_mem.mcp.distill_handlers import _finalize_call_contract
-from harness_mem.mcp.tool_specs import _SCHEMAS
 
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_prepared_finalize_template_matches_public_schema_and_one_review() -> None:
-    contract = _finalize_call_contract("source-owner", "checked-job")
-    assert contract["tool"] == "finalize_session_distill" and contract["template_only"] is True
+def test_prepared_template_calls_finish_with_one_review() -> None:
+    contract = _finalize_call_contract("checked-job")
+    assert contract["method"] == "finish" and contract["template_only"] is True
     instructions = "\n".join(contract["instructions"])
     for required in ("not verified content or an automatic decision", "Replace every placeholder",
                      "keep only relevant durable points", "Neither is required to exist",
@@ -20,18 +22,14 @@ def test_prepared_finalize_template_matches_public_schema_and_one_review() -> No
                      "do not establish external current truth, execution or user approval"):
         assert required in instructions
     template = contract["args_template"]
-    assert template["project_name"] == "source-owner" and template["job_id"] == "checked-job"
-    schema = _SCHEMAS["finalize_session_distill"]["input_schema"]
-    properties = schema["properties"]
-    assert set(schema["required"]) <= set(template) <= set(properties)
-    assert contract["required_fields"]["arguments"] == schema["required"]
+    assert template["job_id"] == "checked-job"
+    signature(Distill().finish).bind(**template)
     assert "final_scope_judgment" not in template and "final_scope_judgment" not in template["semantic_review"]
     points = template["memory_points"]
-    point_schema = properties["memory_points"]["items"]
     assert [(p["evidence_basis"], p["verification_refs"][0]["role"]) for p in points] == [
         ("user_statement", "user"), ("source_report", "assistant")]
     for point in points:
-        assert set(point_schema["required"]) <= set(point) <= set(point_schema["properties"])
+        assert set(contract["required_fields"]["memory_point"]) <= set(point)
         assert set(point["verification_refs"][0]) == {"kind", "exchange_index", "content_sha256", "role"}
         assert point["verification_refs"][0]["kind"] == point["evidence_basis"]
         assert point["verification_outcome"] == "verified" and point["assimilation_disposition"] == "add"
@@ -40,26 +38,18 @@ def test_prepared_finalize_template_matches_public_schema_and_one_review() -> No
         binding, = point["review"]["evidence"]
         assert binding["target"] == "claim" and binding["ref"] == binding["message_index"] == 1
         assert AgentKnowledgeReview.model_validate(point["review"]).support == "supported"
-    ref_properties = point_schema["properties"]["verification_refs"]["items"]["properties"]
-    index_schema = next(option for option in ref_properties["exchange_index"]["anyOf"]
-                        if option.get("type") == "integer")
-    assert index_schema["minimum"] == 1
-    review_schema = properties["semantic_review"]
+    review_schema = SessionSemanticReview.model_json_schema()
     assert set(review_schema["required"]) <= set(template["semantic_review"])
     assert "session_summary" in template["semantic_review"]
     for field in ("contradictions", "unfinished_work"):
         assert review_schema["properties"][field]["type"] == "array"
         assert review_schema["properties"][field]["items"]["type"] == "string"
         assert template["semantic_review"][field] == []
-    enum_schemas = point_schema["properties"] | review_schema["properties"]
-    expected = {field: value["enum"] for field, value in enum_schemas.items() if "enum" in value}
-    assert contract["allowed_values"] == expected
-    assert contract["required_fields"]["memory_point"] == point_schema["required"]
     assert contract["required_fields"]["semantic_review"] == review_schema["required"]
 
 
 def test_finalize_targets_stay_on_each_point_and_failures_stay_visible() -> None:
-    contract = _finalize_call_contract("source-owner", "checked-job")
+    contract = _finalize_call_contract("checked-job")
     assert isinstance(contract["target_knowledge_example"], list)
     assert set(contract["target_knowledge_example"][0]) == {"title", "statement", "project_name"}
     assert contract["target_knowledge_path"] == "memory_points[i].target_knowledge"
@@ -72,7 +62,7 @@ def test_finalize_targets_stay_on_each_point_and_failures_stay_visible() -> None
     for required in ("For each confirm/refine/replace point", "memory_points[i].target_knowledge, never at the top level",
                      "Copy full old title, statement and project_name", "module only when present",
                      "context does not select ownership", "do not replace the complete point",
-                     "Add points omit target_knowledge", "it does not supply a finalization point's targets"):
+                     "Add points omit target_knowledge"):
         assert required in instructions
 
 

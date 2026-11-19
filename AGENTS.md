@@ -1,34 +1,20 @@
 # AGENTS.md · 项目事实
 
-Python 包版本以 [pyproject.toml](pyproject.toml) 为准。Python 实现位于 `harness_mem/`，Maturin 构建的 PyO3 扩展位于 [code/crates/harness_mem_core_rs](code/crates/harness_mem_core_rs)。扩展有自己的 crate 版本。
+harness-mem 给宿主 Agent 提供两项本地能力。项目版本与构建依赖见 [pyproject.toml](pyproject.toml)。宿主读取两份 Skill，并在能导入本包的 Python 环境中执行操作。
 
-## 从用户入口定位实现
-
-| 入口 | 负责的行为 | 实现 |
+| 用户意图 | 宿主入口 | Python 入口 |
 | --- | --- | --- |
-| `harness-mem-mcp` | 通过 stdio 提供记忆工具 | [服务](harness_mem/mcp/server.py)、[工具规格](harness_mem/mcp/tool_specs.py)、[处理器绑定](harness_mem/mcp/tool_handlers.py) |
-| `harness-mem` | 配置、诊断、宿主接入、维护 | [CLI](harness_mem/cli.py) |
-| `harness-mem-hook` | 接收宿主生命周期事件 | [Hook 入口](harness_mem/host_entry/__main__.py) |
+| 整理完结对话、继续中断的阅读 | [Distill Skill](.agents/skills/distill/SKILL.md) | [Distill](harness_mem/distill.py) |
+| 找回当前知识、回答问题 | [Search Skill](.agents/skills/search/SKILL.md) | [search](harness_mem/search/__init__.py) |
 
-- **Distill** 的来源适配位于 [adapters](harness_mem/adapters)，手工任务的选择、冻结与恢复位于 [manual_distill.py](harness_mem/commands/manual_distill.py)，提交与收尾从 [distill_handlers.py](harness_mem/mcp/distill_handlers.py) 追踪。
-- **Search** 的范围、分页和结果形态由 [read_search_handlers.py](harness_mem/mcp/read_search_handlers.py) 处理。当前知识读取、匹配和排序集中在 [read_knowledge.py](harness_mem/read_knowledge.py)。Wake 从 [read_wake_handlers.py](harness_mem/mcp/read_wake_handlers.py) 调用同一读取层。
-- SQLite 中的 `knowledge_entries` 保存当前知识。原生会话、任务处理材料和查询反馈各有独立用途。修改存储时先从 [storage](harness_mem/storage) 核对读者、事务和作用域。
-- [插件清单](code/plugins/harness-mem/.codex-plugin/plugin.json) 与 [MCP 配置](code/plugins/harness-mem/.mcp.json) 负责插件接入。业务操作使用公开工具。仓内维护脚本在 [code/scripts](code/scripts)，结果探针在 [qualification](harness_mem/qualification)。
+## 运行时归属
 
-## 构建和验证
+- [会话适配](harness_mem/adapters) 负责读取宿主来源。[手工批次](harness_mem/commands/manual_distill.py) 冻结来源版本，绑定任务和已处理的进度。当前 Agent 给出判断，[证据核验](harness_mem/commands/evidence_admission.py) 和 [知识吸收](harness_mem/commands/separated_assimilation.py) 负责保存前的检查。
+- [当前知识检索](harness_mem/read_knowledge.py) 读取 SQLite 当前知识、排序并归并重复结果。[本地操作绑定](harness_mem/agent_runtime.py) 管理每次调用的数据库与关闭时机。生产默认数据根由 [LocalMemoryBackend](harness_mem/storage/local_memory_backend.py) 决定；验收时指定隔离目录。
+- [原生扩展](code/crates/harness_mem_core_rs) 由 Maturin 构建。后台执行、历史维护和宿主 Hook 另有内部代码。上述两份 Skill 直接使用本地运行时。
 
-在仓库根目录、已激活的开发环境中运行：
+## 开发和部署
 
-```sh
-python -m pip install ".[dev]"
-python code/scripts/ensure_mcps_canonical.py
-python -m pytest -q code/tests/test_mcp_public_surface_contract.py code/tests/test_mcp_console_script.py
-python -m pytest -q code/tests/test_manual_session_flow.py code/tests/test_global_memory_defaults.py
-cargo test --workspace
-```
+在仓库根目录和目标 Python 虚拟环境中，维护者可用 `python -m pip install ".[dev]"` 安装本地源码和开发依赖；从源码构建需要 Rust 与平台编译工具链。宿主需要同时能发现 Skill 和导入 Python 包。wheel 与 sdist 随包携带两份 Skill，宿主的 Skill 搜索路径按实际集成配置。
 
-描述文件脚本会重新生成 [20 份公开工具规格](code/mcps/harness_mem/tools)，运行后检查 Git 差异。完整 CI 的触发条件和命令见 [public-smoke.yml](.github/workflows/public-smoke.yml)。[结果合同](.codex/outcomes.json) 列出独立探针。
-
-## 文档导航
-
-[README](README.md) 是使用入口和功能索引。[CLAUDE.md](CLAUDE.md) 约定如何协作，[DESIGN.md](DESIGN.md) 约定 CLI 和 Agent 如何向用户呈现结果。协议文档结构参考外部 [harness-coding-protocol](https://github.com/manhua-man/harness-coding-protocol/tree/37af1c748495a2a9a37e581c246506d43e79da9a)。
+运行 `python -m pytest -q code/tests/test_agent_manual_distill.py code/tests/test_global_memory_defaults.py` 检查手工整理与全项目检索。[CI](.github/workflows/public-smoke.yml) 记录构建与回归命令，[结果合同](.codex/outcomes.json) 维护运行探针。用户步骤见 [README](README.md)，协作与体验约定见 [CLAUDE.md](CLAUDE.md) 和 [DESIGN.md](DESIGN.md)。

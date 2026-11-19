@@ -210,7 +210,7 @@ async def cmd_doctor(project_name: str | None = None) -> int:
                     datetime.now(timezone.utc).replace(day=1) - timedelta(days=90)
                 ).strftime("%Y-%m-%d")
                 purge_command = (
-                    "harness-mem maintenance purge "
+                    "python -m harness_mem.cli maintenance purge "
                     f"-p {resolved_project} --before {three_months_ago} --category all --dry-run"
                 )
                 print(format_error_summary(issue))

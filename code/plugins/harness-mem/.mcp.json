@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "harness_mem": {
-      "command": "harness-mem-mcp",
-      "args": []
-    }
-  }
-}

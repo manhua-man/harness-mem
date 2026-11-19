@@ -19,7 +19,7 @@ def test_report_note_keeps_attribution_date_conditions_and_current_storage(tmp_p
     asyncio.run(backend.init())
     monkeypatch.setattr(tool_handlers, "_backend_provider", lambda: backend)
     monkeypatch.setattr(tool_handlers, "_observer_data_dir_provider", lambda: backend.data_dir)
-    handlers = tool_handlers.build_tool_handlers()
+    handlers = tool_handlers
     try:
         capture, window = _prepare(backend, handlers, root, "note-source", ["Review cache recovery conditions."])
         result = _finalize(handlers, capture.distill_job_id, [

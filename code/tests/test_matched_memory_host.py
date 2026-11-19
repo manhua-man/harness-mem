@@ -73,17 +73,11 @@ def native_upstream_experiment(experiment):
     return experiment
 
 
-def invoke(experiment, mode="hm", args=(), requests=()):
+def invoke(experiment, mode="search-probe", args=()):
     _, path, _ = experiment
-    wire = "".join(json.dumps(request) + "\n" for request in requests)
     return subprocess.run([sys.executable, "-B", str(SCRIPT), "--mode", mode,
-                           "--manifest", str(path), *args], input=wire,
+                           "--manifest", str(path), *args],
                           text=True, encoding="utf-8", capture_output=True, timeout=45)
-
-
-def call(name, arguments, request_id=1):
-    return {"jsonrpc": "2.0", "id": request_id, "method": "tools/call",
-            "params": {"name": name, "arguments": arguments}}
 
 
 def rewrite(experiment, **changes):
@@ -129,7 +123,7 @@ def test_scope_contracts_need_no_upstream_source(experiment):
 
 
 @pytest.mark.parametrize("context", ["rootless", "missing"])
-def test_isolated_device_host_lists_and_prepares_without_a_source_directory(experiment, context):
+def test_isolated_device_host_lists_and_prepares_without_a_source_directory(experiment, context, monkeypatch):
     payload, _, source = experiment
     records = [json.loads(line) for line in source.read_text(encoding="utf-8").splitlines()]
     records[0]["payload"].pop("cwd")
@@ -138,15 +132,12 @@ def test_isolated_device_host_lists_and_prepares_without_a_source_directory(expe
     source.write_text("\n".join(json.dumps(row) for row in records) + "\n", encoding="utf-8")
     original = source.read_bytes()
     rewrite(experiment, device_scope=True, project_name="global")
-    listed = invoke(experiment, requests=[call("inspect_sessions", {})])
-    assert listed.returncode == 0, listed.stderr
-    inventory = json.loads(json.loads(listed.stdout)["result"]["content"][0]["text"])
+    from harness_mem.distill import Distill
+    workflow = Distill(payload["data_dir"])
+    monkeypatch.setenv("CODEX_HOME", payload["native_root"])
+    inventory = workflow.sessions(clients=["codex"])
     assert inventory["scope"] == "all" and len(inventory["sessions"]) == 1, inventory
-    prepared = invoke(experiment, requests=[call("prepare_session_distill", {
-        "scope": "all", "batch_sessions": inventory["sessions"],
-    })])
-    assert prepared.returncode == 0, prepared.stderr
-    packet = json.loads(json.loads(prepared.stdout)["result"]["content"][0]["text"])
+    packet = workflow.prepare(sessions=inventory["sessions"], evidence_mode="semantic")
     assert packet["success"] and packet["session_id"] == payload["session_ids"][0], packet
     assert not (Path(payload["data_dir"]) / "profiles").exists()
     assert source.read_bytes() == original
@@ -171,37 +162,23 @@ def test_manifest_requires_disabled_background_and_absolute_paths(experiment):
         host.Manifest(path)
 
 
-@pytest.mark.parametrize("arguments", [
-    {"project_name": "real-project"}, {"project_root": str(REPO)},
-    {"client": "cursor"}, {"clients": ["codex", "hermes"]}, {"scope": "all"},
-    {"session_id": "00000000-0000-0000-0000-000000000000"},
-    {"action": "suggest", "arguments": {"project_name": "real-project"}},
-    {"action": "suggest", "arguments": {"evidence": [{"path": str(REPO / "AGENTS.md")}]}},
-    {"action": "suggest", "arguments": {"client": "hermes"}},
-])
-def test_nested_scope_rejected(experiment, arguments):
-    with pytest.raises(host.ScopeError):
-        host.Manifest(experiment[1]).validate_arguments(arguments)
-
-
-def test_device_scope_keeps_native_logical_project_names(experiment):
-    rewrite(experiment, device_scope=True)
-    manifest = host.Manifest(experiment[1])
-    manifest.validate_arguments({"project_name": "project", "scope": "all"})
-    manifest.validate_arguments({"project_name": "global", "scope": "all"})
-    manifest.validate_arguments({"project_names": ["project", "global"], "scope": "project"})
-
-
-@pytest.mark.parametrize("arguments", [
-    {"project_root": str(REPO)},
-    {"evidence": [{"path": str(REPO / "AGENTS.md")}]},
-    {"session_id": "00000000-0000-0000-0000-000000000000"},
-    {"client": "hermes"},
-])
-def test_device_scope_still_guards_physical_sources_and_hosts(experiment, arguments):
-    rewrite(experiment, device_scope=True)
-    with pytest.raises(host.ScopeError):
-        host.Manifest(experiment[1]).validate_arguments(arguments)
+def test_search_probe_uses_scope_from_manifest_for_every_question(experiment):
+    payload, _, _ = experiment
+    case = {"caseId": "fixture", "query": "original transcripts",
+            "scope": "all", "data_dir": str(REPO), "project_name": "other"}
+    (Path(payload["run_root"]) / "adapter-input.json").write_text(
+        json.dumps({"cases": [case]}), encoding="utf-8")
+    result = invoke(experiment)
+    assert result.returncode == 0, result.stderr
+    rows = [json.loads(line) for line in result.stdout.splitlines()]
+    assert len(rows) == 31
+    for row in rows:
+        assert row["caseId"] == case["caseId"]
+        response = row["response"]
+        assert response["status"] == "empty"
+        assert response["project_name"] == payload["project_name"]
+        assert response["query"] == case["query"]
+        assert response["retry_without_project_filter"]["arguments"]["scope"] == "all"
 
 
 def test_unknown_native_fixture_is_rejected_before_scan(experiment):
@@ -221,111 +198,6 @@ def test_symlink_escape_rejected(experiment):
         pytest.skip("symlink creation unavailable on this Windows account")
     with pytest.raises(host.ScopeError, match="linked path"):
         host.Manifest(path)
-
-
-def test_stdio_schema_dispatch_audit_and_directory_isolation(experiment):
-    server_before = sys.modules.get("harness_mem.mcp.server")
-    payload, _, source = experiment
-    original = source.read_bytes()
-    env_before = {key: os.environ.get(key) for key in ("HOME", "CODEX_HOME", "HARNESS_MEM_DATA_DIR")}
-    requests = [
-        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}},
-        {"jsonrpc": "2.0", "method": "notifications/initialized"},
-        {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
-        call("inspect_sessions", {"project_root": payload["project_root"], "project_name": "project"}, 3),
-        call("search_memory", {"project_name": "project", "query": ""}, 4),
-        call("inspect_sessions", {"project_root": payload["project_root"], "clients": ["cursor"]}, 5),
-        call("govern_memory", {"action": "suggest", "arguments": {"project_name": "elsewhere"}}, 6),
-    ]
-    result = invoke(experiment, requests=requests)
-    assert result.returncode == 0, result.stderr
-    responses = [json.loads(line) for line in result.stdout.splitlines()]
-    assert [row["id"] for row in responses] == [1, 2, 3, 4, 5, 6]
-    tools = responses[1]["result"]["tools"]
-    from harness_mem.mcp.tool_handlers import build_tool_handlers
-    from harness_mem.mcp.tool_specs import build_tools
-    from harness_mem.mcp.tool_registry import list_tools_result, resolve_mcp_surface
-    expected = list_tools_result(build_tools(build_tool_handlers()), resolve_mcp_surface({}))["tools"]
-    assert len(tools) == 20 and tools == expected
-    inventory = json.loads(responses[2]["result"]["content"][0]["text"])
-    assert inventory["success"] and len(inventory["sessions"]) == 1
-    assert inventory["sessions"][0]["session_id"] == payload["session_ids"][0]
-    assert "error" not in responses[3]
-    assert "error" in responses[4] and "error" in responses[5]
-    rows = [json.loads(line) for line in Path(payload["audit_path"]).read_text(encoding="utf-8").splitlines()]
-    assert len(rows) == 4
-    for row, request, response in zip(rows, requests[3:], responses[2:]):
-        assert row["params"] == request["params"] and row["response"] == response
-        assert row["elapsed_seconds"] >= 0
-    from harness_mem.storage.canonical_store import canonical_store_path
-    assert canonical_store_path(Path(payload["data_dir"])).is_file()
-    assert not (Path(payload["project_root"]) / "canonical.sqlite").exists()
-    assert source.read_bytes() == original
-    # Other suite tests may already have imported the normal MCP server. This
-    # wrapper must neither import it into a clean parent nor replace an existing one.
-    assert sys.modules.get("harness_mem.mcp.server") is server_before
-    assert env_before == {key: os.environ.get(key) for key in env_before}
-
-
-def test_hm_prepare_uses_real_adapter_and_isolated_data(experiment):
-    payload, _, source = experiment
-    inventory = invoke(experiment, requests=[call("inspect_sessions", {
-        "project_root": payload["project_root"], "project_name": "project",
-        "scope": "project", "clients": ["codex"],
-    })])
-    assert inventory.returncode == 0, inventory.stderr
-    selected, = json.loads(json.loads(inventory.stdout)["result"]["content"][0]["text"])["sessions"]
-    assert selected["session_id"] == payload["session_ids"][0]
-    request = call("prepare_session_distill", {
-        "project_root": payload["project_root"], "project_name": "project", "client": "codex",
-        "batch_sessions": [{key: selected[key] for key in (
-            "client", "session_id", "source_id", "source_revision", "reference_id",
-        )}], "evidence_mode": "raw",
-    })
-    result = invoke(experiment, requests=[request])
-    assert result.returncode == 0, result.stderr
-    response = json.loads(result.stdout)
-    assert "error" not in response, response
-    answer = json.loads(response["result"]["content"][0]["text"])
-    assert answer["success"], answer
-    assert (Path(payload["data_dir"]) / "transcript_ledger.sqlite").is_file()
-    assert source.exists()
-
-
-def test_hm_source_pages_delegate_complete_native_revision(experiment):
-    payload, _, source = experiment
-    result = invoke(experiment, requests=[call("inspect_sessions", {
-        "project_root": payload["project_root"], "clients": ["codex"],
-    })])
-    assert result.returncode == 0, result.stderr
-    inventory = json.loads(json.loads(result.stdout)["result"]["content"][0]["text"])
-    assert inventory["success"], inventory
-    reference = {key: inventory["sessions"][0][key] for key in (
-        "client", "session_id", "source_id", "source_revision", "reference_id")}
-    requests = [call("inspect_sessions", {
-        "project_root": payload["project_root"], "action": "source", "session": reference,
-        "offset": offset, "page_chars": 32,
-    }, offset + 1) for offset in (0, 32)]
-    result = invoke(experiment, requests=requests)
-    assert result.returncode == 0, result.stderr
-    pages = [json.loads(json.loads(line)["result"]["content"][0]["text"])
-             for line in result.stdout.splitlines()]
-    assert all(page["success"] for page in pages), pages
-    assert pages[0]["end"] == pages[1]["offset"] == 32
-    assert pages[0]["content_sha256"] == pages[1]["content_sha256"]
-    full = invoke(experiment, requests=[call("inspect_sessions", {
-        "project_root": payload["project_root"], "action": "source", "session": reference,
-    })])
-    page = json.loads(json.loads(full.stdout)["result"]["content"][0]["text"])
-    assert page["complete"] and page["next_offset"] is None
-    assert "Original transcripts are retained in this fixture." in page["content"]
-    assert pages[0]["content"] + pages[1]["content"] == page["content"][:64]
-    from harness_mem.storage.canonical_store import canonical_store_path
-    assert source.exists()
-    # The unchanged MCP executor can write cost telemetry; inspection must not
-    # initialize either memory authority or the transcript/job ledger.
-    assert not canonical_store_path(Path(payload["data_dir"])).exists()
-    assert not (Path(payload["data_dir"]) / "transcript_ledger.sqlite").exists()
 
 
 @pytest.mark.parametrize("args", [
@@ -390,3 +262,28 @@ def test_upstream_rejects_poisoned_persisted_path(native_upstream_experiment):
     result = invoke(experiment, mode="upstream", args=["bundle", payload["session_ids"][0]])
     assert result.returncode == 2 and "escapes" in result.stderr
     assert not list((Path(payload["upstream_distill"]) / "packets").glob("*.md"))
+
+def test_agent_source_read_is_bounded_and_prepare_uses_isolated_data(experiment, monkeypatch):
+    from harness_mem.distill import Distill
+    from harness_mem.storage.canonical_store import canonical_store_path
+
+    payload, _, source = experiment
+    data = Path(payload["data_dir"])
+    monkeypatch.setenv("CODEX_HOME", payload["native_root"])
+    workflow = Distill(data)
+    inventory = workflow.sessions(project_root=payload["project_root"], clients=["codex"])
+    selected, = inventory["sessions"]
+    assert selected["session_id"] == payload["session_ids"][0]
+    page = workflow.source(selected, project_root=payload["project_root"])
+    first = workflow.source(selected, project_root=payload["project_root"], page_chars=32)
+    second = workflow.source(selected, project_root=payload["project_root"], offset=first["next_offset"], page_chars=32)
+    assert first["content_sha256"] == second["content_sha256"] == page["content_sha256"]
+    assert first["content"] + second["content"] == page["content"][:64]
+    assert "Original transcripts are retained in this fixture." in page["content"]
+    assert page["complete"] and page["next_offset"] is None
+    assert not canonical_store_path(data).exists()
+    assert not (data / "transcript_ledger.sqlite").exists()
+    packet = workflow.prepare(sessions=[selected], project_root=payload["project_root"])
+    assert packet["success"], packet
+    assert (data / "transcript_ledger.sqlite").is_file()
+    assert source.exists()

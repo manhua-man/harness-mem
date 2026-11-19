@@ -54,14 +54,14 @@ def tool_wake(
             "success": False,
             "project_name": resolved,
             "message": "Project memory storage could not be opened.",
-            "action": "Run harness-mem doctor before retrying.",
+            "action": "Run python -m harness_mem.cli doctor before retrying.",
         }
     if backend.runtime_state == "degraded_fallback" or backend.runtime_error:
         return {
             "success": False,
             "project_name": resolved,
             "message": "Project memory storage is not ready.",
-            "action": "Run harness-mem doctor.",
+            "action": "Run python -m harness_mem.cli doctor.",
         }
     try:
         current_entries = asyncio.run(
@@ -82,7 +82,7 @@ def tool_wake(
             "success": False,
             "project_name": resolved,
             "message": "Project memory could not be read.",
-            "action": "Run harness-mem doctor before retrying.",
+            "action": "Run python -m harness_mem.cli doctor before retrying.",
         }
     maintenance = (
         _build_distill_maintenance_offer(backend, resolved, record_offer=True)

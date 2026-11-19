@@ -1,6 +1,6 @@
 """Isolated device memory outcomes over fictional seven-host native sources.
 
-The dispatcher, source validation, jobs, SQLite, Notes and retrieval are real.
+The local handlers, source validation, jobs, SQLite, Notes and retrieval are real.
 Semantic decisions are deterministic fixtures; native apps, Hooks and models
 are not run. Former workspace directories are absent before discovery.
 """
@@ -24,10 +24,10 @@ from harness_mem.commands import session_inventory
 from harness_mem.commands.evidence_admission import _frozen_user_exchange_indexes
 from harness_mem.config.merge import MergedConfig
 from harness_mem.embedding.model_loader import temporarily_disable_embeddings
-from harness_mem.mcp import server, tool_handlers
+from harness_mem.mcp import tool_handlers
 from harness_mem.mcp.distill_projection import render_distill_exchange_windows
 from harness_mem.qualification.automatic_projects_outcome_probe import (
-    _rpc, create_native_fixture,
+    _call, create_native_fixture,
 )
 from harness_mem.storage.canonical_store import CanonicalStoreRuntime, canonical_store_path
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
@@ -140,11 +140,7 @@ def run_device_memory_variant(*, native_containers: bool) -> dict:
             return reader(adapter, client, record, **kwargs)
 
         stack.enter_context(patch.object(session_inventory, "inspect_native_source", record_read))
-        listed = server.handle_request({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
-        assert listed is not None and "error" not in listed, listed
-        public_names = {tool["name"] for tool in listed["result"]["tools"]}
-        assert len(public_names) == 20 and "inspect_sessions" in public_names and "dream_auto_tick" not in public_names
-        discovery = _rpc("inspect_sessions", {})
+        discovery = _call(tool_handlers.tool_inspect_sessions, {})
         selected = discovery["sessions"]
         assert len(selected) == len(HOSTS) and {row["client"] for row in selected} == set(HOSTS), discovery
         assert discovery["project_name"] == "global" and discovery["project_root"] == "", discovery
@@ -163,7 +159,7 @@ def run_device_memory_variant(*, native_containers: bool) -> dict:
             full_reads.clear()
             offset, fragments = 0, []
             while True:
-                page = _rpc("inspect_sessions", {"action": "source", "session": source,
+                page = _call(tool_handlers.tool_inspect_sessions, {"action": "source", "session": source,
                                                  "offset": offset, "page_chars": 37})
                 assert page["revision_verified"] and page["verified_session"]["scope"] == "all", page
                 fragments.append(page["content"])
@@ -173,7 +169,7 @@ def run_device_memory_variant(*, native_containers: bool) -> dict:
             assert len(fragments) > 1 and PREFERENCES[client] in "".join(fragments)
             assert full_reads == [(client, session_id)], full_reads
             assert len(list(backend.transcript_store.list_distill_jobs())) == index
-            packet = _rpc("prepare_session_distill", {"scope": "all", "batch_sessions": selected}
+            packet = _call(tool_handlers.tool_prepare_session_distill, {"scope": "all", "batch_sessions": selected}
                           if batch_id is None else {"batch_id": batch_id})
             batch_id = packet["batch_id"]
             assert packet["session_id"] == session_id, packet
@@ -183,7 +179,7 @@ def run_device_memory_variant(*, native_containers: bool) -> dict:
             assert not Path(job.project_root).exists(), job
             assert len(list(backend.transcript_store.list_distill_jobs())) == index + 1
             assert set(full_reads) == {(client, session_id)}, full_reads
-            resumed = _rpc("prepare_session_distill", {"batch_id": batch_id})
+            resumed = _call(tool_handlers.tool_prepare_session_distill, {"batch_id": batch_id})
             assert resumed["distill_job_id"] == job.id
             observation = asyncio.run(backend.verbatim_store.get(str(uuid5(NAMESPACE_URL, f"{job.source_id}:observation"))))
             assert observation is not None
@@ -199,7 +195,7 @@ def run_device_memory_variant(*, native_containers: bool) -> dict:
                     source_revision=job.source_revision, rendering=observation.raw_content) == {1}
             statement = PREFERENCES[client]
             title = f"{client} collaboration preference"
-            suggestion = _rpc("govern_memory", {"action": "suggest", "arguments": {
+            suggestion = _call(tool_handlers.tool_govern_memory, {"action": "suggest", "arguments": {
                 "kind": "memory", "project_name": job.project_name, "category": "preference",
                 "content": statement, "source": f"distill-job:{job.id}", "distill_job_id": job.id,
                 "canonical_title": title, "topic_path": ["Preferences"],
@@ -213,7 +209,7 @@ def run_device_memory_variant(*, native_containers: bool) -> dict:
                 "client": client, "evidence": [item.model_dump(mode="json") for item in evidence],
                 "rendering": observation.raw_content,
             }
-            final = _rpc("finalize_session_distill", {"project_name": job.project_name, "job_id": job.id,
+            final = _call(tool_handlers.tool_finalize_session_distill, {"project_name": job.project_name, "job_id": job.id,
                 "semantic_review": {"session_summary": "Verified an explicit future preference.",
                     "final_user_request": statement, "final_outcome": "Saved the verified preference.",
                     "last_turn_status": "answered", "contradictions": [], "unfinished_work": [],
@@ -240,7 +236,7 @@ def run_device_memory_variant(*, native_containers: bool) -> dict:
                                     "sqlite_persisted": True, "note_verified": True}
             order.append((client, session_id))
 
-        complete = _rpc("prepare_session_distill", {"batch_id": batch_id})
+        complete = _call(tool_handlers.tool_prepare_session_distill, {"batch_id": batch_id})
         assert complete["status"] == "completed" and complete["progress"]["completed"] == len(HOSTS), complete
         assert complete["unfinished_work"] == [], complete
         raw_sources = {job.source_id: backend.transcript_store.reconstruct_raw(job.source_id, source_revision=job.source_revision)
@@ -250,13 +246,13 @@ def run_device_memory_variant(*, native_containers: bool) -> dict:
         backend = LocalMemoryBackend(root / "data")
         asyncio.run(backend.init())
         entries = _sqlite_entries(backend.data_dir)
-        current = _rpc("search_memory", {"query": ""})
+        current = _call(tool_handlers.tool_search_memory, {"query": ""})
         assert len(current["memories"]) == len(HOSTS) and current.get("project_name") is None, current
         assert {row["statement"] for row in current["memories"]} == set(PREFERENCES.values()), current
         assert all(set(row) == {"module", "title", "statement", "project_name"} and row["project_name"] == "global"
                    for row in current["memories"]), current
         for client, result in host_results.items():
-            found = _rpc("search_memory", {"query": f"{client} collaboration preference"})
+            found = _call(tool_handlers.tool_search_memory, {"query": f"{client} collaboration preference"})
             result["retrieved_after_reopen"] = any(row["statement"] == PREFERENCES[client] for row in found["memories"])
         checks = {
             "default_device_inventory": all(row["scope"] == "all" for row in selected),
@@ -274,7 +270,6 @@ def run_device_memory_variant(*, native_containers: bool) -> dict:
             "manual_retain_source": all(job.manual_only and job.retain_source for job in backend.transcript_store.list_distill_jobs()),
             "no_profiles": not (backend.data_dir / "profiles").exists(),
             "no_background_cli": processes.call_count == 0,
-            "public_twenty_tools": len(public_names) == 20,
         }
         return {"verified": all(checks.values()), **checks, "hosts": host_results,
                 "semantic_mode": "deterministic_fixture_agent", "native_apps_or_hooks": "not_run"}
@@ -297,8 +292,7 @@ def run_device_memory_outcome_probe() -> dict:
 
 def main() -> int:
     result = run_device_memory_outcome_probe()
-    fd = getattr(server, "_REAL_STDOUT_FD", None)
-    os.write(fd if fd is not None else 1, (json.dumps(result, sort_keys=True) + "\n").encode("utf-8"))
+    os.write(1, (json.dumps(result, sort_keys=True) + "\n").encode("utf-8"))
     return 0 if result["verified"] else 1
 
 

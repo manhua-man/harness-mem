@@ -220,7 +220,7 @@ def run_manual_session_outcome_probe() -> dict:
             packet = tool_handlers.tool_prepare_session_distill(project_name="project", project_root=str(project), batch_id=batch_id)
             calls += 2
             output_chars += len(json.dumps(final)) + len(json.dumps(packet))
-        # Close/reopen before independent ordinary MCP search and batch report.
+        # Close/reopen before independent current-knowledge search and batch report.
         asyncio.run(backend.close())
         backend = LocalMemoryBackend(data)
         asyncio.run(backend.init())

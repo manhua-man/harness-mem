@@ -6,14 +6,6 @@ import sys
 
 import pytest
 
-from harness_mem.mcp.tool_handlers import build_tool_handlers
-from harness_mem.mcp.tool_specs import PUBLIC_MCP_TOOL_NAMES, TOOL_CLUSTERS, _SCHEMAS
-
-
-def test_mcp_registry_contains_public_tools_only() -> None:
-    assert set(_SCHEMAS) == set(PUBLIC_MCP_TOOL_NAMES)
-    assert set(TOOL_CLUSTERS) == set(PUBLIC_MCP_TOOL_NAMES)
-    assert set(build_tool_handlers()) == set(PUBLIC_MCP_TOOL_NAMES)
 
 
 @pytest.mark.parametrize(

@@ -1,4 +1,4 @@
-"""Whole-fact reading through the real current store and MCP consumer."""
+"""Whole-fact reading through the current store and read handlers."""
 
 from __future__ import annotations
 
@@ -11,13 +11,14 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from harness_mem.agent_runtime import active_backend
 from harness_mem.commands import token_estimator
 from harness_mem import read_knowledge
 from harness_mem.commands.wake import build_wake_injection
 from harness_mem.core.schemas import (
     AssimilationDecision, KnowledgeCandidate, KnowledgeEntry, ProjectKnowledgeSourceRef,
 )
-from harness_mem.mcp import read_query_support, server
+from harness_mem.mcp import read_query_support, tool_handlers
 from harness_mem.mcp.read_projection import reading_tokens
 from harness_mem.mcp.response_budget import serialize_mcp_result
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
@@ -30,11 +31,11 @@ def backend(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     store = LocalMemoryBackend(tmp_path / "data")
     asyncio.run(store.init())
-    server.set_backend_override(store)
+    binding = active_backend.set(store)
     try:
         yield store
     finally:
-        server.set_backend_override(None)
+        active_backend.reset(binding)
         asyncio.run(store.close())
 
 
@@ -87,7 +88,7 @@ def _many(count=12):
 def _continue(payload):
     continuation = payload["continuation"]
     assert continuation["tool"] == "search_memory"
-    return server.tool_search_memory(**{
+    return tool_handlers.tool_search_memory(**{
         **{key: payload[key] for key in continuation.get("reuse_arguments", [])},
         **continuation["arguments"],
     })
@@ -110,7 +111,7 @@ def _read_all(first, *, budget):
 def _read_candidate(candidate, *, query, expected, budget=2000, feedback=True):
     assert "statement" not in candidate
     assert candidate["project_name"] == expected.project_name
-    full = server.tool_search_memory(
+    full = tool_handlers.tool_search_memory(
         query=query, scope="all", detail="full", cursor=candidate["read_cursor"],
         budget_tokens=budget, _include_diagnostics=True,
     )
@@ -124,7 +125,7 @@ def _read_candidate(candidate, *, query, expected, budget=2000, feedback=True):
         assert call["tool"] == "record_context_outcome"
         assert call["arguments"]["source_ids"] == [expected.id]
         assert call["arguments"]["retrieval_id"] == full["retrieval_id"]
-        recorded = server.tool_record_context_outcome(**call["arguments"], outcome="used")
+        recorded = tool_handlers.tool_record_context_outcome(**call["arguments"], outcome="used")
         assert recorded["success"] is True
         assert recorded["truth_mutated"] is False
     else:
@@ -144,16 +145,12 @@ def _hook_candidates(text):
     return query, candidates
 
 
-def test_paged_mcp_search_reaches_all_facts_and_applies_the_requested_budget(backend):
+def test_paged_search_reaches_all_facts_and_applies_the_requested_budget(backend):
     expected = _many()
     add_memories(backend, expected)
-    response = server.handle_request({
-        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-        "params": {"name": "search_memory", "arguments": {"query": "paginationtoken", "budget_tokens": 600}},
-    })
-    text = response["result"]["content"][0]["text"]
-    first = json.loads(text)
-    large = server.tool_search_memory(query="paginationtoken", budget_tokens=1800)
+    first = tool_handlers.tool_search_memory(query="paginationtoken", budget_tokens=600)
+    text = serialize_mcp_result(first)
+    large = tool_handlers.tool_search_memory(query="paginationtoken", budget_tokens=1800)
     assert 0 < len(first["memories"]) < len(large["memories"]) <= len(expected)
     assert reading_tokens(text) <= 600
     assert reading_tokens(large) <= 1800
@@ -168,13 +165,7 @@ def test_short_search_can_preview_candidates_then_read_only_the_selected_fact(ba
         "routingtoken: recovery requires checking the queue before retrying.",
         "routingtoken: the settings page has a blue background.",
     ], title="routingtoken")
-    response = server.handle_request({
-        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-        "params": {"name": "search_memory", "arguments": {
-            "query": "routingtoken", "detail": "candidates", "budget_tokens": 1200,
-        }},
-    })
-    page = json.loads(response["result"]["content"][0]["text"])
+    page = tool_handlers.tool_search_memory(query="routingtoken", detail="candidates", budget_tokens=1200)
     assert page["status"] == "available" and page["detail"] == "candidates"
     assert len(page["memories"]) == 2
     assert all("statement" not in row for row in page["memories"])
@@ -184,7 +175,7 @@ def test_short_search_can_preview_candidates_then_read_only_the_selected_fact(ba
     signals = asyncio.run(backend.structured_store.query_retrieval_signals("demo", signal_type="search_hit"))
     assert {signal.target_id for signal in signals} == {entries[0].id}
     # Existing short-search behavior remains available when previews are not requested.
-    assert any("statement" in row for row in server.tool_search_memory(query="routingtoken")["memories"])
+    assert any("statement" in row for row in tool_handlers.tool_search_memory(query="routingtoken")["memories"])
 
 
 def test_focused_candidate_search_can_open_a_cross_project_rule(backend):
@@ -193,13 +184,13 @@ def test_focused_candidate_search_can_open_a_cross_project_rule(backend):
     shared = add_memories(backend, ["迁移完成并验证前保留原始备份，不要覆盖它。"],
                           project="global", title="跨设备保留原备份", number_titles=False)[0]
     task = "迁移 备份"
-    page = server.tool_search_memory(query=task, scope="all", detail="candidates", budget_tokens=4000)
+    page = tool_handlers.tool_search_memory(query=task, scope="all", detail="candidates", budget_tokens=4000)
     assert page["detail"] == "candidates"
     match = next(item for item in page["memories"] if item["title"] == shared.title)
     assert match["project_name"] == "global" and "statement" not in match
     assert asyncio.run(backend.structured_store.query_retrieval_signals("global", signal_type="search_hit")) == []
     _read_candidate(match, query=task, expected=shared)
-    restricted = server.tool_search_memory(query=task, project_name="reader", scope="project",
+    restricted = tool_handlers.tool_search_memory(query=task, project_name="reader", scope="project",
                                            detail="candidates", budget_tokens=4000)
     assert all(item["project_name"] == "reader" for item in restricted["memories"])
 
@@ -212,13 +203,13 @@ def test_equal_text_keeps_each_project_identity_and_selected_read(backend):
                                 title="Backup rule", number_titles=False)[0]
     other_case_entry = add_memories(backend, [statement], project="Reader",
                                     title="Backup rule", number_titles=False)[0]
-    page = server.tool_search_memory(query="Backup rule", scope="all",
+    page = tool_handlers.tool_search_memory(query="Backup rule", scope="all",
                                      detail="candidates", budget_tokens=2500)
     by_project = {item["project_name"]: item for item in page["memories"]}
     assert set(by_project) == {"reader", "Reader", "global"}
     for entry in (project_entry, global_entry, other_case_entry):
         _read_candidate(by_project[entry.project_name], query="Backup rule", expected=entry)
-    restricted = server.tool_search_memory(query="Backup rule", scope="project", project_name="reader",
+    restricted = tool_handlers.tool_search_memory(query="Backup rule", scope="project", project_name="reader",
                                            detail="candidates", budget_tokens=2500)
     assert len(restricted["memories"]) == 1
     assert restricted["memories"][0]["project_name"] == "reader"
@@ -231,23 +222,23 @@ def test_missing_task_candidates_offer_focused_search_without_widening_scope(bac
     assert "No lexical candidates matched" in text
     assert "each unanswered aspect" in text
     assert reading_tokens(text) <= 500
-    wake = server.tool_wake(current_task=query, project_name="reader", scope="project", budget_tokens=500)
+    wake = tool_handlers.tool_wake(current_task=query, project_name="reader", scope="project", budget_tokens=500)
     assert wake["long_term_memory"] == []
     assert "No lexical candidates matched" in wake["message"]
     assert "each unanswered aspect" in wake["message"]
     assert "respect explicit exclusions and scope" in wake["message"].casefold()
     assert reading_tokens(wake) <= 500
     assert "continuation" not in wake
-    search = server.tool_search_memory(query=query, scope="all", detail="candidates", budget_tokens=500)
+    search = tool_handlers.tool_search_memory(query=query, scope="all", detail="candidates", budget_tokens=500)
     assert search["status"] == "empty" and search["memories"] == []
     assert "No lexical candidates matched" in search["message"]
     tiny_hook = asyncio.run(build_wake_injection(backend, "reader", current_task=query, budget_tokens=15))
     assert reading_tokens(tiny_hook) <= 15
-    tiny_wake = server.tool_wake(current_task=query, project_name="reader", scope="project", budget_tokens=80)
+    tiny_wake = tool_handlers.tool_wake(current_task=query, project_name="reader", scope="project", budget_tokens=80)
     assert tiny_wake["success"] is True and tiny_wake["long_term_memory"] == []
     assert reading_tokens(tiny_wake) <= 80
-    assert server.tool_wake(current_task=query, budget_tokens="invalid")["success"] is False
-    assert server.tool_wake(current_task=query, budget_tokens=0)["success"] is False
+    assert tool_handlers.tool_wake(current_task=query, budget_tokens="invalid")["success"] is False
+    assert tool_handlers.tool_wake(current_task=query, budget_tokens=0)["success"] is False
 
 
 def test_focused_compound_search_can_review_partial_topic_in_named_project(backend):
@@ -256,14 +247,14 @@ def test_focused_compound_search_can_review_partial_topic_in_named_project(backe
     add_memories(backend, ["签名校验页面的按钮为绿色。"],
                  project="other", title="签名校验按钮", number_titles=False)
     query = "build-hub 签名校验"
-    page = server.tool_search_memory(query=query, scope="all", budget_tokens=3000)
+    page = tool_handlers.tool_search_memory(query=query, scope="all", budget_tokens=3000)
     assert page["detail"] == "candidates"
     candidate = next(row for row in page["memories"] if row["title"] == target.title)
     assert any(row["project_name"] == "other" for row in page["memories"])
     assert candidate["project_name"] == "build-hub" and "statement" not in candidate
     assert asyncio.run(backend.structured_store.query_retrieval_signals("build-hub", signal_type="search_hit")) == []
     _read_candidate(candidate, query=query, expected=target)
-    restricted = server.tool_search_memory(query=query, scope="project", project_name="other", budget_tokens=3000)
+    restricted = tool_handlers.tool_search_memory(query=query, scope="project", project_name="other", budget_tokens=3000)
     assert all(row["project_name"] == "other" for row in restricted["memories"])
 
 
@@ -271,10 +262,10 @@ def test_medium_chinese_question_can_discover_a_matching_step(backend):
     entry = add_memories(backend, ["回滚插件时先停用，再从受控目录恢复上一版并检查功能。"],
                          project="fictional", title="插件版本回退", number_titles=False)[0]
     query = "项目如何安全回滚插件更新？"
-    page = server.tool_search_memory(query=query, scope="project", project_name="fictional", budget_tokens=3000)
+    page = tool_handlers.tool_search_memory(query=query, scope="project", project_name="fictional", budget_tokens=3000)
     assert page["detail"] == "candidates"
     candidate = next(row for row in page["memories"] if row["title"] == entry.title)
-    opened = server.tool_search_memory(query=query, scope="project", project_name="fictional",
+    opened = tool_handlers.tool_search_memory(query=query, scope="project", project_name="fictional",
                                        detail="full", cursor=candidate["read_cursor"])
     assert opened["memories"] == [{"title": entry.title, "statement": entry.statement}]
 
@@ -285,12 +276,12 @@ def test_natural_search_keeps_explicit_parts_in_order_and_reads_original_query(b
     query = "怎么回滚插件更新？回滚完成后用什么证据核验签名？"
     splitter = Mock(wraps=read_knowledge._QUESTION_PART_BREAK)
     monkeypatch.setattr(read_knowledge, "_QUESTION_PART_BREAK", splitter)
-    first = server.tool_search_memory(query=query, budget_tokens=2500)
+    first = tool_handlers.tool_search_memory(query=query, budget_tokens=2500)
     splitter.split.assert_called_once_with(query)
     assert first["query"] == query
     assert first["question_parts"] == ["怎么回滚插件更新？", "回滚完成后用什么证据核验签名？"]
     assert "each part" in first["answer_guidance"]
-    assert "question_parts" not in server.tool_search_memory(query="插件版本回退")
+    assert "question_parts" not in tool_handlers.tool_search_memory(query="插件版本回退")
 
 
 def test_markdown_only_reads_project_sources_once_for_details(backend):
@@ -327,7 +318,7 @@ def test_configured_tight_natural_search_keeps_reading_link_without_optional_tok
     user_config = Path.home() / ".harness-mem/config.toml"
     user_config.parent.mkdir(exist_ok=True)
     user_config.write_text("[cost_budget]\nsearch_tokens=1200\n", encoding="utf-8")
-    first = server.tool_search_memory(query=query)
+    first = tool_handlers.tool_search_memory(query=query)
     assert first["status"] == "available"
     assert reading_tokens(first) <= 1200
     continuation = first.get("continuation")
@@ -336,7 +327,7 @@ def test_configured_tight_natural_search_keeps_reading_link_without_optional_tok
     else:
         arguments = {"query": query, "detail": "full", "read_cursor": first["memories"][0]["read_cursor"]}
     assert arguments["query"] == query
-    second = server.tool_search_memory(**arguments)
+    second = tool_handlers.tool_search_memory(**arguments)
     assert any(row["statement"] == entry.statement for row in second["memories"])
 
 
@@ -354,7 +345,7 @@ def test_multipart_search_delivers_whole_statements_for_distinct_parts(backend, 
     ]
     add_memories(backend, _many(), project="unrelated")
     original = "插件版本怎么回滚？用什么凭据核验插件签名？回滚失败时怎么恢复？"
-    result = server.tool_search_memory(query=original)
+    result = tool_handlers.tool_search_memory(query=original)
     assert result["query"] == original
     assert len(result["question_parts"]) == 3
     assert reading_tokens(result) <= 3600
@@ -383,7 +374,7 @@ def test_multipart_search_marks_questions_after_context_and_subjectless_followup
          ["Canvas Desk 的深度分析模式有什么区别？", "会自动切模型或改权限吗？"], [mode, mode]),
     ]
     for query, parts, expected in cases:
-        result = server.tool_search_memory(query=query)
+        result = tool_handlers.tool_search_memory(query=query)
         assert result["query"] == query
         assert result["question_parts"] == parts
         assert reading_tokens(result) <= 3600
@@ -399,7 +390,7 @@ def test_multipart_continuation_keeps_ranked_facts_and_original_request(backend,
     originals = _many(10)
     add_memories(backend, originals)
     query = "How do I use paginationtoken? How do I preserve supporting context?"
-    first = server.tool_search_memory(query=query)
+    first = tool_handlers.tool_search_memory(query=query)
     assert 1 < len(first["memories"]) <= 6
     assert first["continuation"]["arguments"]["query"] == query
     actual = _read_all(first, budget=3600)
@@ -412,7 +403,7 @@ def test_existing_full_statement_can_be_matched_to_a_short_part_without_a_separa
                                   "用户看过后拒绝文字勾选，后续提议进入场景观察。"],
                          title="《玻璃档案》原型验收和反馈", number_titles=False)[0]
     query = "用户看过《玻璃档案》之后，原来第一版做到哪一层，怎么验过能走通？"
-    result = server.tool_search_memory(query=query)
+    result = tool_handlers.tool_search_memory(query=query)
     assert result["query"] == query
     assert result["question_parts"] == ["原来第一版做到哪一层", "怎么验过能走通？"]
     position = next(i for i, row in enumerate(result["memories"], 1) if row.get("statement") == saved.statement)
@@ -424,7 +415,7 @@ def test_multipart_hint_prefers_the_question_subject_to_unrelated_literal_hits(b
                             title="Aurora 启动脚本验收", number_titles=False)[0]
     competing = add_memories(backend, ["地图切换的回归怎么验过：检查换图是否保留进度。"],
                              title="地图切换回归怎么验过", number_titles=False)[0]
-    result = server.tool_search_memory(query="那次 Aurora 启动回归改到了哪里，怎么验过？")
+    result = tool_handlers.tool_search_memory(query="那次 Aurora 启动回归改到了哪里，怎么验过？")
     statements = [row["statement"] for row in result["memories"]]
     assert statements.index(evidence.statement) + 1 in result["question_part_matches"][1]
     assert statements.index(competing.statement) + 1 not in result["question_part_matches"][1]
@@ -432,7 +423,7 @@ def test_multipart_hint_prefers_the_question_subject_to_unrelated_literal_hits(b
 
 def test_explicit_candidate_mode_survives_pagination_and_empty_query(backend):
     entries = add_memories(backend, _many())
-    first = server.tool_search_memory(query="paginationtoken", detail="candidates", budget_tokens=900)
+    first = tool_handlers.tool_search_memory(query="paginationtoken", detail="candidates", budget_tokens=900)
     assert first["detail"] == "candidates" and first["continuation"]["arguments"]["detail"] == "candidates"
     seen = []
     page = first
@@ -446,7 +437,7 @@ def test_explicit_candidate_mode_survives_pagination_and_empty_query(backend):
     else:
         pytest.fail("candidate continuation did not finish")
     assert set(seen) == {entry.title for entry in entries}
-    browse = server.tool_search_memory(query="", detail="candidates", budget_tokens=900)
+    browse = tool_handlers.tool_search_memory(query="", detail="candidates", budget_tokens=900)
     assert browse["detail"] == "candidates" and browse["memories"]
     assert all("statement" not in item for item in browse["memories"])
 
@@ -455,7 +446,7 @@ def test_explicit_candidate_mode_survives_pagination_and_empty_query(backend):
 def test_taskless_wake_offers_global_reading_without_dumping_statements(backend, task):
     add_memories(backend, ["First private-sized fact."])
     add_memories(backend, ["Second project fact."], project="other")
-    payload = server.tool_wake(project_name="unrelated", current_task=task)
+    payload = tool_handlers.tool_wake(project_name="unrelated", current_task=task)
     assert payload["success"] is True
     assert payload["long_term_memory"] == []
     assert payload["available_count"] == 2
@@ -467,7 +458,7 @@ def test_taskless_wake_offers_global_reading_without_dumping_statements(backend,
 def test_task_wake_candidates_open_whole_facts_and_search_reaches_all_matches(backend):
     expected = _many()
     entries = add_memories(backend, expected)
-    wake = server.tool_wake(current_task="paginationtoken", budget_tokens=650)
+    wake = tool_handlers.tool_wake(current_task="paginationtoken", budget_tokens=650)
     assert reading_tokens(wake) <= 650
     assert wake["detail"] == "candidates"
     assert wake["long_term_memory"]
@@ -476,7 +467,7 @@ def test_task_wake_candidates_open_whole_facts_and_search_reaches_all_matches(ba
     by_title = {entry.title: entry for entry in entries}
     for candidate in wake["long_term_memory"]:
         _read_candidate(candidate, query="paginationtoken", expected=by_title[candidate["title"]], budget=650)
-    actual = _read_all(server.tool_search_memory(query="paginationtoken", budget_tokens=650), budget=650)
+    actual = _read_all(tool_handlers.tool_search_memory(query="paginationtoken", budget_tokens=650), budget=650)
     assert len(actual) == len(expected)
     assert set(actual) == set(expected)
 
@@ -484,7 +475,7 @@ def test_task_wake_candidates_open_whole_facts_and_search_reaches_all_matches(ba
 def test_empty_query_browses_natural_modules_across_all_projects(backend):
     left = add_memories(backend, _many(12))
     right = add_memories(backend, ["A distinct cross-project rule."], project="other")
-    page = server.tool_search_memory(query="", budget_tokens=650)
+    page = tool_handlers.tool_search_memory(query="", budget_tokens=650)
     assert page["memories"][0]["module"] == ["Reading", "Recovery"]
     actual = _read_all(page, budget=650)
     assert set(actual) == {entry.statement for entry in [*left, *right]}
@@ -493,7 +484,7 @@ def test_empty_query_browses_natural_modules_across_all_projects(backend):
 def test_long_fact_gets_whole_entry_reading_and_preserves_complete_prose(backend):
     statement = "longfacttoken " + "完整知识段落。" * 200 + "最后的独立条件。"
     add_memories(backend, [statement])
-    index = server.tool_search_memory(query="longfacttoken", budget_tokens=500)
+    index = tool_handlers.tool_search_memory(query="longfacttoken", budget_tokens=500)
     assert reading_tokens(index) <= 500
     assert index["status"] == "available"
     assert index["detail"] == "index"
@@ -509,7 +500,7 @@ def test_long_fact_gets_whole_entry_reading_and_preserves_complete_prose(backend
 def test_very_long_title_is_not_silently_clipped(backend):
     title = "完整标题" * 200
     add_memories(backend, ["hugetitletoken complete fact."], title=title)
-    index = server.tool_search_memory(query="hugetitletoken", budget_tokens=400)
+    index = tool_handlers.tool_search_memory(query="hugetitletoken", budget_tokens=400)
     assert index["status"] == "available"
     assert reading_tokens(index) <= 400
     assert index["memories"] == []
@@ -522,7 +513,7 @@ def test_candidate_search_keeps_a_reading_link_when_no_title_fits(backend):
         backend, ["The hidden-reading fixture contains one complete fact."],
         title="A deliberately long title " * 2000, number_titles=False,
     )
-    result = server.tool_search_memory(
+    result = tool_handlers.tool_search_memory(
         query="hidden-reading", detail="candidates", budget_tokens=1600,
     )
     assert result["status"] == "available"
@@ -538,22 +529,16 @@ def test_candidate_search_keeps_a_reading_link_when_no_title_fits(backend):
 def test_public_search_opens_the_selected_nonfirst_candidate_by_read_cursor(backend):
     add_memories(backend, ["selectionfixture first fact.", "selectionfixture second fact."])
     query = "selectionfixture"
-    page = server.tool_search_memory(query=query, detail="candidates", budget_tokens=4000)
+    page = tool_handlers.tool_search_memory(query=query, detail="candidates", budget_tokens=4000)
     chosen = page["memories"][1]
-    response = server.handle_request({
-        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-        "params": {"name": "search_memory", "arguments": {
-            "query": query, "detail": "full", "read_cursor": chosen["read_cursor"],
-        }},
-    })
-    payload = json.loads(response["result"]["content"][0]["text"])
+    payload = tool_handlers.tool_search_memory(query=query, detail="full", read_cursor=chosen["read_cursor"])
     assert [row["title"] for row in payload["memories"]] == [chosen["title"]]
     assert payload["memories"][0]["statement"] == "selectionfixture second fact."
 
 
 def test_saved_revision_change_restarts_reading_instead_of_using_an_old_offset(backend):
     add_memories(backend, _many())
-    first = server.tool_search_memory(query="", budget_tokens=600)
+    first = tool_handlers.tool_search_memory(query="", budget_tokens=600)
     add_memories(backend, ["The newly saved first fact."], title="AAA new fact")
     restarted = _continue(first)
     assert "Memory changed" in restarted["message"]
@@ -563,16 +548,16 @@ def test_saved_revision_change_restarts_reading_instead_of_using_an_old_offset(b
 
 def test_cursor_is_bound_to_query_and_explicit_project_filter(backend):
     add_memories(backend, _many())
-    first = server.tool_search_memory(query="paginationtoken", budget_tokens=600)
+    first = tool_handlers.tool_search_memory(query="paginationtoken", budget_tokens=600)
     arguments = first["continuation"]["arguments"]
-    other_query = server.tool_search_memory(**{**arguments, "query": "other"})
-    other_scope = server.tool_search_memory(**{**arguments, "scope": "project", "project_name": "demo"})
+    other_query = tool_handlers.tool_search_memory(**{**arguments, "query": "other"})
+    other_scope = tool_handlers.tool_search_memory(**{**arguments, "scope": "project", "project_name": "demo"})
     assert other_query["status"] == other_scope["status"] == "invalid"
 
 
 @pytest.mark.parametrize("cursor", ["not-a-position", "W10", "Wy0xLDEsMl0", "W3RydWUsMSwyXQ"])
 def test_malformed_positions_are_readable_errors(backend, cursor):
-    payload = server.tool_search_memory(query="", cursor=cursor)
+    payload = tool_handlers.tool_search_memory(query="", cursor=cursor)
     assert payload["status"] == "invalid"
     assert payload["memories"] == []
 
@@ -581,7 +566,7 @@ def test_explicit_project_filter_is_kept_across_every_page(backend):
     expected = _many()
     add_memories(backend, expected)
     add_memories(backend, ["paginationtoken other project."], project="other")
-    first = server.tool_search_memory(
+    first = tool_handlers.tool_search_memory(
         query="paginationtoken", scope="project", project_name="demo", budget_tokens=600,
     )
     assert set(_read_all(first, budget=600)) == set(expected)
@@ -590,7 +575,7 @@ def test_explicit_project_filter_is_kept_across_every_page(backend):
 def test_optional_tokenizer_fallback_uses_utf8_size_not_quarter_characters(backend, monkeypatch):
     add_memories(backend, [f"中文知识 第 {index} 条。" + "完整来源与准确知识。" * 12 for index in range(10)])
     monkeypatch.setattr(token_estimator, "_get_encoder", lambda: None)
-    payload = server.tool_search_memory(query="", budget_tokens=1800)
+    payload = tool_handlers.tool_search_memory(query="", budget_tokens=1800)
     assert len(serialize_mcp_result(payload).encode("utf-8")) <= 1800
     assert len(payload["memories"]) < 10
 
@@ -606,7 +591,7 @@ def test_special_token_spelling_is_counted_as_ordinary_memory_text():
 
 def test_autopilot_counts_the_whole_envelope_and_records_only_opened_candidates(backend):
     entries = add_memories(backend, _many())
-    payload = server.tool_autopilot_search_tick(
+    payload = tool_handlers.tool_autopilot_search_tick(
         event_name="tool_result", current_task="paginationtoken", tool_name="pytest",
         tool_result="paginationtoken failed", is_error=True, budget_tokens=1400,
     )
@@ -633,7 +618,7 @@ def test_autopilot_counts_the_whole_envelope_and_records_only_opened_candidates(
     assert "continuation" not in injection
     # Candidate discovery stays bounded. A deliberate ordinary search still
     # supports complete, budgeted pagination across the matching library.
-    ordinary = server.tool_search_memory(query="paginationtoken", budget_tokens=1400)
+    ordinary = tool_handlers.tool_search_memory(query="paginationtoken", budget_tokens=1400)
     assert set(_read_all(ordinary, budget=1400)) == {entry.statement for entry in entries}
 
 
@@ -641,7 +626,7 @@ def test_signal_failure_keeps_the_actual_output_within_autopilot_size(backend, m
     entries = add_memories(backend, _many())
     failed_signal = AsyncMock(return_value=None)
     monkeypatch.setattr(read_query_support, "record_retrieval_signal", failed_signal)
-    payload = server.tool_autopilot_search_tick(
+    payload = tool_handlers.tool_autopilot_search_tick(
         event_name="tool_result", current_task="paginationtoken", is_error=True, budget_tokens=1200,
     )
     assert payload["success"] is True
@@ -664,7 +649,7 @@ def test_signal_failure_keeps_the_actual_output_within_autopilot_size(backend, m
 def test_minimal_install_autopilot_keeps_a_usable_reading_result(backend, monkeypatch):
     entries = add_memories(backend, _many())
     monkeypatch.setattr(token_estimator, "_get_encoder", lambda: None)
-    payload = server.tool_autopilot_search_tick(
+    payload = tool_handlers.tool_autopilot_search_tick(
         event_name="tool_result", current_task="paginationtoken", is_error=True, budget_tokens=1400,
     )
     assert payload["success"] is True
@@ -716,7 +701,7 @@ def test_exact_short_task_is_still_a_candidate_until_explicitly_read(backend, ta
     assert asyncio.run(backend.structured_store.query_retrieval_signals("demo", signal_type="wake_surfaced")) == []
     _read_candidate(candidates[0], query=query, expected=entry)
     # An explicit focused search keeps its direct whole-fact behavior.
-    assert server.tool_search_memory(query=task)["memories"][0]["statement"] == entry.statement
+    assert tool_handlers.tool_search_memory(query=task)["memories"][0]["statement"] == entry.statement
 
 
 @pytest.mark.parametrize("task", [None, "paginationtoken"])
@@ -728,7 +713,7 @@ def test_small_hook_page_supplies_a_usable_mcp_reading_call(backend, task):
         assert "Continue reading:" not in text and "paginationtoken" not in text
         assert asyncio.run(backend.structured_store.query_retrieval_signals("demo", signal_type="wake_surfaced")) == []
         # Explicit browse remains available through the ordinary MCP surface.
-        assert len(_read_all(server.tool_search_memory(query="", budget_tokens=650), budget=650)) == 12
+        assert len(_read_all(tool_handlers.tool_search_memory(query="", budget_tokens=650), budget=650)) == 12
         return
     assert all(entry.statement not in text for entry in entries)
     assert "Continue reading:" not in text
@@ -761,7 +746,7 @@ def test_short_answer_remains_readable_next_to_a_full_term_reference(backend, su
         assert any(short.statement in str(page) for page in opened)
         return
     elif surface == "wake":
-        result = server.tool_wake(current_task=task)
+        result = tool_handlers.tool_wake(current_task=task)
         assert short.statement not in str(result)
         candidates = result["long_term_memory"]
         assert candidates
@@ -772,7 +757,7 @@ def test_short_answer_remains_readable_next_to_a_full_term_reference(backend, su
         assert any(short.statement in str(page) for page in opened)
         return
     elif surface == "automatic":
-        result = server.tool_autopilot_search_tick(event_name="tool_result", current_task=task, is_error=True)
+        result = tool_handlers.tool_autopilot_search_tick(event_name="tool_result", current_task=task, is_error=True)
         injection = result["context_injection"]
         assert short.statement not in str(injection)
         assert injection["source_ids"] == []
@@ -785,13 +770,13 @@ def test_short_answer_remains_readable_next_to_a_full_term_reference(backend, su
         assert any(short.statement in str(page) for page in opened)
         return
     else:
-        result = server.tool_search_memory(query=task)
+        result = tool_handlers.tool_search_memory(query=task)
     assert "Fourteen days." in str(result)
 
 
-def test_sql_keyword_lookup_through_the_real_mcp_reader(backend):
+def test_sql_keyword_lookup_through_the_current_knowledge_reader(backend):
     add_memories(backend, ["Use WITH for a CTE and WHERE for filtering."], title="SQL clauses")
     # Keyword variants belong to the ranking unit tests; one proves MCP wiring.
-    result = server.tool_search_memory(query="WITH")
+    result = tool_handlers.tool_search_memory(query="WITH")
     assert result["status"] == "answered"
     assert result["memories"][0]["statement"] == "Use WITH for a CTE and WHERE for filtering."

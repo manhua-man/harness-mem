@@ -181,11 +181,11 @@ def native_tool_evidence(
             raise ValueError("native_evidence_invalid_view")
         if request is None:
             read_request = {**binding, "offset": 0, "page_chars": 16000}
-            arguments = {"distill_job_id": job.id, "native_evidence": read_request}
+            arguments = {"job_id": job.id, "native_evidence": read_request}
             return {
                 **common,
-                "read": {"tool": "prepare_session_distill", "arguments": arguments},
-                "review_questions": {"tool": "prepare_session_distill", "arguments": {
+                "read": {"method": "read", "arguments": arguments},
+                "review_questions": {"method": "read", "arguments": {
                     **arguments, "native_evidence": {**read_request, "view": "questions"},
                 }},
             }

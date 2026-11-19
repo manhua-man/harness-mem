@@ -1,11 +1,4 @@
-"""Lazy access to the stable MCP handler facade.
-
-Capability modules are imported by :mod:`harness_mem.mcp.tool_handlers`, which
-owns the public registry and shared runtime bindings. Importing that facade
-eagerly from the capability modules would make their import order observable
-and prevent them from being imported independently. This proxy resolves the
-facade only when a handler needs a bound dependency or shared callback.
-"""
+"""Late binding of shared memory callbacks avoids circular imports."""
 
 from __future__ import annotations
 

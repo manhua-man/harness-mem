@@ -600,7 +600,7 @@ def inspect_dream_outcome(
 
 
 def inspect_retrieval_outcome(data_dir: Path, project_name: str) -> dict[str, Any]:
-    """Prove normal MCP search reads a current SQLite knowledge entry.
+    """Prove the local Search API reads a current SQLite knowledge entry.
 
     ``knowledge_entries`` is the current truth authority.  The older
     ``structured_index.sqlite / memory_entries`` path is compatibility data,
@@ -609,12 +609,11 @@ def inspect_retrieval_outcome(data_dir: Path, project_name: str) -> dict[str, An
     title and statement through the ordinary public search projection.
     """
 
-    from harness_mem.mcp import read_search_handlers, server
+    from harness_mem.search import search
     from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
     backend = LocalMemoryBackend(data_dir)
     asyncio.run(backend.init())
-    server.set_backend_override(backend)
     try:
         entries = asyncio.run(
             backend.structured_store.knowledge_store.list_entries(project_name)
@@ -622,10 +621,9 @@ def inspect_retrieval_outcome(data_dir: Path, project_name: str) -> dict[str, An
         attempts: list[dict[str, Any]] = []
         for entry in entries:
             for query in _query_candidates(f"{entry.title} {entry.statement}"):
-                payload = read_search_handlers.tool_search_memory(
-                    query=query,
-                    project_name=project_name,
-                    scope="project",
+                payload = search(
+                    query=query, data_dir=data_dir,
+                    scope="project", project_name=project_name,
                 )
                 hit = {
                     "title": entry.title,
@@ -657,7 +655,6 @@ def inspect_retrieval_outcome(data_dir: Path, project_name: str) -> dict[str, An
             "attempts": attempts,
         }
     finally:
-        server.set_backend_override(None)
         asyncio.run(backend.close())
 
 

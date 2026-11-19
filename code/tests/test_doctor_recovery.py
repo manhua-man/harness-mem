@@ -133,7 +133,7 @@ def test_doctor_reports_legacy_reader_cutoff_and_migration_preview(capsys) -> No
             "earliest_removal_version": "1.0.0",
             "earliest_removal_date": "2027-01-31",
             "migration_preview_command": (
-                "harness-mem maintenance migrate-store-v2 "
+                "python -m harness_mem.cli maintenance migrate-store-v2 "
                 "--project <PROJECT_NAME> --dry-run"
             ),
         },

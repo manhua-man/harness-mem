@@ -110,7 +110,6 @@ _RUNTIME_SOURCE_FILES = (
     Path(__file__).parents[1] / "commands" / "distill_result.py",
     Path(__file__).parents[1] / "commands" / "manual_distill.py",
     Path(__file__).parents[1] / "mcp" / "governance_handlers.py",
-    Path(__file__).parents[1] / "mcp" / "tool_specs.py",
     Path(__file__).parents[1] / "mcp" / "distill_handlers.py",
     Path(__file__).parents[1] / "mcp" / "distill_projection.py",
     Path(__file__).parents[1] / "mcp" / "read_search_handlers.py",

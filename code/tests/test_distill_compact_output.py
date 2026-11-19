@@ -1,10 +1,9 @@
-"""Compact MCP output keeps complete evidence and the existing persistence loop."""
+"""Compact Agent output keeps complete evidence and the existing persistence loop."""
 from __future__ import annotations
 
 import asyncio
 import hashlib
 import json
-import logging
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -12,10 +11,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from harness_mem.mcp import distill_handlers, governance_handlers, tool_handlers
-from harness_mem.mcp.executor import execute_tool_call
 from harness_mem.mcp.response_budget import serialize_mcp_result
 from harness_mem.mcp.session_handlers import tool_inspect_sessions
-from harness_mem.mcp.tool_specs import build_tools
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from test_device_memory_flow import device as device
 from test_device_memory_flow import preference_judgment
@@ -27,16 +24,9 @@ CHECKS = (
 )
 
 
-def _rpc(backend, tool, arguments):
-    response = execute_tool_call(
-        tools=build_tools(tool_handlers.build_tool_handlers()),
-        params={"name": tool, "arguments": arguments}, req_id=1,
-        data_dir=lambda: backend.data_dir, cost_budgets=lambda _: None,
-        project_name_for_cost=lambda *_: None, logger=logging.getLogger(__name__),
-    )
-    assert "error" not in response, response
-    rendered = response["result"]["content"][0]["text"]
-    return json.loads(rendered), len(rendered.encode("utf-8"))
+def _measured(handler, arguments):
+    result = handler(**arguments)
+    return result, len(serialize_mcp_result(result).encode("utf-8"))
 
 
 def _review(statement="Read the complete fictional conversation.", **updates):
@@ -66,7 +56,7 @@ def _suggest(packet, statement, title, *, target=None):
     return preference_judgment(result["entry_id"], title, statement, target=target)
 
 
-def test_two_original_short_sessions_through_executor_and_reopened_storage(device, tmp_path, monkeypatch):
+def test_two_original_short_sessions_through_local_handlers_and_reopened_storage(device, tmp_path, monkeypatch):
     backend, write = device
     first = "For future collaboration, retain independently verifiable facts for thirteen days."
     second = (
@@ -76,15 +66,15 @@ def test_two_original_short_sessions_through_executor_and_reopened_storage(devic
     paths = [write("a-first", first), write("b-corrected", second, roots=[tmp_path / "former-workspace"])]
     originals = [path.read_bytes() for path in paths]
     rows = tool_inspect_sessions(clients=["codex"])["sessions"]
-    packet, prepare1 = _rpc(backend, "prepare_session_distill", {"scope": "all", "batch_sessions": rows})
-    assert packet["next_step"] == "finalize_session_distill"
+    packet, prepare1 = _measured(tool_handlers.tool_prepare_session_distill, {"scope": "all", "batch_sessions": rows})
+    assert packet["next_step"] == "finish"
     batch_id = packet["batch_id"]
     window, = packet["semantic_decision_exchanges"]
     body = window["content"]
     assert first in body and "Understood." in body
     assert hashlib.sha256(body.encode()).hexdigest() == window["content_sha256"]
     judgment = _suggest(packet, first, "Retention preference")
-    final1, finish1 = _rpc(backend, "finalize_session_distill", {
+    final1, finish1 = _measured(tool_handlers.tool_finalize_session_distill, {
         "project_name": packet["project_name"], "job_id": packet["distill_job_id"],
         "semantic_review": _review(first, final_scope_judgment=judgment),
     })
@@ -93,10 +83,10 @@ def test_two_original_short_sessions_through_executor_and_reopened_storage(devic
     assert final1["readback_verified"] is True
     old = tool_handlers.tool_search_memory(query="")["memories"][0]
     # Explicit completed-job recovery keeps saved results, without diagnostic packets.
-    recovered, _ = _rpc(backend, "prepare_session_distill", {"distill_job_id": packet["distill_job_id"]})
+    recovered, _ = _measured(tool_handlers.tool_prepare_session_distill, {"distill_job_id": packet["distill_job_id"]})
     assert recovered["knowledge_changes"] == final1["knowledge_changes"]
-    packet, prepare2 = _rpc(backend, "prepare_session_distill", {"batch_id": batch_id})
-    resumed, _ = _rpc(backend, "prepare_session_distill", {"batch_id": batch_id})
+    packet, prepare2 = _measured(tool_handlers.tool_prepare_session_distill, {"batch_id": batch_id})
+    resumed, _ = _measured(tool_handlers.tool_prepare_session_distill, {"batch_id": batch_id})
     assert resumed == packet
     corrected = "For future collaboration, retain independently verifiable facts for fourteen days."
     language = "For future collaboration, answer in concise Chinese."
@@ -105,14 +95,14 @@ def test_two_original_short_sessions_through_executor_and_reopened_storage(devic
         **_suggest(packet, corrected, "Retention preference", target=old),
         **_suggest(packet, language, "Reply preference"),
     }
-    final2, finish2 = _rpc(backend, "finalize_session_distill", {
+    final2, finish2 = _measured(tool_handlers.tool_finalize_session_distill, {
         "project_name": packet["project_name"], "job_id": packet["distill_job_id"],
         "semantic_review": _review(second, final_scope_judgment=judgments),
     })
     assert final2["success"], final2
     assert {row["change"] for row in final2["knowledge_changes"]} == {"added", "replaced"}
     assert final2["readback_verified"] is True
-    replay, _ = _rpc(backend, "finalize_session_distill", {
+    replay, _ = _measured(tool_handlers.tool_finalize_session_distill, {
         "project_name": packet["project_name"], "job_id": packet["distill_job_id"], "semantic_review": {},
     })
     assert replay["idempotent_replay"] and replay["knowledge_changes"] == final2["knowledge_changes"]
@@ -122,7 +112,7 @@ def test_two_original_short_sessions_through_executor_and_reopened_storage(devic
     )
     assert internal["success"] and internal["answer_packet"]
     assert internal["promotion"] and internal["structural_audit"]
-    complete, _ = _rpc(backend, "prepare_session_distill", {"batch_id": batch_id})
+    complete, _ = _measured(tool_handlers.tool_prepare_session_distill, {"batch_id": batch_id})
     assert complete["status"] == "completed" and complete["progress"]["completed"] == 2
     assert complete["unfinished_work"] == []
     for final in (final1, final2):
@@ -135,7 +125,7 @@ def test_two_original_short_sessions_through_executor_and_reopened_storage(devic
     asyncio.run(reopened.init())
     try:
         monkeypatch.setattr(tool_handlers, "_backend_provider", lambda: reopened)
-        current, _ = _rpc(reopened, "search_memory", {"query": ""})
+        current, _ = _measured(tool_handlers.tool_search_memory, {"query": ""})
         assert {row["statement"] for row in current["memories"]} == {corrected, language}
         entries = asyncio.run(reopened.structured_store.knowledge_store.list_entries("global"))
         assert {entry.statement for entry in entries} == {corrected, language}
@@ -161,7 +151,7 @@ def test_tiny_budget_keeps_all_full_exchanges_and_digests(device):
                 "content": [{"type": "input_text" if role == "user" else "output_text", "text": text}],
             }}) + "\n")
     rows = tool_inspect_sessions(clients=["codex"])["sessions"]
-    packet, _ = _rpc(backend, "prepare_session_distill", {"scope": "all", "batch_sessions": rows, "budget_tokens": 256})
+    packet, _ = _measured(tool_handlers.tool_prepare_session_distill, {"scope": "all", "batch_sessions": rows, "budget_tokens": 256})
     windows = packet["semantic_decision_exchanges"]
     assert [row["exchange_index"] for row in windows] == [1, 2, 3]
     assert long_user in windows[0]["content"]
@@ -172,7 +162,7 @@ def test_tiny_budget_keeps_all_full_exchanges_and_digests(device):
     assert all(hashlib.sha256(row["content"].encode()).hexdigest() == row["content_sha256"] for row in windows)
     assert "chunks" not in packet["semantic_evidence"]
     assert not {"response_budget", "distill_instructions", "agent_execution", "zero_candidate_challenge_template"} & packet.keys()
-    full, _ = _rpc(backend, "prepare_session_distill", {"batch_id": packet["batch_id"], "detail_level": "full"})
+    full, _ = _measured(tool_handlers.tool_prepare_session_distill, {"batch_id": packet["batch_id"], "detail_level": "full"})
     assert full["response_budget"] and full["zero_candidate_challenge_template"]
     assert "chunks" in full["semantic_evidence"] and "distill_instructions" in full
 
@@ -181,15 +171,15 @@ def test_failure_retains_reason_job_and_batch_resume(device):
     backend, write = device
     write("invalid", "For future collaboration, use concise replies.")
     rows = tool_inspect_sessions(clients=["codex"])["sessions"]
-    packet, _ = _rpc(backend, "prepare_session_distill", {"scope": "all", "batch_sessions": rows})
-    invalid, _ = _rpc(backend, "finalize_session_distill", {
+    packet, _ = _measured(tool_handlers.tool_prepare_session_distill, {"scope": "all", "batch_sessions": rows})
+    invalid, _ = _measured(tool_handlers.tool_finalize_session_distill, {
         "project_name": packet["project_name"], "job_id": packet["distill_job_id"], "semantic_review": {},
     })
     assert invalid["success"] is False and invalid["reason_codes"] == ["semantic_review_invalid"]
     assert "readback_verified" not in invalid
     assert invalid["distill_job_id"] == packet["distill_job_id"] and invalid["distill_status"] == "reviewing"
     assert asyncio.run(backend.structured_store.knowledge_store.list_entries("global")) == []
-    resumed, _ = _rpc(backend, "prepare_session_distill", {"batch_id": packet["batch_id"], "retry_failures": True})
+    resumed, _ = _measured(tool_handlers.tool_prepare_session_distill, {"batch_id": packet["batch_id"], "retry_failures": True})
     assert resumed["success"] and resumed["distill_job_id"] == packet["distill_job_id"]
 
 
@@ -197,9 +187,9 @@ def test_zero_candidate_without_embedded_template(device):
     backend, write = device
     write("no-memory", "What is 2 plus 2?")
     rows = tool_inspect_sessions(clients=["codex"])["sessions"]
-    packet, _ = _rpc(backend, "prepare_session_distill", {"scope": "all", "batch_sessions": rows})
+    packet, _ = _measured(tool_handlers.tool_prepare_session_distill, {"scope": "all", "batch_sessions": rows})
     required = packet["semantic_evidence"]["zero_candidate_required_exchange_indexes"]
-    final, _ = _rpc(backend, "finalize_session_distill", {
+    final, _ = _measured(tool_handlers.tool_finalize_session_distill, {
         "project_name": packet["project_name"], "job_id": packet["distill_job_id"],
         "semantic_review": _review(promotion_decision="no_promotion", zero_candidate_challenge={
             "version": "v1", "source_revision": packet["source_revision"], "evidence_fidelity": "complete",
@@ -217,8 +207,8 @@ def test_explicit_no_write_finishes_without_extra_questionnaire(device):
     backend, write = device
     write("ordinary-no-write", "What is 2 plus 2?")
     rows = tool_inspect_sessions(clients=["codex"])["sessions"]
-    packet, _ = _rpc(backend, "prepare_session_distill", {"scope": "all", "batch_sessions": rows})
-    result, _ = _rpc(backend, "finalize_session_distill", {
+    packet, _ = _measured(tool_handlers.tool_prepare_session_distill, {"scope": "all", "batch_sessions": rows})
+    result, _ = _measured(tool_handlers.tool_finalize_session_distill, {
         "project_name": packet["project_name"], "job_id": packet["distill_job_id"],
         "semantic_review": _review(promotion_decision="no_promotion"),
     })
@@ -234,17 +224,17 @@ def test_completed_readback_is_rechecked_instead_of_trusting_a_saved_receipt(dev
     statement = "For future collaboration, retain source evidence for eighteen days."
     write("readback", statement)
     rows = tool_inspect_sessions(clients=["codex"])["sessions"]
-    packet, _ = _rpc(backend, "prepare_session_distill", {"scope": "all", "batch_sessions": rows})
+    packet, _ = _measured(tool_handlers.tool_prepare_session_distill, {"scope": "all", "batch_sessions": rows})
     judgment = _suggest(packet, statement, "Source retention")
     arguments = {"project_name": packet["project_name"], "job_id": packet["distill_job_id"],
                  "semantic_review": _review(statement, final_scope_judgment=judgment)}
-    final, _ = _rpc(backend, "finalize_session_distill", arguments)
+    final, _ = _measured(tool_handlers.tool_finalize_session_distill, arguments)
     assert final["success"], final
     assert final["readback_verified"] is True
     # Persisted success cannot conceal a later normal-retrieval failure.
     import harness_mem.read_knowledge as retrieval
     monkeypatch.setattr(retrieval, "search_current_knowledge", AsyncMock(return_value=[]))
-    replay, _ = _rpc(backend, "finalize_session_distill", {**arguments, "semantic_review": {}})
+    replay, _ = _measured(tool_handlers.tool_finalize_session_distill, {**arguments, "semantic_review": {}})
     assert replay["success"] is False
     assert "readback_verified" not in replay
     assert replay["reason_codes"] == ["promotion_write_unreadable"]
@@ -254,23 +244,23 @@ def test_raw_leases_and_drilldown_are_still_usable(device):
     backend, write = device
     write("raw", "For future collaboration, use concise replies.")
     rows = tool_inspect_sessions(clients=["codex"])["sessions"]
-    packet, _ = _rpc(backend, "prepare_session_distill", {"scope": "all", "batch_sessions": rows, "evidence_mode": "raw"})
+    packet, _ = _measured(tool_handlers.tool_prepare_session_distill, {"scope": "all", "batch_sessions": rows, "evidence_mode": "raw"})
     assert packet["lease_owner"] and packet["chunks"]
-    assert packet["next_step"] == "submit_distill_chunk"
+    assert packet["next_step"] == "checkpoint"
     for chunk in packet["chunks"]:
         assert "raw_content" in chunk and "content_sha256" in chunk and "chunk_id" in chunk
-        submitted, _ = _rpc(backend, "submit_distill_chunk", {
+        submitted, _ = _measured(tool_handlers.tool_submit_distill_chunk, {
             "job_id": packet["distill_job_id"], "chunk_id": chunk["chunk_id"],
             "lease_owner": packet["lease_owner"], "result": {"summary": "Read the complete fictional source."},
         })
         assert submitted["success"], submitted
-    drilldown, _ = _rpc(backend, "prepare_session_distill", {
+    drilldown, _ = _measured(tool_handlers.tool_prepare_session_distill, {
         "batch_id": packet["batch_id"], "drilldown_exchange_indexes": [1],
         "drilldown_query": "concise replies",
     })
     assert drilldown["semantic_drilldown_exchanges"][0]["content"]
     assert drilldown["raw_drilldown_chunks"][0]["raw_content"]
-    assert drilldown["next_step"] == "finalize_session_distill"
+    assert drilldown["next_step"] == "finish"
 
 
 @pytest.mark.parametrize("source", ["ide_hook", "autonomous_worker"])

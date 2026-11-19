@@ -32,7 +32,7 @@ def test_quickstart_installs_user_hooks_without_touching_project(
     assert "Installed user-level lifecycle Hooks for codex" in output
     assert "then start a new task" in output
     assert "Background authorization is unchanged" in output
-    assert "harness-mem-mcp" in output
+    assert "harness-mem-mcp" not in output
     assert "Codex Settings > Hooks" in output
 
 
@@ -80,7 +80,7 @@ def test_quickstart_auto_stops_when_current_app_is_unknown(
     assert onboarding.cmd_quickstart(client="auto") == 1
     output = capsys.readouterr().out
     assert "Could not detect the current app" in output
-    assert "harness-mem quickstart --client cursor" in output
+    assert "python -m harness_mem.cli quickstart --client cursor" in output
     assert "Installed" not in output
     assert "harness-mem-mcp" not in output
 
@@ -145,4 +145,4 @@ def test_quickstart_handoff_preserves_existing_mcp_project_and_memory(
     }
     output = capsys.readouterr().out
     assert f"Installed user-level lifecycle Hooks for {client}." in output
-    assert "harness-mem-mcp" in output
+    assert "harness-mem-mcp" not in output

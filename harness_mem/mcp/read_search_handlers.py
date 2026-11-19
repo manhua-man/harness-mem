@@ -72,7 +72,7 @@ def tool_search_memory(
             return {
                 "project_name": selected_project, "query": query,
                 "status": "unavailable", "memories": [],
-                "reason": "Memory storage is not ready. Run harness-mem doctor.",
+                "reason": "Memory storage is not ready. Check the selected data directory before retrying.",
             }
         entries = asyncio.run(
             search_current_knowledge(
@@ -85,7 +85,7 @@ def tool_search_memory(
         return {
             "project_name": selected_project, "query": query,
             "status": "unavailable", "memories": [],
-            "reason": "Current memory could not be read. Run harness-mem doctor before retrying.",
+            "reason": "Current memory could not be read. Check storage availability before retrying.",
         }
 
     parsed_parts = discovery.get("question_parts", []) if detail == "auto" and not _candidate_only else []

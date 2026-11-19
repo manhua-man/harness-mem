@@ -12,6 +12,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import cast
 
+from harness_mem.agent_runtime import active_backend
 from harness_mem.core.schemas import (
     AssimilationDecision,
     KnowledgeCandidate,
@@ -23,7 +24,6 @@ from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.embedding.model_loader import temporarily_disable_embeddings
 from harness_mem.commands.dream import _scope_fingerprint, dream_once
-from harness_mem.mcp import server
 from harness_mem.mcp.read_evidence_handlers import tool_file_context, tool_search_raw
 from harness_mem.mcp.read_search_handlers import (
     tool_autopilot_search_tick,
@@ -43,7 +43,7 @@ def run_clean_retrieval_outcome_probe() -> dict[str, bool]:
         source.write_text("clean retrieval contract\n", encoding="utf-8")
         backend = LocalMemoryBackend(root / "data")
         asyncio.run(backend.init())
-        server.set_backend_override(backend)
+        binding = active_backend.set(backend)
         try:
             project_name = "clean-retrieval-probe"
             current = KnowledgeEntry(
@@ -270,7 +270,7 @@ def run_clean_retrieval_outcome_probe() -> dict[str, bool]:
             fields["verified"] = all(fields.values())
             return fields
         finally:
-            server.set_backend_override(None)
+            active_backend.reset(binding)
             asyncio.run(backend.close())
 
 
@@ -287,15 +287,7 @@ def main() -> int:
             result = run_clean_retrieval_outcome_probe()
     finally:
         tokenizer_logger.disabled = previous_tokenizer_logger_disabled
-    # Importing the MCP server redirects descriptor 1 to stderr to protect the
-    # JSON-RPC transport. Its duplicate preserves the process's original
-    # stdout for a qualification command's sole machine-readable result.
-    payload = (json.dumps(result, sort_keys=True) + "\n").encode("utf-8")
-    original_stdout = getattr(server, "_REAL_STDOUT_FD", None)
-    if original_stdout is not None:
-        os.write(original_stdout, payload)
-    else:  # pragma: no cover - only if the platform lacks descriptor support.
-        os.write(1, payload)
+    print(json.dumps(result, sort_keys=True))
     return 0 if result["verified"] else 1
 
 

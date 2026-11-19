@@ -44,10 +44,10 @@ def test_reviewed_native_move_refreshes_shared_source_and_cleanup(tmp_path, monk
     monkeypatch.setattr(session_inventory, "build_inspection_adapter", lambda _: CodexAdapter(
         None, sessions_dir=sessions, archive_dir=archive))
     monkeypatch.setattr(manual_distill, "runtime_fingerprint", lambda: "native-rebind-fixture")
-    handlers = tool_handlers.build_tool_handlers()
+    handlers = tool_handlers
 
     def prepare(**arguments):
-        return handlers["prepare_session_distill"](project_name="project", project_root=str(root), **arguments)
+        return handlers.tool_prepare_session_distill(project_name="project", project_root=str(root), **arguments)
 
     try:
         synced = asyncio.run(CodexAdapter(backend, sessions_dir=sessions, archive_dir=archive).sync_session(
@@ -65,7 +65,7 @@ def test_reviewed_native_move_refreshes_shared_source_and_cleanup(tmp_path, monk
                 raw_bytes=backend.transcript_store.reconstruct_raw(synced.source.id))
         packet = None
         if resume:
-            rows = handlers["inspect_sessions"](project_root=str(root), clients=["codex"])["sessions"]
+            rows = handlers.tool_inspect_sessions(project_root=str(root), clients=["codex"])["sessions"]
             packet = prepare(batch_sessions=[row for row in rows if row["origin"] == "native"])
             assert packet["success"], packet
         moved = archive / path.name
@@ -79,7 +79,7 @@ def test_reviewed_native_move_refreshes_shared_source_and_cleanup(tmp_path, monk
         if resume:
             packet = prepare(batch_id=packet["batch_id"])
         else:
-            rows = handlers["inspect_sessions"](project_root=str(root), clients=["codex"])["sessions"]
+            rows = handlers.tool_inspect_sessions(project_root=str(root), clients=["codex"])["sessions"]
             packet = prepare(batch_sessions=[row for row in rows if row["origin"] == "native"])
         if ambiguous:
             assert not packet["success"] and packet["error"] == "selected_native_binding_failed", packet
@@ -97,7 +97,7 @@ def test_reviewed_native_move_refreshes_shared_source_and_cleanup(tmp_path, monk
         assert source.metadata["native_input_sha256"] == sha256(moved.read_bytes()).hexdigest()
         assert source.metadata["codex_session_origin"] == {"kind": "primary"}
         assert revision.metadata == frozen_metadata
-        final = handlers["finalize_session_distill"]("project", job.id, {
+        final = handlers.tool_finalize_session_distill("project", job.id, {
             "session_summary": "The session exchanged a greeting without making durable decisions.",
             "final_user_request": "greeting", "final_outcome": "greeting answered",
             "last_turn_status": "answered", "contradictions": [], "unfinished_work": [],

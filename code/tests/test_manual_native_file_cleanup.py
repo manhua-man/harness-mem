@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-from functools import partial
 from hashlib import sha256
 import json
 import os
@@ -16,7 +15,7 @@ from harness_mem.adapters.hermes.adapter import HermesAdapter
 from harness_mem.adapters.source_inspection import InspectedSource
 from harness_mem.commands import session_inventory
 from harness_mem.config.merge import MergedConfig
-from harness_mem.mcp import server
+from harness_mem.mcp import tool_handlers
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
@@ -47,13 +46,6 @@ def _native_file(tmp_path, root, client, statement, task):
     return path, adapter
 
 
-def _call(name, **arguments):
-    response = server.handle_request({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                                      "params": {"name": name, "arguments": arguments}})
-    assert response is not None and "error" not in response, response
-    return json.loads(response["result"]["content"][0]["text"])
-
-
 @pytest.mark.parametrize("client", ["hermes", "antigravity"])
 @pytest.mark.parametrize("case", ["fresh", "legacy", "changed", "legacy_changed"])
 def test_hm_native_file_cleanup_and_readback(tmp_path, monkeypatch, client, case):
@@ -68,13 +60,15 @@ def test_hm_native_file_cleanup_and_readback(tmp_path, monkeypatch, client, case
     native_bytes = path.read_bytes()
     backend = LocalMemoryBackend(tmp_path / "data")
     asyncio.run(backend.init())
-    monkeypatch.setattr(server, "_backend", backend)
+    monkeypatch.setattr(tool_handlers, "_backend_provider", lambda: backend)
+    monkeypatch.setattr(tool_handlers, "_observer_data_dir_provider", lambda: backend.data_dir)
+    monkeypatch.setattr(tool_handlers, "_cost_surface_budgets_provider", lambda _: None)
     monkeypatch.setattr(session_inventory, "load_merged_config", lambda *_: MergedConfig())
     monkeypatch.setattr(session_inventory, "build_inspection_adapter", lambda *_: adapter)
-    prepare = partial(_call, "prepare_session_distill")
+    prepare = tool_handlers.tool_prepare_session_distill
     scope = {"project_name": "project", "project_root": str(root)}
     try:
-        inventory = _call("inspect_sessions", project_root=str(root), clients=[client])
+        inventory = tool_handlers.tool_inspect_sessions(project_root=str(root), clients=[client])
         selected, = inventory["sessions"]
         with monkeypatch.context() as capture:
             if case.startswith("legacy"):
@@ -82,7 +76,7 @@ def test_hm_native_file_cleanup_and_readback(tmp_path, monkeypatch, client, case
             packet = prepare(**scope, batch_sessions=[selected])
         assert packet["success"], packet
         job_id, batch_id = packet["distill_job_id"], packet["batch_id"]
-        candidate = _call("govern_memory", action="suggest", arguments={
+        candidate = tool_handlers.tool_govern_memory(action="suggest", arguments={
             "kind": "memory", "project_name": "project", "category": "decision",
             "content": statement, "source": evidence.name, "distill_job_id": job_id,
             "evidence_basis": "repository", "verification_outcome": "verified",
@@ -92,7 +86,7 @@ def test_hm_native_file_cleanup_and_readback(tmp_path, monkeypatch, client, case
             "canonical_title": title, "topic_path": ["Retention"],
         })
         assert candidate["success"], candidate
-        final = _call("finalize_session_distill", project_name="project", job_id=job_id, semantic_review={
+        final = tool_handlers.tool_finalize_session_distill(project_name="project", job_id=job_id, semantic_review={
             "session_summary": "The policy was verified and the original rollback task is saved for later.",
             "final_user_request": "Retain the project policy and follow-up task.",
             "final_outcome": "Verified the policy. The rollback check remains open.",
@@ -133,12 +127,12 @@ def test_hm_native_file_cleanup_and_readback(tmp_path, monkeypatch, client, case
     reopened = LocalMemoryBackend(backend.data_dir)
     asyncio.run(reopened.init())
     try:
-        monkeypatch.setattr(server, "_backend", reopened)
-        found = _call("search_memory", query=title, scope="project", project_name="project", detail="full")
+        monkeypatch.setattr(tool_handlers, "_backend_provider", lambda: reopened)
+        found = tool_handlers.tool_search_memory(query=title, scope="project", project_name="project", detail="full")
         assert found["memories"] == [{"title": title, "statement": statement}]
         assert note.read_bytes() == note_bytes
         assert reopened.structured_store.list_record_payloads("task_handoffs", strict=True) == handoffs
-        inspected = _call("inspect_sessions", **scope, batch_id=batch_id)
+        inspected = tool_handlers.tool_inspect_sessions(**scope, batch_id=batch_id)
         assert inspected["progress"]["completed"] == 1 and inspected["unfinished_work"] == [task]
         replay = prepare(**scope, batch_id=batch_id, cleanup_processed=True, apply_cleanup=True)
         assert replay["counts"] == {"already_deleted": 1}, replay

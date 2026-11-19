@@ -16,11 +16,13 @@ from inspect import signature
 import os
 import sqlite3
 from pathlib import Path
-from typing import Any, Mapping, cast
+from typing import Any, Mapping, cast, get_args
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from pydantic import ValidationError
 from harness_mem.core.schemas import EvidenceRef
+from harness_mem.core.schemas.assimilation import AssimilationDisposition
+from harness_mem.core.schemas.evidence import EvidenceBasis, VerificationOutcome
 
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
@@ -220,21 +222,16 @@ def _compact_finalize_result(result: dict[str, Any]) -> dict[str, Any]:
     return compact
 
 
-def _finalize_call_contract(project_name: str, job_id: str) -> dict[str, Any]:
+def _finalize_call_contract(job_id: str) -> dict[str, Any]:
     """Project a source-generic call template, never candidate evidence or a write."""
-    from .tool_specs import _SCHEMAS
-
-    schema = _SCHEMAS["finalize_session_distill"]["input_schema"]
-    properties = schema["properties"]
-    point = properties["memory_points"]["items"]
-    review = properties["semantic_review"]
     allowed_values = {
-        name: deepcopy(owner["properties"][name]["enum"])
-        for owner, names in (
-            (point, ("evidence_basis", "verification_outcome", "assimilation_disposition")),
-            (review, ("last_turn_status", "evidence_status", "promotion_decision")),
-        )
-        for name in names
+        "evidence_basis": list(get_args(EvidenceBasis)),
+        "verification_outcome": list(get_args(VerificationOutcome)),
+        "assimilation_disposition": list(get_args(AssimilationDisposition)),
+        **{
+            name: list(get_args(SessionSemanticReview.model_fields[name].annotation))
+            for name in ("last_turn_status", "evidence_status", "promotion_decision")
+        },
     }
     points = []
     for basis, role, content in (
@@ -270,7 +267,7 @@ def _finalize_call_contract(project_name: str, job_id: str) -> dict[str, Any]:
         "project_name": "<Exact owner project_name from that same current row>",
     }]
     return {
-        "tool": "finalize_session_distill",
+        "method": "finish",
         "template_only": True,
         "instructions": [
             "This is an instruction template, not verified content or an automatic decision. Replace every placeholder after checking the complete actual source; keep only relevant durable points.",
@@ -287,17 +284,21 @@ def _finalize_call_contract(project_name: str, job_id: str) -> dict[str, Any]:
             "Before drafting points, read the complete conversation and follow native_evidence.review_questions through next_offset=null when offered. Inspect the paired records for relevant questions. Look for validation and rejected inputs, what is kept or retried on failure, and when the behavior applies. Add missed questions from the source yourself. Bind a historical implementation or receipt detail with review.operations observed_as=inspection and keep its answer in the literal output phrase.",
             "If finalization returns source_conditions_need_review, check each cited condition or operational detail in its original scope. Keep applicable steps, responsibilities, and exclusions in the writing point. Use condition_exclusions keyed by the returned id with a concrete reason for an inapplicable, superseded, or session-only clause; then retry this same job.",
             "For refine/replace set review.preserves_meaning=true only after checking all complete targets: preserve still-applicable facts, evidence, causes, conditions, permissions and scope. Source-report replacements also need review.same_topic=true. Unsupported or unclear points stay unfinished.",
-            "For each confirm/refine/replace point, select exact current targets yourself and put the array at memory_points[i].target_knowledge, never at the top level of finalize_session_distill. Copy full old title, statement and project_name, and module only when present on the selected row; context does not select ownership.",
-            "Merge targeted_point_fragment.memory_points[0] into the complete affected args_template.memory_points[i] and fill the actual checked disposition; do not replace the complete point or put the fragment wrapper inside it. Add points omit target_knowledge. A prepare_session_distill top-level target_knowledge only prepares the existing owner/source binding; it does not supply a finalization point's targets.",
+            "For each confirm/refine/replace point, select exact current targets yourself and put the array at memory_points[i].target_knowledge, never at the top level of finish. Copy full old title, statement and project_name, and module only when present on the selected row; context does not select ownership.",
+            "Merge targeted_point_fragment.memory_points[0] into the complete affected args_template.memory_points[i] and fill the actual checked disposition; do not replace the complete point or put the fragment wrapper inside it. Add points omit target_knowledge.",
         ],
         "required_fields": {
-            "arguments": deepcopy(schema["required"]),
-            "memory_point": deepcopy(point["required"]),
-            "semantic_review": deepcopy(review["required"]),
+            "arguments": ["job_id", "semantic_review", "memory_points"],
+            "memory_point": [
+                "content", "canonical_title", "topic_path", "evidence_basis",
+                "verification_outcome", "verification_refs", "assimilation_disposition",
+            ],
+            "semantic_review": [
+                name for name, field in SessionSemanticReview.model_fields.items() if field.is_required()
+            ],
         },
         "allowed_values": allowed_values,
         "args_template": {
-            "project_name": project_name,
             "job_id": job_id,
             "memory_points": points,
             "semantic_review": {
@@ -319,7 +320,7 @@ def _finalize_call_contract(project_name: str, job_id: str) -> dict[str, Any]:
                 "target_knowledge": deepcopy(targets),
             }],
         },
-        "optional_contracts": "Other optional fields retain the full canonical finalize_session_distill input schema; inspect only that tool when needed.",
+        "optional_contracts": "SessionSemanticReview and AgentKnowledgeReview define additional review fields.",
     }
 
 
@@ -418,21 +419,19 @@ def _compact_prepare_result(result: dict[str, Any]) -> dict[str, Any]:
         compact.pop("chunks", None)
     if result.get("distill_mode") == "lossless_chunks":
         compact["next_step"] = (
-            "submit_distill_chunk" if compact.get("chunks")
-            else "finalize_session_distill" if result.get("distill_status") == "reviewing"
-            else "prepare_session_distill"
+            "checkpoint" if compact.get("chunks")
+            else "finish" if result.get("distill_status") == "reviewing"
+            else "prepare"
         )
     if (
-        compact.get("next_step") == "finalize_session_distill"
+        compact.get("next_step") == "finish"
         and result.get("evidence_mode") == "semantic"
         and isinstance(evidence, dict)
         and result.get("completed_chunk_count") == result.get("expected_chunk_count")
         and isinstance(result.get("project_name"), str) and result["project_name"].strip()
         and isinstance(result.get("distill_job_id"), str) and result["distill_job_id"].strip()
     ):
-        compact["finalize_contract"] = _finalize_call_contract(
-            result["project_name"], result["distill_job_id"],
-        )
+        compact["finalize_contract"] = _finalize_call_contract(result["distill_job_id"])
     return compact
 
 
@@ -684,18 +683,6 @@ def _attach_semantic_decision_bundle(
             "semantic_decision_exchange_count": len(windows),
             "zero_candidate_exchange_refs": exchange_refs,
             "zero_candidate_challenge_template": challenge_template,
-            "agent_execution": {
-                "contract_version": "agent-distill-fast-path-v1",
-                "path": "prepare_then_finalize",
-                "target_mcp_calls": 2,
-                "completed_mcp_calls": 1,
-                "next_tool": "finalize_session_distill",
-                "additional_prepare_required": False,
-                "additional_prepare_allowed_when": [
-                    "candidate_needs_raw_proof",
-                    "legacy_raw_fallback",
-                ],
-            },
         }
     )
 
@@ -1284,14 +1271,6 @@ def tool_prepare_session_distill(
             "session_summary": _session_summary_payload(requested_job),
             "promotion": dict(requested_job.promotion_summary),
             "source_cleanup": source_cleanup,
-            "agent_execution": {
-                "contract_version": "agent-distill-fast-path-v1",
-                "path": "already_completed",
-                "target_mcp_calls": 1,
-                "completed_mcp_calls": 1,
-                "next_tool": None,
-                "additional_prepare_required": False,
-            },
         }
     explicitly_activated = bool(requested_job and requested_job.status == "parked")
     if requested_job_id and explicitly_activated:
@@ -1508,7 +1487,7 @@ def tool_prepare_session_distill(
                         "distill_instructions": [
                             "Use these read-only raw chunks to verify candidate evidence.",
                             "Do not submit them again; structural checkpoints are already complete.",
-                            "Finish with finalize_session_distill after semantic review.",
+                            "Submit the reviewed memory points with the session judgment.",
                         ],
                     }
                 )
@@ -1527,7 +1506,7 @@ def tool_prepare_session_distill(
                     "Use the bundled semantic_decision_exchanges for the final decision.",
                     "Do not call prepare again unless a durable candidate needs precise raw proof.",
                     "If no candidates remain, verify and reuse zero_candidate_challenge_template in finalization.",
-                    "Create only warranted candidates through govern_memory(action=suggest), then call finalize_session_distill.",
+                    "Submit the supported memory points together with the session judgment.",
                 ]
                 response_fields = {
                     "chunks": [],
@@ -1594,8 +1573,7 @@ def tool_prepare_session_distill(
                     "distill_instructions": [
                         "Review all chunk results as one complete session in order.",
                         "Identify final outcome, contradictions, unfinished work, and evidence strength.",
-                        "Create only warranted candidates and pass this distill_job_id to every govern_memory action=suggest call.",
-                        "Finish with finalize_session_distill; it runs auto-review and Dream.",
+                        "Submit the supported memory points and the session judgment for the selected job.",
                     ],
                 }
             )
@@ -1607,7 +1585,7 @@ def tool_prepare_session_distill(
                 "Use the bundled semantic_decision_exchanges for the final decision.",
                 "Do not call prepare again unless a durable candidate needs precise raw proof.",
                 "If no candidates remain, verify and reuse zero_candidate_challenge_template in finalization.",
-                "Create only warranted candidates, then call finalize_session_distill.",
+                "Submit the supported memory points and the session judgment for the selected job.",
             ]
             response_fields = {
                 "distill_status": "reviewing",
@@ -1706,8 +1684,8 @@ def tool_prepare_session_distill(
                 "chunk_count": len(claims),
                 "distill_instructions": [
                     "Read every returned chunk completely and in chunk_index order.",
-                    "Submit one structured result per chunk with submit_distill_chunk.",
-                    "Then call prepare_session_distill again for the next chunk or final review.",
+                    "Checkpoint each chunk after reading it completely.",
+                    "Continue the same batch to get the next chunk or the final review.",
                     "Do not create final memory candidates until the job enters reviewing state.",
                 ],
             }
@@ -1806,9 +1784,9 @@ def tool_submit_distill_chunk(
         "completed_chunk_count": job.completed_chunk_count,
         "expected_chunk_count": job.expected_chunk_count,
         "next_action": (
-            "call prepare_session_distill for final review"
+            "Use Distill.prepare with the original batch_id to review the complete session."
             if job.status == "reviewing"
-            else "call prepare_session_distill for the next chunk"
+            else "Use Distill.prepare with the original batch_id to read the next chunk."
         ),
     }
 

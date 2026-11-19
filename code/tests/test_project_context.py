@@ -263,5 +263,5 @@ def test_suggested_next_step_uses_current_knowledge_count() -> None:
         **common,
     )
 
-    assert empty_command == 'MCP search_memory(query="<query>")'
-    assert ready_command == 'MCP wake(project_name="demo")'
+    assert empty_command == "Distill"
+    assert ready_command == "Search"

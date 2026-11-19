@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import sqlite3
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from harness_mem.agent_runtime import active_backend
 from harness_mem.core.schemas import (
     AssimilationDecision,
     KnowledgeCandidate,
@@ -18,7 +18,7 @@ from harness_mem.core.schemas import (
 )
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
-from harness_mem.mcp import read_query_support, read_search_handlers, read_wake_handlers, server
+from harness_mem.mcp import read_query_support, read_search_handlers, read_wake_handlers, tool_handlers
 from harness_mem.mcp.read_projection import reading_tokens
 from harness_mem.read_knowledge import list_current_knowledge, search_current_knowledge
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
@@ -29,7 +29,6 @@ def backend(tmp_path, monkeypatch):
     monkeypatch.setenv("HARNESS_MEM_DISABLE_EMBEDDINGS", "1")
     instance = LocalMemoryBackend(tmp_path / "isolated-data")
     asyncio.run(instance.init())
-    server.set_backend_override(instance)
     # No active project or readable project configuration is needed to recall.
     workspace = tmp_path / "unrelated-workspace"
     workspace.mkdir()
@@ -43,10 +42,11 @@ def backend(tmp_path, monkeypatch):
         read_wake_handlers, "_build_distill_maintenance_offer",
         Mock(side_effect=AssertionError("global recall must not read project profiles")),
     )
+    binding = active_backend.set(instance)
     try:
         yield instance
     finally:
-        server.set_backend_override(None)
+        active_backend.reset(binding)
         asyncio.run(instance.close())
 
 
@@ -79,7 +79,7 @@ def _seed(backend, project, title, statement, *, module="retrieval"):
 def test_search_defaults_all_even_with_project_context(backend, context_project):
     _seed(backend, "alpha", "Weak hit", "sqlite advice")
     _seed(backend, "zeta", "Strong hit", "sqlite sqlite sqlite advice")
-    payload = server.tool_search_memory(query="sqlite", project_name=context_project)
+    payload = tool_handlers.tool_search_memory(query="sqlite", project_name=context_project)
     assert payload["project_name"] is None
     assert payload["status"] == "answered"
     assert [item["project_name"] for item in payload["memories"]] == ["zeta", "alpha"]
@@ -102,7 +102,7 @@ def test_global_limit_follows_relevance_and_browse_keeps_project_provenance(back
     ({}, ["zeta", "alpha"]),
     ({"scope": "project"}, ["alpha"]),
 ])
-def test_search_reads_current_rows_once_through_mcp(backend, scope_args, expected_projects):
+def test_search_reads_current_rows_once(backend, scope_args, expected_projects):
     _seed(backend, "alpha", "Weak hit", "sqlite advice")
     _seed(backend, "zeta", "Strong hit", "sqlite sqlite sqlite advice")
     _seed(backend, "other", "Lights", "Use a warm bulb.")
@@ -110,12 +110,9 @@ def test_search_reads_current_rows_once_through_mcp(backend, scope_args, expecte
     connection = backend.structured_store._canonical._conn
     connection.set_trace_callback(queries.append)
     try:
-        response = server.handle_request({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
-            "name": "search_memory", "arguments": {"query": "sqlite", "project_name": "alpha", **scope_args},
-        }})
+        payload = tool_handlers.tool_search_memory(query="sqlite", project_name="alpha", **scope_args)
     finally:
         connection.set_trace_callback(None)
-    payload = json.loads(response["result"]["content"][0]["text"])
     assert payload["status"] == "answered"
     assert [item.get("project_name", payload["project_name"]) for item in payload["memories"]] == expected_projects
     reads = [" ".join(query.lower().split()) for query in queries]
@@ -127,19 +124,19 @@ def test_search_reads_current_rows_once_through_mcp(backend, scope_args, expecte
 def test_project_scope_keeps_filter_and_blank_query_module_projection(backend):
     entry = _seed(backend, "alpha", "A decision", "sqlite alpha decision")
     _seed(backend, "zeta", "Z decision", "sqlite zeta decision")
-    project = server.tool_search_memory(query="sqlite", project_name="alpha", scope="project")
+    project = tool_handlers.tool_search_memory(query="sqlite", project_name="alpha", scope="project")
     assert project["project_name"] == "alpha"
     assert project["memories"] == [{"title": entry.title, "statement": entry.statement}]
-    library = server.tool_search_memory(query="", project_name="alpha", scope="project")
+    library = tool_handlers.tool_search_memory(query="", project_name="alpha", scope="project")
     assert library["memories"][0]["module"] == entry.module_path
-    assert server.tool_search_memory(query="sqlite", scope="project")["success"] is False
-    assert server.tool_search_memory(query="sqlite", scope="unexpected")["success"] is False
+    assert tool_handlers.tool_search_memory(query="sqlite", scope="project")["success"] is False
+    assert tool_handlers.tool_search_memory(query="sqlite", scope="unexpected")["success"] is False
 
 
 def test_global_empty_query_reads_all_current_knowledge(backend):
     _seed(backend, "alpha", "A decision", "sqlite alpha decision")
     _seed(backend, "zeta", "Z decision", "sqlite zeta decision")
-    payload = server.tool_search_memory(query="", project_name="alpha")
+    payload = tool_handlers.tool_search_memory(query="", project_name="alpha")
     assert len(payload["memories"]) == 2
     assert all(item["module"] == ["retrieval"] for item in payload["memories"])
     assert all(set(item) == {"module", "title", "statement", "project_name"} for item in payload["memories"])
@@ -151,7 +148,7 @@ def test_empty_project_filter_guides_recovery_without_searching_outside_it(backe
     with monkeypatch.context() as filtered:
         filtered.setattr(backend.structured_store.knowledge_store, "known_projects",
                          AsyncMock(side_effect=AssertionError("explicit filtering must not search other projects")))
-        result = server.tool_search_memory(query="benchmark", project_name="alpha", scope="project", budget_tokens=500)
+        result = tool_handlers.tool_search_memory(query="benchmark", project_name="alpha", scope="project", budget_tokens=500)
     assert result["status"] == "empty"
     assert result["memories"] == []
     assert "scope='all'" in result["message"]
@@ -163,7 +160,7 @@ def test_empty_project_filter_guides_recovery_without_searching_outside_it(backe
     assert entry.statement not in str(result)
     assert reading_tokens(result) <= 500
 
-    recovered = server.tool_search_memory(query="benchmark", project_name="alpha")
+    recovered = tool_handlers.tool_search_memory(query="benchmark", project_name="alpha")
     assert recovered["memories"] == [{"project_name": "global", "title": entry.title, "statement": entry.statement}]
     assert "message" not in recovered
 
@@ -182,7 +179,7 @@ def test_global_read_excludes_legacy_raw_and_job_material(backend):
         project_name="zeta", candidate_type="memory",
         statement="cleanrecalltoken unfinished candidate material",
     )))
-    payload = server.tool_search_memory(query="cleanrecalltoken", _include_diagnostics=True)
+    payload = tool_handlers.tool_search_memory(query="cleanrecalltoken", _include_diagnostics=True)
     assert payload["memories"] == [{
         "project_name": "alpha", "title": entry.title, "statement": entry.statement,
     }]
@@ -195,12 +192,12 @@ def test_global_read_excludes_legacy_raw_and_job_material(backend):
 def test_wake_defaults_all_without_active_project_or_profile(backend, context_project):
     _seed(backend, "alpha", "A decision", "sqlite alpha decision")
     _seed(backend, "zeta", "Z decision", "sqlite zeta decision")
-    payload = server.tool_wake(project_name=context_project)
+    payload = tool_handlers.tool_wake(project_name=context_project)
     assert payload["success"] is True
     assert payload["project_name"] is None
     assert payload["long_term_memory"] == []
     assert payload["available_count"] == 2
-    current = server.tool_search_memory(**payload["continuation"]["arguments"])
+    current = tool_handlers.tool_search_memory(**payload["continuation"]["arguments"])
     assert {item["project_name"] for item in current["memories"]} == {"alpha", "zeta"}
     assert payload["maintenance_available"] is False
 
@@ -209,28 +206,28 @@ def test_wake_explicit_project_filter_remains_available(backend, monkeypatch):
     entry = _seed(backend, "alpha", "A decision", "sqlite alpha decision")
     _seed(backend, "zeta", "Z decision", "sqlite zeta decision")
     monkeypatch.setattr(read_wake_handlers, "_build_distill_maintenance_offer", Mock(return_value={}))
-    availability = server.tool_wake(project_name="alpha", scope="project")
+    availability = tool_handlers.tool_wake(project_name="alpha", scope="project")
     assert availability["long_term_memory"] == []
     assert availability["available_count"] == 1
-    payload = server.tool_wake(project_name="alpha", scope="project", current_task="sqlite")
+    payload = tool_handlers.tool_wake(project_name="alpha", scope="project", current_task="sqlite")
     candidate, = payload["long_term_memory"]
     assert candidate["title"] == entry.title
     assert "statement" not in candidate
-    result = server.tool_search_memory(query="sqlite", scope="project", project_name="alpha",
+    result = tool_handlers.tool_search_memory(query="sqlite", scope="project", project_name="alpha",
                                        detail="full", read_cursor=candidate["read_cursor"])
     assert result["memories"] == [{"title": entry.title, "statement": entry.statement}]
     monkeypatch.setattr(read_wake_handlers, "get_active_project", lambda: "alpha")
-    assert server.tool_wake(scope="project", current_task="sqlite")["long_term_memory"] == payload["long_term_memory"]
+    assert tool_handlers.tool_wake(scope="project", current_task="sqlite")["long_term_memory"] == payload["long_term_memory"]
     monkeypatch.setattr(read_wake_handlers, "get_active_project", lambda: None)
-    assert server.tool_wake(scope="project")["success"] is False
-    assert server.tool_wake(scope="unexpected")["success"] is False
+    assert tool_handlers.tool_wake(scope="project")["success"] is False
+    assert tool_handlers.tool_wake(scope="unexpected")["success"] is False
 
 
 def test_wake_task_query_ranks_all_projects_and_excludes_unrelated(backend):
     _seed(backend, "alpha", "Weak hit", "sqlite advice")
     _seed(backend, "zeta", "Strong hit", "sqlite sqlite sqlite advice")
     _seed(backend, "beta", "Unrelated", "animation rules")
-    payload = server.tool_wake(current_task="sqlite", project_name="beta")
+    payload = tool_handlers.tool_wake(current_task="sqlite", project_name="beta")
     assert [item["project_name"] for item in payload["long_term_memory"]] == ["zeta", "alpha"]
 
 
@@ -238,7 +235,7 @@ def test_feedback_tracks_each_presented_fact_in_its_source_project(backend):
     a = _seed(backend, "alpha", "Shared rule", "sqlite shared rule")
     separate = _seed(backend, "zeta", "Shared rule", "sqlite shared rule")
     z = _seed(backend, "zeta", "Z rule", "sqlite zeta rule")
-    payload = server.tool_search_memory(
+    payload = tool_handlers.tool_search_memory(
         query="sqlite", project_name="unrelated-workspace", _include_diagnostics=True,
         budget_tokens=4000,
     )
@@ -250,12 +247,12 @@ def test_feedback_tracks_each_presented_fact_in_its_source_project(backend):
         arguments = call["arguments"]
         assert arguments["surface"] == "search_all"
         assert "outcome" not in arguments
-        recorded = server.tool_record_context_outcome(**arguments, outcome="used")
-        replayed = server.tool_record_context_outcome(**arguments, outcome="used")
+        recorded = tool_handlers.tool_record_context_outcome(**arguments, outcome="used")
+        replayed = tool_handlers.tool_record_context_outcome(**arguments, outcome="used")
         assert recorded["success"] is True
         assert recorded["signal_ids"] == replayed["signal_ids"]
         assert recorded["truth_mutated"] is False
-    wrong = server.tool_record_context_outcome(
+    wrong = tool_handlers.tool_record_context_outcome(
         project_name="alpha", surface="search_all", outcome="used",
         source_ids=[z.id], retrieval_id=payload["retrieval_id"],
     )
@@ -270,7 +267,7 @@ def test_feedback_tracks_each_presented_fact_in_its_source_project(backend):
 def test_autopilot_previews_all_projects_and_full_reads_enable_feedback(backend, context_project):
     _seed(backend, "alpha", "Timeout alpha", "pytest timeout alpha fix")
     _seed(backend, "zeta", "Timeout zeta", "pytest timeout zeta fix")
-    payload = server.tool_autopilot_search_tick(
+    payload = tool_handlers.tool_autopilot_search_tick(
         event_name="tool_result", project_name=context_project,
         tool_name="pytest", tool_result="TimeoutError", is_error=True,
     )
@@ -283,13 +280,13 @@ def test_autopilot_previews_all_projects_and_full_reads_enable_feedback(backend,
     assert injection["source_ids"] == []
     for preview in injection["memories"]:
         assert "statement" not in preview
-        reading = server.tool_search_memory(
+        reading = tool_handlers.tool_search_memory(
             query=injection["query"], scope="all", detail="full", read_cursor=preview["read_cursor"],
             _include_diagnostics=True, budget_tokens=8_000,
         )
         assert [row["project_name"] for row in reading["memories"]] == [preview["project_name"]]
         call = reading["record_outcome_call"]
-        assert server.tool_record_context_outcome(**call["arguments"], outcome="ignored")["success"] is True
+        assert tool_handlers.tool_record_context_outcome(**call["arguments"], outcome="ignored")["success"] is True
 
 
 @pytest.mark.parametrize("error_type", [ValueError, OSError, sqlite3.DatabaseError])
@@ -298,14 +295,14 @@ def test_global_read_fault_is_unavailable_not_partial_or_empty(backend, monkeypa
     _seed(backend, "zeta", "Z decision", "sqlite zeta decision")
     store = backend.structured_store.knowledge_store
     monkeypatch.setattr(store, "list_entries", AsyncMock(side_effect=error_type("private storage details")))
-    search = server.tool_search_memory(query="sqlite")
+    search = tool_handlers.tool_search_memory(query="sqlite")
     assert search["status"] == "unavailable"
     assert search["memories"] == []
     assert "private storage details" not in str(search)
-    wake = server.tool_wake(current_task="sqlite")
+    wake = tool_handlers.tool_wake(current_task="sqlite")
     assert wake["success"] is False
     assert "could not be read" in wake["message"]
-    autopilot = server.tool_autopilot_search_tick(
+    autopilot = tool_handlers.tool_autopilot_search_tick(
         event_name="tool_result", tool_name="sqlite", tool_result="TimeoutError", is_error=True,
     )
     assert autopilot["success"] is False
@@ -324,7 +321,7 @@ def test_global_failed_signal_write_preserves_memory_but_no_false_feedback(backe
         return await actual_writer(backend, **kwargs)
 
     monkeypatch.setattr(read_query_support, "record_retrieval_signal", fail_one)
-    payload = server.tool_search_memory(query="sqlite", _include_diagnostics=True, budget_tokens=4000)
+    payload = tool_handlers.tool_search_memory(query="sqlite", _include_diagnostics=True, budget_tokens=4000)
     assert len(payload["memories"]) == 2
     assert payload["retrieval_receipt"]["state"] == "degraded"
     assert payload["retrieval_receipt"]["failed"] == 1
@@ -346,13 +343,13 @@ def test_global_backend_failures_are_plain_and_distinct_from_empty(monkeypatch, 
 
 
 def test_empty_global_store_is_successful_without_feedback(backend):
-    search = server.tool_search_memory(query="absent", _include_diagnostics=True)
+    search = tool_handlers.tool_search_memory(query="absent", _include_diagnostics=True)
     assert search["status"] == "empty"
     assert search["record_outcome_calls"] == []
     assert search["record_outcome_call"] is None
     assert search["context_plan"]["source_ids"] == []
-    assert server.tool_wake()["long_term_memory"] == []
-    assert server.tool_autopilot_search_tick(event_name="session_start")["search_executed"] is False
+    assert tool_handlers.tool_wake()["long_term_memory"] == []
+    assert tool_handlers.tool_autopilot_search_tick(event_name="session_start")["search_executed"] is False
 
 
 def test_reopened_global_search_retains_chinese_matching_without_source_files(backend):
@@ -364,15 +361,15 @@ def test_reopened_global_search_retains_chinese_matching_without_source_files(ba
     (backend.data_dir / "fixture-source.md").unlink()
     reopened = LocalMemoryBackend(backend.data_dir)
     asyncio.run(reopened.init())
-    server.set_backend_override(reopened)
+    binding = active_backend.set(reopened)
     try:
         for query in ("后台整理怎么开启？", "请问之前如何开启后台整理", "【后台整理】"):
-            payload = server.tool_search_memory(query=query, project_name="different-workspace")
+            payload = tool_handlers.tool_search_memory(query=query, project_name="different-workspace")
             assert payload["memories"] == [{
                 "title": entry.title, "statement": entry.statement, "project_name": entry.project_name,
             }]
-        assert server.tool_search_memory(query="自动删除怎么开启？")["status"] == "empty"
-        assert server.tool_search_memory(query=".env")["status"] == "empty"
+        assert tool_handlers.tool_search_memory(query="自动删除怎么开启？")["status"] == "empty"
+        assert tool_handlers.tool_search_memory(query=".env")["status"] == "empty"
     finally:
-        server.set_backend_override(backend)
+        active_backend.reset(binding)
         asyncio.run(reopened.close())

@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """Development-only path adapter for a frozen, isolated memory comparison.
 
-Usage: python matched_memory_host.py --mode hm|upstream --manifest ABS_PATH
+Usage: python matched_memory_host.py --mode search-probe|upstream --manifest ABS_PATH
        [index | run UUID... | bundle UUID... | deep --session-ids UUID... |
         mark UUID distilled]
 
 The caller creates the manifest, project config and native fixtures. This file
-does not create a second runtime or judge completion. HM delegates the complete
-MCP surface/transport to the current source server. Upstream delegates to the
+does not create a second runtime or judge completion. The read probe calls Search for the frozen questions. Upstream delegates to the
 clone's commands and run_deep_batch without changing claim extraction. Its
 KNOWLEDGE_FILE is explicitly mapped to kb_file (an experiment path adaptation).
 Neither branch changes HOME/CODEX_HOME. Python audit guards are defense in depth
@@ -254,58 +253,12 @@ class Manifest:
         if fixed_uuid(sid) not in self.session_ids:
             raise ScopeError(f"unknown session: {sid}")
 
-    def validate_arguments(self, value: Any) -> None:
-        """Check nested governance/evidence selectors as well as top-level scope."""
-        if isinstance(value, list):
-            for item in value:
-                self.validate_arguments(item)
-        elif isinstance(value, dict):
-            for key, item in value.items():
-                if item is None:
-                    continue
-                if not self.device_scope and key in {"project", "project_name"} and item != self.project_name:
-                    raise ScopeError("project must match manifest")
-                if not self.device_scope and key == "project_names" and item != [self.project_name]:
-                    raise ScopeError("cross-project selection is not allowed")
-                if key in {"root", "project_root", "cwd", "workspace", "project_path"}:
-                    if self.device_scope and key == "project_root" and item == "":
-                        continue
-                    if (not within(absolute(item), self.paths["run_root"]) if self.device_scope
-                            else absolute(item) != self.paths["project_root"]):
-                        raise ScopeError("project root must match manifest")
-                if key in {"client", "host_client", "resolved_client"} and item != "codex":
-                    raise ScopeError("only codex is allowed")
-                if key == "clients" and item != ["codex"]:
-                    raise ScopeError("only codex is allowed")
-                if key == "scope" and not self.device_scope and item != "project":
-                    raise ScopeError("only project scope is allowed")
-                if key == "session_id":
-                    self.require_session(item)
-                if key == "session_ids":
-                    if not isinstance(item, list):
-                        raise ScopeError("session_ids must be an array")
-                    for sid in item:
-                        self.require_session(sid)
-                if key in {"path", "file_path", "repository_path", "source_uri"}:
-                    path = item
-                    if key == "source_uri":
-                        uri = urlsplit(item)
-                        if uri.scheme != "file" or uri.netloc not in {"", "localhost"}:
-                            raise ScopeError("only isolated file sources are allowed")
-                        path = unquote(uri.path)
-                        if os.name == "nt" and path.startswith("/") and path[2:3] == ":":
-                            path = path[1:]
-                    target = Path(path)
-                    target = target if target.is_absolute() else self.paths["project_root"] / target
-                    self.check_path(target, self.paths["run_root"])
-                self.validate_arguments(item)
-
 
 def append_audit(manifest: Manifest, record: dict) -> None:
     path = manifest.check_path(manifest.paths["audit_path"], manifest.paths["run_root"])
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps({**record, "mcp_process_pid": os.getpid(),
+        handle.write(json.dumps({**record, "process_pid": os.getpid(),
                                  "manifest_session_ids": list(manifest.session_ids),
                                  "validated_source_file_count": len(manifest._source_hashes)},
                                 ensure_ascii=False) + "\n")
@@ -373,75 +326,29 @@ def install_io_guard(manifest: Manifest) -> None:
     sys.addaudithook(audit)
 
 
-def run_hm(manifest: Manifest) -> int:
-    # This import MUST stay inside the child; server import redirects FD 1.
+def run_search_probe(manifest: Manifest) -> int:
+    """Read the frozen benchmark questions through the same Search an Agent uses."""
     sys.path.insert(0, str(REPO))
-    from harness_mem.mcp import server
-    from harness_mem.adapters import AdapterRegistry
-    from harness_mem.adapters.codex.adapter import CodexAdapter
-    from harness_mem.commands import session_inventory, support
+    from harness_mem.search import search
     from harness_mem.config import merge
-    from harness_mem.mcp import distill_handlers
 
     merge._user_config_path = lambda: manifest.paths["data_dir"] / "config.toml"
     merge._legacy_user_config_path = lambda: manifest.paths["data_dir"] / "config.json"
-
-    def build(client, backend=None, **kwargs):
-        if client != "codex":
-            raise ScopeError("only codex is allowed; no other native source scan")
-        return CodexAdapter(backend, sessions_dir=manifest.paths["native_root"] / "sessions",
-                            archive_dir=manifest.paths["native_root"] / "archived_sessions",
-                            project_root=None if manifest.device_scope else manifest.paths["project_root"],
-                            scope="all" if manifest.device_scope else "project")
-
-    AdapterRegistry.build = staticmethod(build)
-    session_inventory.build_inspection_adapter = build
-    session_inventory.HOSTS = ("codex",)
-    distill_handlers._session_notes_dir = lambda backend: manifest.paths["notes_dir"]
-    # Existing imports can hold the old resolver. Replace just that path dependency.
-    old_resolver = support.find_project_root
-
-    def find_root(name):
-        if not manifest.device_scope and name != manifest.project_name:
-            raise ScopeError("unknown project")
-        return manifest.paths["project_root"]
-
-    for module_name, module in tuple(sys.modules.items()):
-        if module_name.startswith("harness_mem.") and getattr(module, "find_project_root", None) is old_resolver:
-            module.find_project_root = find_root
-    dispatch = server.handle_request
-
-    def audited_request(request):
-        if request.get("method") != "tools/call":
-            return dispatch(request)
-        started = time.perf_counter()
-        params = request.get("params", {})
-        refresh = None
-        try:
-            manifest.check_config()
-            manifest.check_tree(manifest.paths["run_root"])
-            refresh = manifest.refresh()
-            arguments = params.get("arguments", {})
-            manifest.validate_arguments(arguments)
-            if (params.get("name") == "prepare_session_distill" and arguments.get("client") != "codex"
-                    and not (manifest.device_scope and arguments.get("client", "auto") == "auto"
-                             and (arguments.get("batch_id") or arguments.get("batch_sessions")))):
-                raise ScopeError("prepare_session_distill requires explicit client=codex")
-            response = dispatch(request)
-        except ScopeError as exc:
-            response = {"jsonrpc": "2.0", "id": request.get("id"),
-                        "error": {"code": -32602, "message": str(exc)}}
-        except Exception as exc:
-            response = {"jsonrpc": "2.0", "id": request.get("id"),
-                        "error": {"code": -32603, "message": str(exc)}}
-        append_audit(manifest, {"mode": "hm", "method": "tools/call", "params": params,
-                                "response": response, "manifest_refresh": refresh,
-                                "elapsed_seconds": time.perf_counter() - started})
-        return response
-
-    server.handle_request = audited_request
     install_io_guard(manifest)
-    server.main()
+    cases_file = manifest.check_path(manifest.paths["run_root"] / "adapter-input.json",
+                                     manifest.paths["run_root"])
+    cases = json.loads(cases_file.read_text(encoding="utf-8"))["cases"]
+    for index in range(31):
+        case = cases[max(0, index - 1) % len(cases)]
+        manifest.check_config()
+        manifest.refresh()
+        started = time.perf_counter()
+        result = search(case["query"], data_dir=manifest.paths["data_dir"],
+                        scope="project", project_name=manifest.project_name, budget_tokens=20000)
+        elapsed = time.perf_counter() - started
+        record = {"caseId": case["caseId"], "response": result, "latencyMs": elapsed * 1000}
+        append_audit(manifest, {"mode": "search-probe", **record})
+        print(json.dumps(record), flush=True)
     return 0
 
 
@@ -573,29 +480,29 @@ def run_upstream(manifest: Manifest, argv: list[str]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mode", choices=("hm", "upstream"), required=True)
+    parser.add_argument("--mode", choices=("search-probe", "upstream"), required=True)
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--_child", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     try:
         manifest = Manifest(Path(args.manifest))
-        if args.mode == "hm" and args.command:
-            raise ScopeError("hm runs the unchanged MCP stdio server; no extra arguments")
+        if args.mode == "search-probe" and args.command:
+            raise ScopeError("the read probe uses only its frozen questions")
         if args.mode == "upstream":
             upstream_command(manifest, args.command)
         if not args._child:
             child_env = os.environ.copy()
-            if args.mode == "hm":
+            if args.mode == "search-probe":
                 child_env["HARNESS_MEM_DATA_DIR"] = str(manifest.paths["data_dir"])
             command = [sys.executable, "-B", str(Path(__file__).resolve()), "--mode", args.mode,
                        "--manifest", str(manifest.path), "--_child", *args.command]
             return subprocess.call(command, env=child_env, cwd=manifest.paths["project_root"])
         sys.dont_write_bytecode = True
-        if args.mode == "hm":
+        if args.mode == "search-probe":
             if absolute(os.environ.get("HARNESS_MEM_DATA_DIR")) != manifest.paths["data_dir"]:
                 raise ScopeError("HM child requires its isolated HARNESS_MEM_DATA_DIR")
-            return run_hm(manifest)
+            return run_search_probe(manifest)
         return run_upstream(manifest, args.command)
     except (ScopeError, OSError, ValueError, KeyError, TypeError) as exc:
         print(f"matched-memory-host: {exc}", file=sys.stderr)

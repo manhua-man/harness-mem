@@ -139,9 +139,9 @@ def build_doctor_recovery_plan(storage_report: dict[str, Any]) -> RecoveryPlan:
 
     project_name = storage_report.get("project_name")
     project_arg = _project_argument(project_name)
-    doctor_command = f"harness-mem doctor{project_arg}"
-    migrate_preview = f"harness-mem maintenance migrate-store-v2{project_arg} --dry-run"
-    migrate_apply = f"harness-mem maintenance migrate-store-v2{project_arg} --apply"
+    doctor_command = f"python -m harness_mem.cli doctor{project_arg}"
+    migrate_preview = f"python -m harness_mem.cli maintenance migrate-store-v2{project_arg} --dry-run"
+    migrate_apply = f"python -m harness_mem.cli maintenance migrate-store-v2{project_arg} --apply"
     relation = str(storage_report.get("checksum_relation") or "unknown")
     status = str(storage_report.get("status") or "unknown")
     items: list[RecoveryItem] = []

@@ -72,7 +72,7 @@ def existing_batch_inventory(data_dir: Path, *, project_root: Path | None = None
     return {"batches": batches, "batch_count": len(batches), "processing_unchanged": True,
             "batch_continuation": {"resolution": resolution, "candidate_count": len(candidates),
                                    "references": [row["resume_arguments"] for row in candidates],
-                                   "next_step": "Use prepare_session_distill with the chosen reference; paused batches require explicit continue_batch=true."}}
+                                   "next_step": "Call Distill.prepare with the selected batch reference. Resume a user pause with continue_batch=True."}}
 
 
 def _project_context_labels(data_dir: Path) -> dict[str, set[str]]:

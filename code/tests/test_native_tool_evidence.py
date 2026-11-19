@@ -11,10 +11,10 @@ import pytest
 from harness_mem.adapters import native_tool_evidence as native_reader
 from harness_mem.commands import session_inventory
 from harness_mem.config.merge import MergedConfig
+from harness_mem.distill import Distill
 from harness_mem.mcp import tool_handlers
 from harness_mem.mcp.session_handlers import tool_inspect_sessions
 from test_device_memory_flow import device as device
-from test_distill_compact_output import _rpc
 
 
 def _prepare(device, tmp_path, *, name="tools", roots=None, tail=(), report=None):
@@ -38,7 +38,7 @@ def _prepare(device, tmp_path, *, name="tools", roots=None, tail=(), report=None
     ])
     path.write_text("\n".join(json.dumps(row) for row in records) + "\n", encoding="utf-8")
     row = next(row for row in tool_inspect_sessions(clients=["codex"])["sessions"] if row["session_id"] == name)
-    prepared, _ = _rpc(backend, "prepare_session_distill", {"scope": "all", "batch_sessions": [row]})
+    prepared = tool_handlers.tool_prepare_session_distill(**{"scope": "all", "batch_sessions": [row]})
     assert prepared["success"], prepared
     return backend, path, prepared, records
 
@@ -46,7 +46,12 @@ def _prepare(device, tmp_path, *, name="tools", roots=None, tail=(), report=None
 def _read(backend, prepared, **updates):
     args = deepcopy(prepared["native_evidence"]["read"]["arguments"])
     args["native_evidence"].update(updates)
-    return _rpc(backend, "prepare_session_distill", args)[0]
+    assert prepared["native_evidence"]["read"]["method"] == "read"
+    # These low-level probes change the selected connection during the read.
+    # Exercise that exact connection instead of opening a fresh API operation.
+    return tool_handlers.tool_prepare_session_distill(
+        distill_job_id=args["job_id"], native_evidence=args["native_evidence"], run_ingest=False,
+    )
 
 
 def test_prepare_supplies_complete_paginated_native_tool_evidence_without_progress(device, tmp_path):
@@ -133,15 +138,15 @@ def test_manual_operation_requires_matching_typed_native_call_and_result(device,
                 "contradictions": [], "unfinished_work": [], "evidence_status": "answered",
                 "promotion_decision": "promote",
             }}
-    refused, _ = _rpc(backend, "finalize_session_distill", args)
+    refused = tool_handlers.tool_finalize_session_distill(**args)
     assert not refused["success"] and "no direct interaction" in refused["error"]
     assert tool_handlers.tool_search_memory(query="")["memories"] == []
     operation["observed_as"] = "inspection"
     operation["result_line"] = result["native_line"] + 2
-    refused, _ = _rpc(backend, "finalize_session_distill", args)
+    refused = tool_handlers.tool_finalize_session_distill(**args)
     assert not refused["success"] and "paired call and result" in refused["error"]
     operation["result_line"] = result["native_line"]
-    saved, _ = _rpc(backend, "finalize_session_distill", args)
+    saved = tool_handlers.tool_finalize_session_distill(**args)
     assert saved["success"] and saved.get("readback_verified"), saved
     store = backend.structured_store.knowledge_store
     row, = asyncio.run(store.list_entries(prepared["project_name"]))
@@ -211,7 +216,7 @@ def test_native_questions_catch_tool_only_conditions_before_write(device, tmp_pa
             "promotion_decision": "promote",
         },
     }
-    rejected, _ = _rpc(backend, "finalize_session_distill", request)
+    rejected = tool_handlers.tool_finalize_session_distill(**request)
     assert rejected["error"] == "source_conditions_need_review"
     questions = [q for q in questions if q["condition"] != unrelated]
     assert {q["id"] for q in rejected["condition_checks"]} == {q["id"] for q in questions}
@@ -229,7 +234,7 @@ def test_native_questions_catch_tool_only_conditions_before_write(device, tmp_pa
         "call_quote": q["condition"] if q["quote_field"] == "call_quote" else "*** Begin Patch",
         "result_quote": q["condition"] if q["quote_field"] == "result_quote" else receipt,
     } for q in questions]
-    saved, _ = _rpc(backend, "finalize_session_distill", request)
+    saved = tool_handlers.tool_finalize_session_distill(**request)
     assert saved["success"] and saved["readback_verified"], saved
     row, = saved["knowledge_changes"]
     assert all(phrase in row["statement"] for phrase in phrases.values())
@@ -255,7 +260,7 @@ def test_native_questions_catch_tool_only_conditions_before_write(device, tmp_pa
 
     monkeypatch.setattr(store, "get_entry", persisted_entry)
     monkeypatch.setattr("harness_mem.read_knowledge.search_current_knowledge", searchable_entries)
-    replayed, _ = _rpc(backend, "finalize_session_distill", request)
+    replayed = tool_handlers.tool_finalize_session_distill(**request)
     assert not replayed["success"]
     assert replayed["reason_codes"] == ["reviewed_source_detail_missing_from_current_knowledge"]
 
@@ -373,7 +378,7 @@ def test_bound_user_evidence_can_support_an_attributed_report_and_resume_deferre
     records[-1]["payload"]["content"][0]["text"] = report
     path.write_text("\n".join(json.dumps(record) for record in records) + "\n", encoding="utf-8")
     row, = tool_inspect_sessions(clients=["codex"])["sessions"]
-    prepared, _ = _rpc(backend, "prepare_session_distill", {"scope": "all", "batch_sessions": [row]})
+    prepared = tool_handlers.tool_prepare_session_distill(**{"scope": "all", "batch_sessions": [row]})
     assert prepared["success"], prepared
     original = path.read_bytes()
     exchange = prepared["semantic_decision_exchanges"][0]
@@ -407,11 +412,11 @@ def test_bound_user_evidence_can_support_an_attributed_report_and_resume_deferre
 
     wrong = deepcopy(args)
     wrong["memory_points"][0]["review"]["evidence"][1]["quote"] = "The assistant approved a deployment."
-    rejected, _ = _rpc(backend, "finalize_session_distill", wrong)
+    rejected = tool_handlers.tool_finalize_session_distill(**wrong)
     assert not rejected["success"] and "exact" in rejected["error"]
     assert tool_handlers.tool_search_memory(query="")["memories"] == []
 
-    first, _ = _rpc(backend, "finalize_session_distill", args)
+    first = tool_handlers.tool_finalize_session_distill(**args)
     assert first["success"] and first["organization_status"] == "partial", json.dumps(first, ensure_ascii=False)
     assert [row["title"] for row in first["knowledge_changes"]] == [point["canonical_title"]], first
     store = backend.structured_store.knowledge_store
@@ -423,18 +428,18 @@ def test_bound_user_evidence_can_support_an_attributed_report_and_resume_deferre
                                                  project_root=tmp_path / "workspace")).verification_outcome == "verified"
 
     resume = first["resume_deferred"]["arguments"]
-    reopened, _ = _rpc(backend, "prepare_session_distill", resume)
+    reopened = Distill(backend.data_dir).revisit(**resume)
     assert reopened["success"] and reopened["distill_status"] == "reviewing", reopened
     assert reopened["source_revision"] == prepared["source_revision"]
     assert reopened["distill_job_id"] != prepared["distill_job_id"]
     assert reopened["deferred_review"]["pending"]
-    reopened_again, _ = _rpc(backend, "prepare_session_distill", resume)
+    reopened_again = Distill(backend.data_dir).revisit(**resume)
     assert reopened_again["distill_job_id"] == reopened["distill_job_id"]
     again = {**args, "job_id": reopened["distill_job_id"], "memory_points": [point, todo]}
-    duplicate, _ = _rpc(backend, "finalize_session_distill", again)
+    duplicate = tool_handlers.tool_finalize_session_distill(**again)
     assert not duplicate["success"] and "already saved" in duplicate["error"]
 
-    continued, _ = _rpc(backend, "finalize_session_distill", {**again, "memory_points": [todo]})
+    continued = tool_handlers.tool_finalize_session_distill(**{**again, "memory_points": [todo]})
     assert continued["success"] and continued["organization_status"] == "completed", continued
     assert continued["readback_verified"] and continued["knowledge_changes"][0]["title"] == todo["canonical_title"]
     assert {row.id for row in asyncio.run(store.list_entries(entry.project_name))} >= {entry.id}
@@ -455,12 +460,13 @@ def test_another_job_or_project_cannot_reuse_a_read_call(device, tmp_path):
     backend, _, first, _ = _prepare(device, tmp_path, name="first")
     _, _, second, _ = _prepare(device, tmp_path, name="second")
     args = deepcopy(first["native_evidence"]["read"]["arguments"])
-    args["distill_job_id"] = second["distill_job_id"]
-    result, _ = _rpc(backend, "prepare_session_distill", args)
+    args["job_id"] = second["distill_job_id"]
+    result = Distill(backend.data_dir).read(**args)
     assert not result["success"]
     args = deepcopy(first["native_evidence"]["read"]["arguments"])
     args["project_root"] = str(tmp_path / "other")
-    assert not _rpc(backend, "prepare_session_distill", args)[0]["success"]
+    with pytest.raises(TypeError):
+        Distill(backend.data_dir).read(**args)
 
 
 @pytest.mark.parametrize("change", ["append", "delete", "policy", "active", "unknown_liveness", "task_active"])
@@ -502,7 +508,8 @@ def test_native_read_cannot_also_advance_or_clean_batch(device, tmp_path):
     backend, _, prepared, _ = _prepare(device, tmp_path)
     args = deepcopy(prepared["native_evidence"]["read"]["arguments"])
     args.update(batch_id=prepared["batch_id"], cleanup_processed=True, apply_cleanup=True)
-    assert not _rpc(backend, "prepare_session_distill", args)[0]["success"]
+    with pytest.raises(TypeError):
+        Distill(backend.data_dir).read(**args)
 
 
 def test_source_change_during_projection_returns_no_partial_material(device, tmp_path, monkeypatch):

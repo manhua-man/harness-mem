@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 
@@ -30,13 +29,3 @@ def test_runtime_version_matches_pyproject() -> None:
     )
     assert package is not None
     assert package.group(1) == __version__
-
-
-def test_plugin_manifest_matches_runtime_version() -> None:
-    root = Path(__file__).resolve().parents[2]
-    manifest = json.loads(
-        (root / "code/plugins/harness-mem/.codex-plugin/plugin.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    assert manifest["version"] == __version__

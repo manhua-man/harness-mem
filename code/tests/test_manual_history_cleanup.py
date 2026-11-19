@@ -28,7 +28,7 @@ def history(tmp_path, monkeypatch):
     monkeypatch.setattr(session_inventory, "load_merged_config", lambda *_: MergedConfig())
     monkeypatch.setattr(session_inventory, "build_inspection_adapter", lambda client: CursorAdapter(None, projects_dir=projects))
     monkeypatch.setattr(manual_distill, "runtime_fingerprint", lambda: "cleanup-test-runtime")
-    handlers = tool_handlers.build_tool_handlers()
+    handlers = tool_handlers
 
     def write(name="closed", text="hello"):
         path = projects / "bucket" / "agent-transcripts" / name / f"{name}.jsonl"
@@ -41,16 +41,16 @@ def history(tmp_path, monkeypatch):
         return path
 
     def prepare(**kwargs):
-        return handlers["prepare_session_distill"](project_name="project", project_root=str(root), **kwargs)
+        return handlers.tool_prepare_session_distill(project_name="project", project_root=str(root), **kwargs)
 
     def complete(name="closed", *, finish=True, text="hello"):
         path = write(name, text)
-        inventory = handlers["inspect_sessions"](project_root=str(root), clients=["cursor"])
+        inventory = handlers.tool_inspect_sessions(project_root=str(root), clients=["cursor"])
         selected = [row for row in inventory["sessions"] if row["session_id"] == name]
         packet = prepare(batch_sessions=selected)
         assert packet["success"], packet
         if finish:
-            final = handlers["finalize_session_distill"]("project", packet["distill_job_id"], {
+            final = handlers.tool_finalize_session_distill("project", packet["distill_job_id"], {
                 "session_summary": "The session exchanged a greeting without making durable decisions.",
                 "final_user_request": "greeting", "final_outcome": "greeting answered",
                 "last_turn_status": "answered", "contradictions": [], "unfinished_work": [],
@@ -92,7 +92,7 @@ def test_preview_apply_inspect_resume_and_replay(history):
     assert job.session_id == "" and job.project_root == ""
     assert job.source_cleanup_status == "deleted"
     assert backend.transcript_store.get_revision(job.source_id, job.source_revision).raw_size_bytes == 0
-    inspected = handlers["inspect_sessions"](project_root=str(root), project_name="project", batch_id=packet["batch_id"])
+    inspected = handlers.tool_inspect_sessions(project_root=str(root), project_name="project", batch_id=packet["batch_id"])
     assert inspected["success"] and inspected["progress"]["completed"] == 1, inspected
     resumed = prepare(batch_id=packet["batch_id"])
     assert resumed["success"] and resumed["status"] == "completed", resumed
@@ -133,7 +133,7 @@ def test_success_receipt_cannot_certify_another_frozen_reference(history):
     receipt, = backend.transcript_store.list_deletion_audit(project_name="project")
     receipt["scope"]["manual_reference_id_sha256"] = "0" * 64
     backend.transcript_store.save_deletion_receipt(receipt)
-    inspected = handlers["inspect_sessions"](project_root=str(root), project_name="project", batch_id=packet["batch_id"])
+    inspected = handlers.tool_inspect_sessions(project_root=str(root), project_name="project", batch_id=packet["batch_id"])
     assert not inspected["success"], inspected
     replay = prepare(batch_id=packet["batch_id"], cleanup_processed=True, apply_cleanup=True)
     assert not replay["success"], replay
@@ -216,7 +216,7 @@ def test_cleanup_preserves_committed_knowledge_and_ordinary_search(history):
     statement = "Keep a separate saved result for each completed task."
     policy = root / "results.txt"
     policy.write_text(statement, encoding="utf-8")
-    suggested = handlers["govern_memory"](action="suggest", arguments={
+    suggested = handlers.tool_govern_memory(action="suggest", arguments={
         "kind": "memory", "project_name": "project", "category": "decision", "content": statement,
         "source": policy.name, "distill_job_id": packet["distill_job_id"],
         "evidence_basis": "repository", "verification_outcome": "verified",
@@ -226,7 +226,7 @@ def test_cleanup_preserves_committed_knowledge_and_ordinary_search(history):
         "canonical_title": "Saved results", "topic_path": ["Results"],
     })
     assert suggested["success"], suggested
-    final = handlers["finalize_session_distill"]("project", packet["distill_job_id"], {
+    final = handlers.tool_finalize_session_distill("project", packet["distill_job_id"], {
         "session_summary": "The completed task confirmed the continuing result retention policy.",
         "final_user_request": "Review the saved result policy.", "final_outcome": "The policy was saved.",
         "last_turn_status": "answered", "contradictions": [], "unfinished_work": [],
@@ -246,7 +246,7 @@ def test_cleanup_preserves_committed_knowledge_and_ordinary_search(history):
     assert result["success"], result
     assert not path.exists() and policy.exists()
     assert [entry.to_dict() for entry in asyncio.run(backend.structured_store.knowledge_store.list_entries("project"))] == saved
-    found = handlers["search_memory"](query="Saved results", scope="project", project_name="project", detail="full")
+    found = handlers.tool_search_memory(query="Saved results", scope="project", project_name="project", detail="full")
     assert statement in json.dumps(found, ensure_ascii=False), found
 
 
@@ -271,12 +271,12 @@ def test_confirmed_knowledge_requires_current_full_readback(history, monkeypatch
     suggestion = _suggest_readable_memory(backend, root, packet, title=entry.title, statement=entry.statement,
                                            disposition="confirm", targets=[target])
     assert suggestion["success"], suggestion
-    final = handlers["finalize_session_distill"]("project", packet["distill_job_id"], _memory_review(packet))
+    final = handlers.tool_finalize_session_distill("project", packet["distill_job_id"], _memory_review(packet))
     assert final["success"], final
     store = backend.structured_store.knowledge_store
     original = asyncio.run(store.get_entry(entry.id, project_name="project")).to_dict()
     if state == "missing":
-        deleted = handlers["govern_memory"](action="decide", arguments={
+        deleted = handlers.tool_govern_memory(action="decide", arguments={
             "kind": "knowledge", "decision": "delete", "project_name": "project", "target_knowledge": [target],
         })
         assert deleted["success"], deleted
@@ -304,23 +304,23 @@ def test_device_scope_metadata_reference_cleanup_inspect_resume(history):
         {"role": "assistant", "message": {"content": [{"type": "text", "text": "Hello."}]}},
     ]), encoding="utf-8")
     os.utime(path, (time.time() - 120, time.time() - 120))
-    inventory = handlers["inspect_sessions"](clients=["cursor"])
+    inventory = handlers.tool_inspect_sessions(clients=["cursor"])
     selected = [row for row in inventory["sessions"] if row["session_id"] == "device"]
-    packet = handlers["prepare_session_distill"](batch_sessions=selected, scope="all")
+    packet = handlers.tool_prepare_session_distill(batch_sessions=selected, scope="all")
     assert packet["success"], packet
-    final = handlers["finalize_session_distill"](packet["project_name"], packet["distill_job_id"], {
+    final = handlers.tool_finalize_session_distill(packet["project_name"], packet["distill_job_id"], {
         "session_summary": "The finished session exchanged greetings and has no durable decision.",
         "final_user_request": "greeting", "final_outcome": "greeting answered",
         "last_turn_status": "answered", "contradictions": [], "unfinished_work": [],
         "evidence_status": "answered", "promotion_decision": "no_promotion",
     })
     assert final["success"], final
-    applied = handlers["prepare_session_distill"](batch_id=packet["batch_id"], cleanup_processed=True, apply_cleanup=True)
+    applied = handlers.tool_prepare_session_distill(batch_id=packet["batch_id"], cleanup_processed=True, apply_cleanup=True)
     assert applied["success"], applied
     assert not path.exists()
-    inspected = handlers["inspect_sessions"](batch_id=packet["batch_id"])
+    inspected = handlers.tool_inspect_sessions(batch_id=packet["batch_id"])
     assert inspected["success"] and inspected["progress"]["completed"] == 1, inspected
-    resumed = handlers["prepare_session_distill"](batch_id=packet["batch_id"])
+    resumed = handlers.tool_prepare_session_distill(batch_id=packet["batch_id"])
     assert resumed["success"] and resumed["status"] == "completed", resumed
 
 
@@ -333,14 +333,14 @@ def _finished_conversation_with_project_work(history):
         "Run the production rollout only after the final result contract is green; that prerequisite is not proved satisfied.",
     ]
     path, packet = complete(finish=False, text="For this project: " + " ".join(tasks))
-    created = handlers["govern_memory"](action="handoff", arguments={
+    created = handlers.tool_govern_memory(action="handoff", arguments={
         "project_name": "project", "distill_job_id": packet["distill_job_id"], "task_id": "remaining-project-work",
         "summary": "The conversation is fully reviewed; original project execution remains pending.",
         "status": "in_progress", "next_steps": tasks,
         "blockers": ["Production rollout requires a green final result contract."],
     })
     assert created["success"], created
-    final = handlers["finalize_session_distill"]("project", packet["distill_job_id"], {
+    final = handlers.tool_finalize_session_distill("project", packet["distill_job_id"], {
         "session_summary": "The conversation established four remaining project tasks with their original conditions and speaker boundaries.",
         "final_user_request": "Preserve the original project tasks and their conditions.",
         "final_outcome": "Source review is complete; the four original project tasks remain saved and unfinished.",
@@ -369,7 +369,7 @@ def test_finished_conversation_cleans_raw_history_and_preserves_all_original_pro
     assert note.read_bytes() == note_before
     assert backend.structured_store.list_record_payloads("task_handoffs", strict=True) == handoff_before
     assert backend.transcript_store.get_revision(job.source_id, job.source_revision).raw_size_bytes == 0
-    after = handlers["inspect_sessions"](project_root=str(root), project_name="project", batch_id=packet["batch_id"])
+    after = handlers.tool_inspect_sessions(project_root=str(root), project_name="project", batch_id=packet["batch_id"])
     assert after["success"] and after["progress"]["completed"] == 1, after
     assert after["unfinished_work"] == tasks
     resumed = prepare(batch_id=packet["batch_id"])
@@ -469,7 +469,7 @@ def test_finalize_itself_persists_original_project_work_then_cleanup_survives_re
     ]
     path, packet = complete(finish=False, text="Keep these original project tasks: " + " ".join(tasks))
     assert backend.structured_store.list_record_payloads("task_handoffs", strict=True) == []
-    final = handlers["finalize_session_distill"]("project", packet["distill_job_id"], {
+    final = handlers.tool_finalize_session_distill("project", packet["distill_job_id"], {
         "session_summary": "The conversation was reviewed completely; three conditional project tasks remain for later execution.",
         "final_user_request": "Retain the original project work and its conditions.",
         "final_outcome": "Original project work remains unfinished, while this conversation review is complete.",
@@ -489,7 +489,7 @@ def test_finalize_itself_persists_original_project_work_then_cleanup_survives_re
     asyncio.run(reopened.init())
     try:
         monkeypatch.setattr(tool_handlers, "_backend_provider", lambda: reopened)
-        inspected = handlers["inspect_sessions"](project_root=str(root), project_name="project", batch_id=packet["batch_id"])
+        inspected = handlers.tool_inspect_sessions(project_root=str(root), project_name="project", batch_id=packet["batch_id"])
         assert inspected["success"] and inspected["progress"]["completed"] == 1, inspected
         assert inspected["unfinished_work"] == tasks
         assert reopened.structured_store.list_record_payloads("task_handoffs", strict=True) == handoffs
@@ -521,7 +521,7 @@ def test_failed_final_handoff_keeps_source_and_already_saved_verified_knowledge(
             return None
 
         monkeypatch.setattr(backend.structured_store, "get_task_handoff", failed_readback)
-    result = handlers["finalize_session_distill"]("project", packet["distill_job_id"], semantic)
+    result = handlers.tool_finalize_session_distill("project", packet["distill_job_id"], semantic)
     assert not result["success"] and result["reason_codes"] == ["unfinished_handoff_not_saved"], result
     assert backend.transcript_store.get_distill_job(packet["distill_job_id"]).status != "completed"
     assert path.exists()

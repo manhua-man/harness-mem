@@ -1276,7 +1276,7 @@ def bootstrap_canonical_runtime(data_dir: Path) -> StorageRuntimeState:
                 error="legacy_migration_required",
                 recovery_hint=(
                     "Legacy JSON remains authoritative. Preview with "
-                    "`harness-mem maintenance migrate-store-v2 --project "
+                    "`python -m harness_mem.cli maintenance migrate-store-v2 --project "
                     "<PROJECT_NAME> --dry-run`, then explicitly apply after review."
                 ),
             ),
@@ -1738,13 +1738,13 @@ def canonical_store_health(
                 )
             ),
             "fix_command": (
-                "harness-mem maintenance migrate-store-v2 "
+                "python -m harness_mem.cli maintenance migrate-store-v2 "
                 "--project <PROJECT_NAME> --dry-run"
             ),
             "apply_command": (
                 ""
                 if relation_name in {"invalid_legacy", "content_conflict"}
-                else "harness-mem maintenance migrate-store-v2 "
+                else "python -m harness_mem.cli maintenance migrate-store-v2 "
                 "--project <PROJECT_NAME> --apply"
             ),
         }
@@ -1821,13 +1821,13 @@ def canonical_store_health(
             "enabled": storage_v2_dual_write_enabled(),
         },
         "fix_command": (
-            "harness-mem maintenance migrate-store-v2 "
+            "python -m harness_mem.cli maintenance migrate-store-v2 "
             "--project <PROJECT_NAME> --dry-run"
             if status in {"degraded", "partial_migration", "checksum_drift"}
             else ""
         ),
         "apply_command": (
-            "harness-mem maintenance migrate-store-v2 --project <PROJECT_NAME> --apply"
+            "python -m harness_mem.cli maintenance migrate-store-v2 --project <PROJECT_NAME> --apply"
             if status in {"degraded", "partial_migration", "checksum_drift"}
             and relation["relation"] not in {"invalid_legacy", "content_conflict"}
             else ""
@@ -1860,13 +1860,13 @@ def _legacy_reader_policy_payload(
             "canonical_row_count": canonical_row_count,
             "reader_removal_allowed": False,
             "migration_preview_command": (
-                "harness-mem maintenance migrate-store-v2 "
+                "python -m harness_mem.cli maintenance migrate-store-v2 "
                 "--project <PROJECT_NAME> --dry-run"
             ),
             "migration_apply_command": (
                 None
                 if conversion_status == "manual_review_required"
-                else "harness-mem maintenance migrate-store-v2 "
+                else "python -m harness_mem.cli maintenance migrate-store-v2 "
                 "--project <PROJECT_NAME> --apply"
             ),
             "removal_gates": [
@@ -2106,15 +2106,15 @@ def _runtime_recovery_hint(mode: str) -> str:
     if mode == "bootstrapped_from_legacy":
         return (
             "Canonical SQLite is now the default truth store; use "
-            "`harness-mem maintenance export-json-snapshot --apply` to create "
+            "`python -m harness_mem.cli maintenance export-json-snapshot --apply` to create "
             "a rollback-compatible snapshot."
         )
     if mode == "degraded_fallback":
         return (
             "Canonical runtime is degraded. Preview with "
-            "`harness-mem maintenance migrate-store-v2 --project "
+            "`python -m harness_mem.cli maintenance migrate-store-v2 --project "
             "<PROJECT_NAME> --dry-run`, then explicitly apply after review; once healthy, "
-            "use `harness-mem maintenance export-json-snapshot --apply` for a "
+            "use `python -m harness_mem.cli maintenance export-json-snapshot --apply` for a "
             "rollback snapshot."
         )
     return "Canonical SQLite is the active truth runtime."

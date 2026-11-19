@@ -53,12 +53,12 @@ _SIGNAL_FRESHNESS_TYPES: tuple[str, ...] = (
 )
 _STRUCTURED_INDEX_WAL_NAME = "structured_index.sqlite-wal"
 _WAL_HINT_CODE = "HM-402"
-_WAL_FIX_COMMAND = "harness-mem maintenance checkpoint-wal"
+_WAL_FIX_COMMAND = "python -m harness_mem.cli maintenance checkpoint-wal"
 _VECTOR_REBUILD_COMMAND = (
-    "harness-mem maintenance rebuild-vector-index --project <PROJECT_NAME>"
+    "python -m harness_mem.cli maintenance rebuild-vector-index --project <PROJECT_NAME>"
 )
 _VERBATIM_REBUILD_COMMAND = (
-    "harness-mem maintenance rebuild-verbatim-index --project <PROJECT_NAME>"
+    "python -m harness_mem.cli maintenance rebuild-verbatim-index --project <PROJECT_NAME>"
 )
 
 
@@ -382,7 +382,7 @@ _STRUCTURED_INDEX_WAL_NAME = "structured_index.sqlite-wal"
 # free HM-4xx slot — HM-402 — is the WAL-checkpoint code. The
 # fix command points at the WAL-checkpoint maintenance entry point.
 _WAL_HINT_CODE = "HM-402"
-_WAL_FIX_COMMAND = "harness-mem maintenance checkpoint-wal"
+_WAL_FIX_COMMAND = "python -m harness_mem.cli maintenance checkpoint-wal"
 
 # Matches the leading ``HM-NNN`` token of a hint message (e.g. "HM-201").
 _HM_CODE_PREFIX = re.compile(r"^HM-\d+$")

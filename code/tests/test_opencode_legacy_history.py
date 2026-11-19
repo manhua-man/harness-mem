@@ -173,19 +173,19 @@ def test_legacy_and_sqlite_hm_finalization_read_back_ordinary_knowledge(tmp_path
     monkeypatch.setattr(tool_handlers, "_observer_data_dir_provider", lambda: data_dir)
     monkeypatch.setattr(session_inventory, "load_merged_config", lambda *_: MergedConfig())
     monkeypatch.setattr(session_inventory, "build_inspection_adapter", lambda _: OpenCodeAdapter(None, database_path=database))
-    handlers = tool_handlers.build_tool_handlers()
+    handlers = tool_handlers
     scope = {"project_name": "project", "project_root": str(root)}
     try:
-        inventory = handlers["inspect_sessions"](project_root=str(root), clients=["opencode"])
+        inventory = handlers.tool_inspect_sessions(project_root=str(root), clients=["opencode"])
         assert {row["session_id"] for row in inventory["sessions"]} == set(results)
         for row in inventory["sessions"]:
             title, statement = results[row["session_id"]]
             evidence = root / (row["session_id"] + ".txt")
             evidence.write_text(statement, encoding="utf-8")
-            packet = handlers["prepare_session_distill"](**scope, batch_sessions=[row])
+            packet = handlers.tool_prepare_session_distill(**scope, batch_sessions=[row])
             assert packet["success"], packet
             job_id = packet["distill_job_id"]
-            candidate = handlers["govern_memory"](action="suggest", arguments={
+            candidate = handlers.tool_govern_memory(action="suggest", arguments={
                 "kind": "memory", "project_name": "project", "category": "decision",
                 "content": statement, "source": evidence.name, "distill_job_id": job_id,
                 "evidence_basis": "repository", "verification_outcome": "verified",
@@ -195,7 +195,7 @@ def test_legacy_and_sqlite_hm_finalization_read_back_ordinary_knowledge(tmp_path
                 "canonical_title": title, "topic_path": ["Archive"],
             })
             assert candidate["success"], candidate
-            final = handlers["finalize_session_distill"]("project", job_id, {
+            final = handlers.tool_finalize_session_distill("project", job_id, {
                 "session_summary": "The archive policy was verified against the current repository.",
                 "final_user_request": "Keep the archive policy available for later work.",
                 "final_outcome": "The verified archive policy was saved.",
@@ -211,7 +211,7 @@ def test_legacy_and_sqlite_hm_finalization_read_back_ordinary_knowledge(tmp_path
             })
             assert final["success"], final
             assert statement in Path(final["note"]["path"]).read_text(encoding="utf-8")
-            clean = handlers["prepare_session_distill"](
+            clean = handlers.tool_prepare_session_distill(
                 **scope, batch_id=packet["batch_id"], cleanup_processed=True, apply_cleanup=True,
             )
             assert clean["counts"] == {"unsupported": 1}, clean
@@ -224,7 +224,7 @@ def test_legacy_and_sqlite_hm_finalization_read_back_ordinary_knowledge(tmp_path
     try:
         monkeypatch.setattr(tool_handlers, "_backend_provider", lambda: reopened)
         for title, statement in results.values():
-            found = handlers["search_memory"](query=title, scope="project", project_name="project", detail="full")
+            found = handlers.tool_search_memory(query=title, scope="project", project_name="project", detail="full")
             assert {"title": title, "statement": statement} in found["memories"]
     finally:
         asyncio.run(reopened.close())

@@ -1,6 +1,6 @@
 """Seven native hosts through automatic discovery and the real manual MCP flow.
 
-Native formats, dispatcher, gates, jobs, SQLite, Notes and ordinary retrieval
+Native formats, local handlers, gates, jobs, SQLite, Notes and ordinary retrieval
 are real. Filesystem locations and Agent semantic decisions are fictional and
 isolated; this is not a native-app Hook or model-quality qualification.
 """
@@ -31,7 +31,7 @@ from harness_mem.adapters.snapshot import persist_session_snapshot
 from harness_mem.commands.session_inventory import _PAGE_CACHE, discover_session_projects
 from harness_mem.config.merge import MergedConfig
 from harness_mem.core.schemas.observation import Observation
-from harness_mem.mcp import server, tool_handlers
+from harness_mem.mcp import tool_handlers
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
@@ -168,13 +168,10 @@ def create_native_fixture(root: Path, projects: list[Path], *, native_containers
     return {"factories": adapters, "locations": locations}
 
 
-def _rpc(name: str, arguments: dict) -> dict:
-    response = server.handle_request({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                                      "params": {"name": name, "arguments": arguments}})
-    assert response is not None and "error" not in response, response
-    payload = json.loads(response["result"]["content"][0]["text"])
-    assert payload.get("success", True), payload
-    return payload
+def _call(handler, arguments):
+    result = handler(**arguments)
+    assert result.get("success", True), result
+    return result
 
 
 def _run_native_variant(*, native_containers: bool) -> dict:
@@ -214,7 +211,7 @@ def _run_native_variant(*, native_containers: bool) -> dict:
         stack.enter_context(patch("harness_mem.commands.session_inventory.build_inspection_adapter", lambda client: factories[client]()))
         stack.enter_context(patch("harness_mem.mcp.distill_handlers._session_notes_dir", lambda _: backend.data_dir / "notes"))
         _PAGE_CACHE.clear()
-        device = _rpc("inspect_sessions", {})
+        device = _call(tool_handlers.tool_inspect_sessions, {})
         assert device["scope"] == "all", device
         # Preserve qualification of the explicit optional legacy source filter;
         # the daily public default is now a flat selected-device flow.
@@ -222,7 +219,7 @@ def _run_native_variant(*, native_containers: bool) -> dict:
         discovered = {item["project_root"]: item for item in discovery["projects"]}
         for binding in discovered.values():
             # These arguments come from native discovery, never human input.
-            narrowed = _rpc("inspect_sessions", {"project_root": binding["project_root"], "project_name": binding["project_name"]})
+            narrowed = _call(tool_handlers.tool_inspect_sessions, {"project_root": binding["project_root"], "project_name": binding["project_name"]})
             binding["sessions"] = [row for row in narrowed["sessions"] if row["ownership"] == "project"]
         names = [discovered[os.path.normcase(str(project.resolve()))]["project_name"] for project in projects]
         assert names == ["project", "project"], discovery
@@ -256,7 +253,7 @@ def _run_native_variant(*, native_containers: bool) -> dict:
                     offset = 0
                     page_count = 0
                     while True:
-                        page = _rpc("inspect_sessions", {"action": "source", "session": source, "offset": offset, "page_chars": 31})
+                        page = _call(tool_handlers.tool_inspect_sessions, {"action": "source", "session": source, "offset": offset, "page_chars": 31})
                         page_count += 1
                         assert page["revision_verified"]
                         if page["next_offset"] is None:
@@ -264,9 +261,9 @@ def _run_native_variant(*, native_containers: bool) -> dict:
                         offset = page["next_offset"]
                     pages_target_only &= page_count > 1 and full_reads == [(source["client"], source["session_id"])]
                     verified_selection.append(page["verified_session"])
-            packet = _rpc("prepare_session_distill", {"batch_sessions": verified_selection if index else selected})
+            packet = _call(tool_handlers.tool_prepare_session_distill, {"batch_sessions": verified_selection if index else selected})
             batch_id, first_job = packet["batch_id"], packet["distill_job_id"]
-            resumed = _rpc("prepare_session_distill", {"batch_id": batch_id})
+            resumed = _call(tool_handlers.tool_prepare_session_distill, {"batch_id": batch_id})
             resumed_job_same &= resumed["distill_job_id"] == first_job
             packet = resumed
             for _ in selected:
@@ -277,7 +274,7 @@ def _run_native_variant(*, native_containers: bool) -> dict:
                 token = f"{client}policy{index}"
                 statement = f"{token}: Keep only verified current cache entries for workspace {index}."
                 policy = project / "policy.txt"
-                suggestion = _rpc("govern_memory", {"action": "suggest", "arguments": {
+                suggestion = _call(tool_handlers.tool_govern_memory, {"action": "suggest", "arguments": {
                     "kind": "memory", "project_name": job.project_name, "category": "decision", "content": statement,
                     "source": f"distill-job:{job.id}", "distill_job_id": job.id,
                     "evidence_basis": "repository", "verification_outcome": "verified",
@@ -286,11 +283,11 @@ def _run_native_variant(*, native_containers: bool) -> dict:
                     "canonical_title": f"{client} cache policy", "topic_path": ["Cache"],
                 }})
                 assert suggestion["success"], suggestion
-                final = _rpc("finalize_session_distill", {"project_name": job.project_name, "job_id": job.id,
+                final = _call(tool_handlers.tool_finalize_session_distill, {"project_name": job.project_name, "job_id": job.id,
                     "semantic_review": {"session_summary": "Verified fictional cache policy.", "final_user_request": f"Verify {token}.",
                                         "final_outcome": "Verified policy saved.", "last_turn_status": "answered",
                                         "contradictions": [], "unfinished_work": [], "evidence_status": "answered", "promotion_decision": "promote"}})
-                found = _rpc("search_memory", {"project_name": job.project_name, "query": token, "scope": "project"})
+                found = _call(tool_handlers.tool_search_memory, {"project_name": job.project_name, "query": token, "scope": "project"})
                 note = Path(final["note"]["path"])
                 per_host[client] = {
                     "prepared": job.source_revision.startswith("sha256:"),
@@ -300,13 +297,13 @@ def _run_native_variant(*, native_containers: bool) -> dict:
                                      and hashlib.sha256(note.read_bytes()).hexdigest() == final["note"]["sha256"],
                 }
                 assert all(per_host[client].values()), {client: per_host[client]}
-                packet = _rpc("prepare_session_distill", {"batch_id": batch_id})
+                packet = _call(tool_handlers.tool_prepare_session_distill, {"batch_id": batch_id})
             assert packet["status"] == "completed" and packet["progress"]["completed"] == 7, packet
-        # Independently reopen the durable store, then use the ordinary MCP reader.
+        # Independently reopen the durable store, then use the current-knowledge reader.
         asyncio.run(backend.close())
         backend = LocalMemoryBackend(root / "data")
         asyncio.run(backend.init())
-        current = _rpc("search_memory", {"query": ""})
+        current = _call(tool_handlers.tool_search_memory, {"query": ""})
         checks.update({
             "seven_host_complete_flow": all(all(result.values()) for result in per_host.values()),
             "batch_resumes_same_job": resumed_job_same,
@@ -336,7 +333,7 @@ def main() -> int:
     with temporarily_disable_embeddings():
         result = run_automatic_projects_outcome_probe()
     output = (json.dumps(result, sort_keys=True) + "\n").encode("utf-8")
-    os.write(getattr(server, "_REAL_STDOUT_FD", 1), output)
+    os.write(1, output)
     return 0 if result["verified"] else 1
 
 

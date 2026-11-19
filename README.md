@@ -1,24 +1,14 @@
 # harness-mem
 
-本地 Agent 记忆工具。用 **Distill** 从已结束的对话里提取有来源的知识，用 **Search** 在新任务里找回当前仍适用的内容。两者通过同一个 MCP 服务工作，手工整理可以独立运行。
+让当前 Agent 整理已结束的对话，在以后的任务里找回有用的知识。用户在对话里说出意图，Agent 负责读取、判断和答复，本地运行时负责来源、进度和保存。
 
-## 从源码开始
-
-当前源码版本是 **0.0.1**。准备 Python 3.9 或更高版本、Rust 工具链和本机编译器，在仓库根目录、目标 Python 虚拟环境中运行：
-
-```sh
-python -m pip install .
-harness-mem --help
-```
-
-在 Agent 中连接这个环境的服务进程，配置示例见 [MCP setup](docs/mcp-setup.md)。连接后可以直接问「有哪些已结束的会话可以整理？」或「我们之前怎么决定这个问题的？」。
-
-## 功能入口
-
-| 想做的事 | 从哪里开始 |
+| 用户可以这样说 | Agent 会做什么 |
 | --- | --- |
-| 盘点会话、整理一批历史、检查写入结果或清理已处理的原文 | [Distill](docs/features/distill.md) |
-| 跨项目找知识、逐项回答复合问题、在新任务中唤起相关记忆 | [Search](docs/features/search.md) |
-| 接入宿主生命周期、授权后台处理或诊断连接 | [宿主接入](docs/quickstart.md) |
+| “把上次讨论建筑破坏的对话整理一下。” | **Distill** 找到对应会话，完整阅读，核对谁说了什么，告诉你保存了哪些知识、哪些问题仍待确认。中途暂停后可以接着读。 |
+| “普通楼和特殊楼当时为什么要分开处理？” | **Search** 从当前知识中找回相关正文，用原先约定的条件回答。 |
 
-开发入口见 [AGENTS.md](AGENTS.md)，协作和验收约定见 [CLAUDE.md](CLAUDE.md)，面向用户的响应设计见 [DESIGN.md](DESIGN.md)。
+## 宿主接入
+
+本仓库提供两份原生 Agent Skill：[Distill](.agents/skills/distill/SKILL.md) 和 [Search](.agents/skills/search/SKILL.md)。在支持仓库级 `.agents/skills` 的宿主里，由宿主发现这两份指令。接入其他工作区时，让宿主加载同一份 Skill，并让其本地 Python 环境可导入 `harness_mem`。部署与开发入口见 [AGENTS.md](AGENTS.md)。
+
+用户始终和当前 Agent 对话。会话正文、知识和检查点由本地运行时管理。两条工作流都无需后台语义模型。具体行为见 [整理](docs/features/distill.md) 和 [检索](docs/features/search.md)。

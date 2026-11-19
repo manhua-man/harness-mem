@@ -40,8 +40,6 @@ semantic-onnx = [
 ]
 
 [project.scripts]
-harness-mem = "harness_mem.cli:main"
-harness-mem-mcp = "harness_mem.mcp.server:main"
 harness-mem-hook = "harness_mem.host_entry.__main__:main"
 
 [build-system]
@@ -55,13 +53,13 @@ python-packages = ["harness_mem"]
 features = ["pyo3/extension-module"]
 include = [
     { path = "harness_mem/integration/templates/*.template", format = "wheel" },
+    ".agents/skills/search/SKILL.md",
+    ".agents/skills/distill/SKILL.md",
 ]
 
 [[tool.mypy.overrides]]
 module = [
     "huggingface_hub",
-    "mcp",
-    "mcp.client.stdio",
     "sentence_transformers",
 ]
 ignore_missing_imports = true

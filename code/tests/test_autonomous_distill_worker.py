@@ -4002,7 +4002,7 @@ def test_autonomous_worker_completes_job_materializes_note_and_receipt(
     try:
         fresh_rows = asyncio.run(reopened.structured_store.knowledge_store.list_entries("demo"))
         assert [entry.to_dict() for entry in fresh_rows] == committed_rows
-        recalled = tool_handlers.build_tool_handlers()["search_memory"](query="Local index storage", project_name="demo", scope="project")
+        recalled = tool_handlers.tool_search_memory(query="Local index storage", project_name="demo", scope="project")
         assert recalled["memories"] == [{"title": "Local index storage", "statement": "The project uses SQLite for local derived indexes."}]
         sources = asyncio.run(reopened.structured_store.knowledge_store.list_sources(fresh_rows[0].id))
         validation, complete = asyncio.run(reopen_knowledge_sources(reopened, project_name="demo", sources=sources, project_root=str(project)))

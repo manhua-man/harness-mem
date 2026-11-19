@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from harness_mem.agent_runtime import active_backend
 from harness_mem.core.schemas import (
     AssimilationDecision,
     KnowledgeCandidate,
@@ -15,7 +16,7 @@ from harness_mem.core.schemas import (
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.event_log import iter_state_events
-from harness_mem.mcp import read_wake_handlers, server
+from harness_mem.mcp import read_wake_handlers, tool_handlers
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
@@ -35,11 +36,11 @@ def backend(tmp_path, monkeypatch):
     project_root.mkdir()
     (project_root / "SOURCE.md").write_text("# Test source\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
-    server.set_backend_override(backend)
+    binding = active_backend.set(backend)
     try:
         yield backend
     finally:
-        server.set_backend_override(None)
+        active_backend.reset(binding)
         asyncio.run(backend.close())
 
 
@@ -109,7 +110,7 @@ def test_search_memory_returns_clean_canonical_prose_by_default(backend) -> None
         ["Use SQLite for local-first memory."],
     )
 
-    payload = server.tool_search_memory(
+    payload = tool_handlers.tool_search_memory(
         query="SQLite local-first",
         project_name="demo",
     )
@@ -148,14 +149,14 @@ def test_search_memory_and_wake_do_not_hide_current_entries_behind_default_count
     ]
     _replace_current_knowledge(backend, "demo", entries)
 
-    search = server.tool_search_memory(
+    search = tool_handlers.tool_search_memory(
         query="unboundedrecalltoken",
         project_name="demo",
         budget_tokens=12_000,
     )
     assert len(search["memories"]) == 25
 
-    wake = server.tool_wake(
+    wake = tool_handlers.tool_wake(
         project_name="demo",
         current_task="unboundedrecalltoken",
         budget_tokens=12_000,
@@ -200,7 +201,7 @@ def test_search_memory_cannot_revive_legacy_rows(
         fail_legacy_read,
     )
 
-    payload = server.tool_search_memory(
+    payload = tool_handlers.tool_search_memory(
         query="authorityfiltertoken",
         project_name="demo",
     )
@@ -244,7 +245,7 @@ def test_search_all_cached_type_filter_uses_only_current_knowledge(backend) -> N
             )
         )
 
-    payload = server.tool_search_memory(
+    payload = tool_handlers.tool_search_memory(
         query="allauthoritytoken",
         scope="all",
     )
@@ -320,14 +321,14 @@ def test_wake_uses_only_current_knowledge(
         fail_legacy_read,
     )
 
-    payload = server.tool_wake(
+    payload = tool_handlers.tool_wake(
         project_name="demo",
         current_task="wakeauthoritytoken",
     )
 
     candidate, = payload["long_term_memory"]
     assert "statement" not in candidate
-    full = server.tool_search_memory(
+    full = tool_handlers.tool_search_memory(
         query="wakeauthoritytoken", scope="all", detail="full", cursor=candidate["read_cursor"],
     )
     assert [row["statement"] for row in full["memories"]] == [
@@ -361,7 +362,7 @@ def test_wake_reports_degraded_storage_instead_of_success(
         "success": False,
         "project_name": "demo",
         "message": "Project memory storage is not ready.",
-        "action": "Run harness-mem doctor.",
+        "action": "Run python -m harness_mem.cli doctor.",
     }
 
 
@@ -375,7 +376,7 @@ def test_wake_read_failure_is_not_empty_memory_and_can_recover(
     maintenance = Mock(return_value={})
     monkeypatch.setattr(read_wake_handlers, reader_name, reader)
     monkeypatch.setattr(read_wake_handlers, "_build_distill_maintenance_offer", maintenance)
-    failed = server.tool_wake(project_name="demo", current_task=current_task, scope="project")
+    failed = tool_handlers.tool_wake(project_name="demo", current_task=current_task, scope="project")
     assert failed["success"] is False
     assert "could not be read" in failed["message"]
     assert "doctor" in failed["action"]
@@ -386,7 +387,7 @@ def test_wake_read_failure_is_not_empty_memory_and_can_recover(
     # An empty successful read remains distinct from an unreadable store.
     reader.side_effect = None
     reader.return_value = []
-    recovered = server.tool_wake(project_name="demo", current_task=current_task, scope="project")
+    recovered = tool_handlers.tool_wake(project_name="demo", current_task=current_task, scope="project")
     assert recovered["success"] is True
     assert recovered["long_term_memory"] == []
     maintenance.assert_called_once()
@@ -396,7 +397,7 @@ def test_wake_read_failure_is_not_empty_memory_and_can_recover(
 def test_wake_backend_open_failure_has_safe_recovery(monkeypatch, error_type) -> None:
     monkeypatch.setattr(read_wake_handlers, "_get_backend",
                         Mock(side_effect=error_type("private canonical path")))
-    result = server.tool_wake(project_name="demo")
+    result = tool_handlers.tool_wake(project_name="demo")
     assert result["success"] is False
     assert "could not be opened" in result["message"]
     assert "doctor" in result["action"]
@@ -444,7 +445,7 @@ def test_file_context_reads_current_knowledge_not_legacy_memory(
             fail_legacy_read,
         )
 
-    payload = server.tool_file_context(
+    payload = tool_handlers.tool_file_context(
         path="harness_mem/file_context.py",
         project_name="demo",
         project_root=str(backend.data_dir / "demo"),
@@ -462,7 +463,7 @@ def test_search_all_returns_clean_current_knowledge_without_feedback_protocol(ba
     _replace_current_knowledge(backend, "demo", ["Shared SQLite guidance."])
     _replace_current_knowledge(backend, "second", ["Shared evidence guidance."])
 
-    payload = server.tool_search_memory(query="Shared", scope="all")
+    payload = tool_handlers.tool_search_memory(query="Shared", scope="all")
 
     assert {row["project_name"] for row in payload["memories"]} == {
         "demo",
@@ -502,11 +503,11 @@ def test_search_memory_never_mixes_in_raw_observations(backend) -> None:
         )
     )
 
-    default_payload = server.tool_search_memory(
+    default_payload = tool_handlers.tool_search_memory(
         query="canonicalretrievaltoken",
         project_name="demo",
     )
-    raw_payload = server.tool_search_raw(
+    raw_payload = tool_handlers.tool_search_raw(
         pattern="canonicalretrievaltoken",
         project_name="demo",
     )
@@ -531,7 +532,7 @@ def test_cross_project_search_keeps_only_the_needed_project_scope(backend) -> No
             [f"sharedprojectiontoken {project_name} memory."],
         )
 
-    payload = server.tool_search_memory(
+    payload = tool_handlers.tool_search_memory(
         query="sharedprojectiontoken",
         scope="all",
     )
@@ -554,7 +555,7 @@ def test_search_memory_records_content_free_abstention_signal(backend) -> None:
     import asyncio
 
     query = "evidence-that-does-not-exist-99331"
-    payload = server.tool_search_memory(query=query, project_name="demo", scope="project")
+    payload = tool_handlers.tool_search_memory(query=query, project_name="demo", scope="project")
     signals = asyncio.run(
         backend.structured_store.query_retrieval_signals(
             "demo",
@@ -585,7 +586,7 @@ def test_context_outcome_keeps_retrieval_correlation_without_prefilling_use(
         "demo",
         ["Correlated retrieval feedback remains content free."],
     )
-    search = server.tool_search_memory(
+    search = tool_handlers.tool_search_memory(
         query="correlated retrieval",
         project_name="demo",
         _include_diagnostics=True,
@@ -594,11 +595,11 @@ def test_context_outcome_keeps_retrieval_correlation_without_prefilling_use(
     call = search["record_outcome_call"]
 
     assert "outcome" not in call["arguments"]
-    recorded = server.tool_record_context_outcome(
+    recorded = tool_handlers.tool_record_context_outcome(
         **call["arguments"],
         outcome="ignored",
     )
-    replayed = server.tool_record_context_outcome(
+    replayed = tool_handlers.tool_record_context_outcome(
         **call["arguments"],
         outcome="ignored",
     )
@@ -627,7 +628,7 @@ def test_context_outcome_rejects_unmatched_sources_when_correlated(backend) -> N
         "demo",
         ["Current search feedback remains correlated."],
     )
-    search = server.tool_search_memory(
+    search = tool_handlers.tool_search_memory(
         query="current search feedback",
         project_name="demo",
         _include_diagnostics=True,
@@ -638,7 +639,7 @@ def test_context_outcome_rejects_unmatched_sources_when_correlated(backend) -> N
         "source_ids": ["legacy-memory", "external-context"],
         "outcome": "used",
     }
-    recorded = server.tool_record_context_outcome(**arguments)
+    recorded = tool_handlers.tool_record_context_outcome(**arguments)
     outcomes = asyncio.run(
         backend.structured_store.query_retrieval_signals(
             "demo", signal_type="context_outcome", limit=20
@@ -651,7 +652,7 @@ def test_context_outcome_rejects_unmatched_sources_when_correlated(backend) -> N
 
 
 def test_mcp_review_writes_state_audit_events(backend) -> None:
-    suggested = server.tool_govern_memory(
+    suggested = tool_handlers.tool_govern_memory(
         action="suggest",
         arguments={
             "kind": "memory",
@@ -661,7 +662,7 @@ def test_mcp_review_writes_state_audit_events(backend) -> None:
             "source": "test",
         },
     )
-    reviewed = server.tool_govern_memory(
+    reviewed = tool_handlers.tool_govern_memory(
         action="decide",
         arguments={
             "kind": "knowledge",
@@ -704,11 +705,11 @@ def test_mcp_search_memory_diagnostics_never_surface_legacy_rows(backend) -> Non
         )
     )
 
-    default_payload = server.tool_search_memory(
+    default_payload = tool_handlers.tool_search_memory(
         query="mcpdeeprecalltoken",
         project_name="demo",
     )
-    diagnostic_payload = server.tool_search_memory(
+    diagnostic_payload = tool_handlers.tool_search_memory(
         query="mcpdeeprecalltoken",
         project_name="demo",
         _include_diagnostics=True,
@@ -753,7 +754,7 @@ def test_mcp_does_not_supersede_legacy_memory_rows(backend) -> None:
         )
     )
 
-    suggested = server.tool_govern_memory(
+    suggested = tool_handlers.tool_govern_memory(
         action="supersede",
         arguments={
             "project_name": "demo",

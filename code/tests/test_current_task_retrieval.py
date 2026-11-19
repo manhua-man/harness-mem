@@ -199,17 +199,8 @@ def test_nontext_context_is_rejected_before_backend_read():
     assert handlers.tool_search_memory("topic", task_context={})["success"] is False
 
 
-def test_explicit_context_is_available_through_public_jsonrpc_schema(task_search):
-    from harness_mem.mcp import server
-
-    schema = server.TOOLS["search_memory"]["input_schema"]
-    assert schema["properties"]["task_context"]["type"] == "string"
-    assert "task_context" not in schema["required"]
-    response = server.handle_request({"jsonrpc": "2.0", "id": 27, "method": "tools/call", "params": {
-        "name": "search_memory", "arguments": {"query": "SQLite backup", "task_context": "Move alpha safely.",
-                                                   "budget_tokens": 4000}}})
-    assert "error" not in response
-    payload = json.loads(response["result"]["content"][0]["text"])
+def test_explicit_context_can_be_used_to_read_complete_facts(task_search):
+    payload = handlers.tool_search_memory(query="SQLite backup", task_context="Move alpha safely.", budget_tokens=4000)
     assert payload["discovery"]["semantic"] == "available"
     assert payload["detail"] == "mixed"
     assert all("statement" in item for item in payload["memories"])

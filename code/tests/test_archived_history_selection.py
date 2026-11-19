@@ -70,14 +70,14 @@ def native_archives(tmp_path, monkeypatch):
     monkeypatch.setattr(sqlite_cleanup, "cursor_profile_roots", lambda: (user,))
     monkeypatch.setattr(sqlite_cleanup.cursor_adapter, "DEFAULT_PROJECTS_DIR", tmp_path / "projects")
     try:
-        yield root, database, backend, tool_handlers.build_tool_handlers()
+        yield root, database, backend, tool_handlers
     finally:
         asyncio.run(backend.close())
 
 
 def test_inventory_keeps_only_native_archives_when_requested(native_archives):
     _root, _database, _backend, handlers = native_archives
-    inspect = handlers["inspect_sessions"]
+    inspect = handlers.tool_inspect_sessions
     inventory = inspect(clients=["codex", "cursor"])
     assert {row["session_id"]: row["archive_state"] for row in inventory["sessions"]} == {
         "closed": "archived", "closed-neighbor": "not_archived", "unknown": "unknown",
@@ -86,7 +86,7 @@ def test_inventory_keeps_only_native_archives_when_requested(native_archives):
     filtered = inspect(clients=["codex", "cursor"], archived_only=True)
     assert {row["session_id"] for row in filtered["sessions"]} == {"closed", "codex-closed"}
     nonarchive = next(row for row in inventory["sessions"] if row["session_id"] == "closed-neighbor")
-    rejected = handlers["prepare_session_distill"](batch_sessions=[nonarchive], scope="all", archived_only=True)
+    rejected = handlers.tool_prepare_session_distill(batch_sessions=[nonarchive], scope="all", archived_only=True)
     assert not rejected["success"] and "verified archive" in rejected["error"]
 
 
@@ -94,9 +94,9 @@ def test_inventory_keeps_only_native_archives_when_requested(native_archives):
 @pytest.mark.parametrize("mutation", ["unarchive", "edit"])
 def test_archive_selection_rechecks_before_finalize(native_archives, device_scope, mutation):
     root, database, backend, handlers = native_archives
-    prepare = handlers["prepare_session_distill"]
+    prepare = handlers.tool_prepare_session_distill
     scope = {"scope": "all"} if device_scope else {"project_name": "project", "project_root": str(root)}
-    inventory = handlers["inspect_sessions"](clients=["cursor"], archived_only=True, **scope)
+    inventory = handlers.tool_inspect_sessions(clients=["cursor"], archived_only=True, **scope)
     packet = prepare(batch_sessions=inventory["sessions"], archived_only=True, **scope)
     assert packet["success"], packet
     with closing(sqlite3.connect(database)) as db, db:
@@ -105,10 +105,10 @@ def test_archive_selection_rechecks_before_finalize(native_archives, device_scop
         else:
             db.execute("UPDATE cursorDiskKV SET value=? WHERE key='bubbleId:closed:b'",
                        ('{"bubbleId":"b","text":"Changed greeting","type":1}',))
-    final = handlers["finalize_session_distill"](packet["project_name"], packet["distill_job_id"], {})
+    final = handlers.tool_finalize_session_distill(packet["project_name"], packet["distill_job_id"], {})
     assert not final["success"] and final["reason_codes"] == ["archived_source_changed_or_unverified"], final
     assert backend.transcript_store.get_distill_job(packet["distill_job_id"]).status != "completed"
-    held = handlers["inspect_sessions"](batch_id=packet["batch_id"])
+    held = handlers.tool_inspect_sessions(batch_id=packet["batch_id"])
     assert held["progress"]["states"] == {"blocked": 1}, held
 
 
@@ -131,12 +131,12 @@ def _add_search_copy(index):
 ])
 def test_cursor_archived_row_cleanup_on_isolated_database(native_archives, monkeypatch, scenario):
     root, database, backend, handlers = native_archives
-    prepare = handlers["prepare_session_distill"]
+    prepare = handlers.tool_prepare_session_distill
     scope = {"project_name": "project", "project_root": str(root)}
-    inventory = handlers["inspect_sessions"](clients=["cursor"], archived_only=True, **scope)
+    inventory = handlers.tool_inspect_sessions(clients=["cursor"], archived_only=True, **scope)
     packet = prepare(batch_sessions=inventory["sessions"], archived_only=True, **scope)
     assert packet["success"], packet
-    finished = handlers["finalize_session_distill"]("project", packet["distill_job_id"], {
+    finished = handlers.tool_finalize_session_distill("project", packet["distill_job_id"], {
         "session_summary": "The archived conversation is a greeting with no durable knowledge.",
         "final_user_request": "Greet the assistant.", "final_outcome": "Reviewed the complete greeting.",
         "last_turn_status": "answered", "contradictions": [], "unfinished_work": [],
@@ -258,7 +258,7 @@ def test_cursor_cross_store_cleanup_preserves_results_and_retries(native_archive
     from test_cursor_search_cleanup import _CANDIDATES_SQL, _CONVERSATIONS_SQL, _FTS_SQL, _write_document
 
     root, database, backend, handlers = native_archives
-    prepare = handlers["prepare_session_distill"]
+    prepare = handlers.tool_prepare_session_distill
     statement = "Keep one signed acceptance note for every completed review."
     title = "Signed acceptance notes"
     task = "Check the restore example before release."
@@ -280,11 +280,11 @@ def test_cursor_cross_store_cleanup_preserves_results_and_retries(native_archive
         })))
     primary_before, search_before = _sqlite_records(database), _search_records(index)
     scope = {"project_name": "project", "project_root": str(root)}
-    inventory = handlers["inspect_sessions"](clients=["cursor"], archived_only=True, **scope)
+    inventory = handlers.tool_inspect_sessions(clients=["cursor"], archived_only=True, **scope)
     packet = prepare(batch_sessions=inventory["sessions"], archived_only=True, **scope)
     assert packet["success"], packet
     job_id = packet["distill_job_id"]
-    candidate = handlers["govern_memory"](action="suggest", arguments={
+    candidate = handlers.tool_govern_memory(action="suggest", arguments={
         "kind": "memory", "project_name": "project", "category": "decision",
         "content": statement, "source": policy.name, "distill_job_id": job_id,
         "evidence_basis": "repository", "verification_outcome": "verified",
@@ -294,7 +294,7 @@ def test_cursor_cross_store_cleanup_preserves_results_and_retries(native_archive
         "canonical_title": title, "topic_path": ["Acceptance"],
     })
     assert candidate["success"], candidate
-    finished = handlers["finalize_session_distill"]("project", job_id, {
+    finished = handlers.tool_finalize_session_distill("project", job_id, {
         "session_summary": "The retention policy is verified and the restore check remains open.",
         "final_user_request": "Retain the policy and follow-up.", "final_outcome": "Saved the policy and the task.",
         "last_turn_status": "unfinished", "contradictions": [], "unfinished_work": [task],
@@ -441,7 +441,7 @@ def test_cursor_cross_store_cleanup_preserves_results_and_retries(native_archive
             assert {issue["reason"] for issue in inventory.issues} == {"projects_dir_missing"}
         replay = prepare(**batch, apply_cleanup=True)
         assert replay["counts"] == {"already_deleted": 1}, replay
-        found = handlers["search_memory"](query=title, project_name="project", scope="project", detail="full")
+        found = handlers.tool_search_memory(query=title, project_name="project", scope="project", detail="full")
         assert found["memories"] == [{"title": title, "statement": statement}]
         assert note.read_bytes() == note_before
         assert reopened.structured_store.list_record_payloads("task_handoffs", strict=True) == handoffs

@@ -1,9 +1,4 @@
-"""CLI entry point for harness-mem.
-
-The CLI is an operator maintenance console. Daily AI memory workflows are
-available through MCP tools and repo-local IDE commands / skills instead of
-terminal subcommands.
-"""
+"""Internal operator maintenance entry point for the memory runtime."""
 
 from __future__ import annotations
 
@@ -83,31 +78,9 @@ def main(argv: list[str] | None = None):
     """Run the maintenance-only CLI surface."""
     args_list = list(sys.argv[1:] if argv is None else argv)
 
-    # Handle --completion before full argument parsing.
-    if "--completion" in args_list or any(
-        arg.startswith("--completion=") for arg in args_list
-    ):
-        from harness_mem.shell_completion import print_completion
-
-        for idx, arg in enumerate(args_list):
-            if arg.startswith("--completion="):
-                shell = arg.split("=", 1)[1]
-                print_completion(shell)
-                return 0
-            if arg == "--completion":
-                if idx + 1 < len(args_list):
-                    print_completion(args_list[idx + 1])
-                    return 0
-        print("--completion requires a shell argument: bash, zsh, or fish", file=sys.stderr)
-        return 1
-
     parser = argparse.ArgumentParser(
-        prog="harness-mem",
-        description=(
-            "Local harness-mem maintenance console. Daily AI memory workflows "
-            "use IDE commands, repo skills, or agent workflows instead of CLI "
-            "subcommands."
-        ),
+        prog="python -m harness_mem.cli",
+        description="Internal memory maintenance for operators.",
     )
     parser.add_argument("--version", action="version", version=f"harness-mem {__version__}")
     sub = parser.add_subparsers(dest="command")

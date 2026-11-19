@@ -31,15 +31,11 @@ jobs:
         run: >-
           python -m pytest -q
           code/tests/test_package_version_alignment.py
-          code/tests/test_version_drift.py
-
-      - name: Ensure canonical mcps descriptors
-        run: python code/scripts/ensure_mcps_canonical.py
 
       - name: Runtime smoke
         run: |
           python -m compileall harness_mem
-          python -m ruff check harness_mem code/plugins code/tools code/mcps
+          python -m ruff check harness_mem code/tools
           python -c "import harness_mem_core_rs; assert harness_mem_core_rs.api_version()"
           python -m harness_mem.cli --help
           python -m harness_mem.cli maintenance state-audit --help

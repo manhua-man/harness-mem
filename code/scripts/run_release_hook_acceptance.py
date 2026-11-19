@@ -212,7 +212,7 @@ def _run_absent_from_real_ledger(
         connection.close()
 
 
-def _search_via_mcp(
+def _search_in_new_process(
     *,
     data_dir: Path,
     notes_dir: Path,
@@ -220,60 +220,23 @@ def _search_via_mcp(
     project_name: str,
     query: str,
 ) -> dict:
-    requests = [
-        {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2025-11-25",
-                "clientInfo": {"name": "release-hook-acceptance"},
-            },
-        },
-        {
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/call",
-            "params": {
-                "name": "search_memory",
-                "arguments": {
-                    "query": query,
-                    "project_name": project_name,
-                    "scope": "project",
-                },
-            },
-        },
-    ]
     env = os.environ.copy()
-    env["HARNESS_MEM_DATA_DIR"] = str(data_dir)
     env["HARNESS_MEM_SESSION_NOTES_DIR"] = str(notes_dir)
     env["HARNESS_MEM_DISABLE_EMBEDDINGS"] = "1"
+    program = (
+        "import json, sys; sys.path.insert(0, sys.argv[4]); "
+        "from harness_mem.search import search; "
+        "print(json.dumps(search(sys.argv[1], data_dir=sys.argv[2], "
+        "project_name=sys.argv[3], scope='project')))"
+    )
     process = subprocess.run(
-        [sys.executable, "-m", "harness_mem.mcp.server"],
-        cwd=project_root,
-        env=env,
-        input="".join(json.dumps(request) + "\n" for request in requests),
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
+        [sys.executable, "-I", "-c", program, query, str(data_dir), project_name, str(REPO_ROOT)],
+        cwd=project_root, env=env, capture_output=True, text=True, timeout=60,
     )
     if process.returncode != 0:
         return {"process_ok": False, "status": "failed", "memories": []}
-    responses = [
-        json.loads(line) for line in process.stdout.splitlines() if line.strip()
-    ]
-    if len(responses) != 2 or "error" in responses[1]:
-        return {"process_ok": False, "status": "failed", "memories": []}
-    content = list((responses[1].get("result") or {}).get("content") or [])
-    if not content:
-        return {"process_ok": False, "status": "failed", "memories": []}
-    payload = json.loads(str(content[0].get("text") or "{}"))
-    return {
-        "process_ok": True,
-        "status": payload.get("status"),
-        "memories": list(payload.get("memories") or []),
-    }
+    payload = json.loads(process.stdout)
+    return {"process_ok": True, "status": payload["status"], "memories": payload["memories"]}
 
 
 def main() -> int:
@@ -396,7 +359,7 @@ def main() -> int:
     entries = raw_entries if isinstance(raw_entries, list) else []
     target_entry = entries[0] if entries else None
     search = (
-        _search_via_mcp(
+        _search_in_new_process(
             data_dir=data_dir,
             notes_dir=notes_dir,
             project_root=project_root,

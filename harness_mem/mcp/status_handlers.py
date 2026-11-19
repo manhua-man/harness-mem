@@ -125,17 +125,17 @@ def tool_get_project_status(
             ),
             "project_unavailable": (
                 "Project memory settings could not be opened or saved.",
-                "Run harness-mem doctor before retrying get_project_status.",
+                "Run python -m harness_mem.cli doctor before retrying get_project_status.",
             ),
             "project_invalid": (
                 "Project memory settings could not be read; existing files were preserved.",
-                "Run harness-mem doctor to check the existing settings before editing them.",
+                "Run python -m harness_mem.cli doctor to check the existing settings before editing them.",
             ),
             "conflict": (
                 "Existing host Hook files were preserved because they conflict with setup.",
-                "Run harness-mem doctor and compare the existing files with setup. "
+                "Run python -m harness_mem.cli doctor and compare the existing files with setup. "
                 "Only after confirming they are unmodified generated files, update them "
-                "with harness-mem integration hooks sync --client "
+                "with python -m harness_mem.cli integration hooks sync --client "
                 f"{resolved_host} --scope user --project-root . --force from the intended workspace.",
             ),
             "permission": (
@@ -144,21 +144,21 @@ def tool_get_project_status(
             ),
             "unavailable": (
                 "The installed Hook program is unavailable.",
-                "Run harness-mem doctor in the environment where harness-mem is installed.",
+                "Run python -m harness_mem.cli doctor in the environment where harness-mem is installed.",
             ),
             "invalid": (
                 "The host Hook configuration could not be read.",
-                "Run harness-mem doctor to check the existing configuration before editing it.",
+                "Run python -m harness_mem.cli doctor to check the existing configuration before editing it.",
             ),
             "unsupported": (
                 "This Agent's Hook integration is not available.",
-                "Use a supported Agent; run harness-mem doctor to check host support.",
+                "Use a supported Agent; run python -m harness_mem.cli doctor to check host support.",
             ),
         }
         message, action = recoveries.get(
             failure_kind or "unknown",
             ("Host Hooks could not be prepared. Run diagnostics to identify the cause.",
-             "Run harness-mem doctor."),
+             "Run python -m harness_mem.cli doctor."),
         )
         return {
             "success": False,
@@ -174,14 +174,14 @@ def tool_get_project_status(
             "success": False,
             "project_name": resolved_project,
             "message": "Project memory storage could not be opened.",
-            "action": "Run harness-mem doctor before retrying get_project_status.",
+            "action": "Run python -m harness_mem.cli doctor before retrying get_project_status.",
         }
     if backend.runtime_state == "degraded_fallback" or backend.runtime_error:
         return {
             "success": False,
             "project_name": resolved_project,
             "message": "Project memory storage is not ready.",
-            "action": "Run harness-mem doctor.",
+            "action": "Run python -m harness_mem.cli doctor.",
         }
 
     message = "Memory storage is ready; Hook files are prepared."

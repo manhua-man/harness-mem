@@ -33,8 +33,8 @@ def deferred_review(job: SessionDistillJob) -> dict[str, Any]:
         return {}
     return {
         "resume_deferred": {
-            "tool": "prepare_session_distill",
-            "arguments": {"distill_job_id": job.id, "retry_failures": True, "run_ingest": False},
+            "method": "revisit",
+            "arguments": {"job_id": job.id},
             "pending": [{"reason": point.get("reason"),
                          "reason_codes": list(point.get("verification_reason_codes") or [])}
                         for point in points],

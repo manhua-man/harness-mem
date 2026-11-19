@@ -38,7 +38,7 @@ def _prepare(backend, handlers, root, session_id, exchanges):
     path.write_text("\n".join(json.dumps(row) for row in records) + "\n", encoding="utf-8")
     capture = asyncio.run(CodexAdapter(backend, sessions_dir=root, archive_dir=root / "archive").sync_session(
         path, session_id, "demo"))
-    packet = handlers["prepare_session_distill"](project_name="demo", project_root=str(root),
+    packet = handlers.tool_prepare_session_distill(project_name="demo", project_root=str(root),
         distill_job_id=capture.distill_job_id, run_ingest=False)
     assert packet["success"], packet
     rendering = backend.transcript_store.reconstruct(capture.source.id)
@@ -66,7 +66,7 @@ def _finalize(handlers, job, points):
         "final_outcome": "The assistant reported the bounded recovery result and pending validation.",
         "last_turn_status": "answered", "contradictions": [], "unfinished_work": [],
         "evidence_status": "answered", "promotion_decision": "promote"}
-    return handlers["finalize_session_distill"]("demo", job, review, memory_points=points)
+    return handlers.tool_finalize_session_distill("demo", job, review, memory_points=points)
 
 
 def _entries(backend):
@@ -83,7 +83,7 @@ def test_concise_report_review_preserves_account_and_conditions_after_reopen(tmp
     asyncio.run(backend.init())
     monkeypatch.setattr(tool_handlers, "_backend_provider", lambda: backend)
     monkeypatch.setattr(tool_handlers, "_observer_data_dir_provider", lambda: backend.data_dir)
-    handlers = tool_handlers.build_tool_handlers()
+    handlers = tool_handlers
     try:
         original_prompt = "Review the cache recovery and validation limits."
         original, window = _prepare(backend, handlers, root, "cache-session", [original_prompt])
@@ -98,7 +98,7 @@ def test_concise_report_review_preserves_account_and_conditions_after_reopen(tmp
         assert {entry.source_report.text for entry in old} == {RECOVERY, VALIDATION}
         assert all(entry.source_report.source_id == original.source.id for entry in old)
         assert all(entry.statement == entry.source_report.render_statement() for entry in old)
-        target_response = handlers["search_memory"](query=TITLE, scope="all")
+        target_response = handlers.tool_search_memory(query=TITLE, scope="all")
         targets = [row for row in target_response["memories"] if row["title"] == TITLE]
         assert {row["statement"] for row in targets} == {entry.source_report.readable_statement() for entry in old}, target_response
         assert all(PERIOD in row["statement"] and "not independently established" in row["statement"] for row in targets)
@@ -142,7 +142,7 @@ def test_concise_report_review_preserves_account_and_conditions_after_reopen(tmp
     asyncio.run(fresh.init())
     try:
         monkeypatch.setattr(tool_handlers, "_backend_provider", lambda: fresh)
-        recalled = handlers["search_memory"](query=TITLE, scope="project", project_name="demo")
+        recalled = handlers.tool_search_memory(query=TITLE, scope="project", project_name="demo")
         assert {row["statement"] for row in recalled["memories"]} == statements, recalled
         assert {entry.id: entry.to_dict() for entry in _entries(fresh)} == expected
     finally:

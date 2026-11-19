@@ -8,7 +8,6 @@ from typing import Any
 
 from harness_mem.runtime_cost import surface_cost_report
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
-from harness_mem.version_drift import version_drift_report
 
 
 async def runtime_health_report(
@@ -38,17 +37,12 @@ async def runtime_health_report(
     except Exception as exc:  # noqa: BLE001
         warnings.append(f"retrieval_health unavailable: {exc}")
         report["retrieval_health"] = {"warnings": [str(exc)]}
-    try:
-        report["version_drift"] = version_drift_report(repo_root)
-    except Exception as exc:  # noqa: BLE001
-        warnings.append(f"version_drift unavailable: {exc}")
-        report["version_drift"] = {"warnings": [str(exc)]}
     report["graceful_degradation"] = {
         "degraded": bool(warnings),
         "warnings": warnings,
         "fallbacks": [
             "wake/search continue even when health slices are unavailable",
-            "cost observer failures are advisory and never block MCP tool results",
+            "cost observer failures are advisory",
         ],
     }
     return report

@@ -472,7 +472,7 @@ class HybridSearchLayer:
             if not rows:
                 logger.warning(
                     "No persisted vectors found for current model_id=%s; falling back to FTS. "
-                    "Run: harness-mem maintenance rebuild-vector-index",
+                    "Run: python -m harness_mem.cli maintenance rebuild-vector-index",
                     model_id,
                 )
                 return None
@@ -488,7 +488,7 @@ class HybridSearchLayer:
                 if len(embedding_array) != expected_dim:
                     logger.warning(
                         "Dimension mismatch for entry %s: stored=%s, expected=%s. "
-                        "Skipping this vector. Run: harness-mem maintenance rebuild-vector-index",
+                        "Skipping this vector. Run: python -m harness_mem.cli maintenance rebuild-vector-index",
                         entry_id,
                         len(embedding_array),
                         expected_dim,
@@ -501,7 +501,7 @@ class HybridSearchLayer:
             if rows and not result:
                 logger.warning(
                     "All %s persisted vectors were filtered out; falling back to FTS. "
-                    "Run: harness-mem maintenance rebuild-vector-index",
+                    "Run: python -m harness_mem.cli maintenance rebuild-vector-index",
                     len(rows),
                 )
                 return None

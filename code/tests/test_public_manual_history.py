@@ -15,7 +15,7 @@ from harness_mem.adapters.cursor.adapter import CursorAdapter
 from harness_mem.commands.manual_distill import ManualBatchStore, is_manual_distill_job
 from harness_mem.config.merge import MergedConfig
 from harness_mem.mcp import tool_handlers
-from harness_mem.mcp.tool_specs import PUBLIC_MCP_TOOL_NAMES, _SCHEMAS
+from harness_mem.distill import Distill
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
@@ -81,7 +81,7 @@ def public_history(tmp_path, monkeypatch):
         path.write_text("\n".join(json.dumps(row) for row in records), encoding="utf-8")
         return path
 
-    handlers = tool_handlers.build_tool_handlers()
+    handlers = tool_handlers
     yield backend, root, write, handlers, calls
     assert calls == []
     assert MergedConfig().distill_autonomous_enabled is False
@@ -91,7 +91,7 @@ def public_history(tmp_path, monkeypatch):
 
 
 def _prepare(handlers, root, **kwargs):
-    return handlers["prepare_session_distill"](project_name="project", project_root=str(root), **kwargs)
+    return handlers.tool_prepare_session_distill(project_name="project", project_root=str(root), **kwargs)
 
 
 def _manifest(backend, batch_id, root):
@@ -112,32 +112,18 @@ def _rewrite_job(backend, job_id, **changes):
             raise
 
 
-def test_public_registry_pauses_without_progress_then_continues(public_history):
+def test_manual_selection_pauses_without_progress_then_continues(public_history):
     backend, root, write, handlers, _calls = public_history
-    assert len(handlers) == 20
-    assert set(handlers) == set(PUBLIC_MCP_TOOL_NAMES)
-    description = _SCHEMAS["prepare_session_distill"]["description"]
-    assert "remember-this-session" in description
-    properties = _SCHEMAS["prepare_session_distill"]["input_schema"]["properties"]
-    assert {"batch_sessions", "batch_id", "retry_failures", "pause", "continue_batch"} <= set(properties)
-    inspect_properties = _SCHEMAS["inspect_sessions"]["input_schema"]["properties"]
-    assert "pause" not in inspect_properties
-    assert "continue_batch" not in inspect_properties
-
-    bare = handlers["prepare_session_distill"]()
-    assert bare["success"] is False
-    assert bare["error"] == "Use automatic recording for new sessions. This entry reviews an existing memory or an existing processing job."
-    missing = handlers["prepare_session_distill"](distill_job_id="missing-job")
-    assert missing == {"success": False, "error": "The processing job selected for review does not exist."}
-    correction = handlers["prepare_session_distill"](target_knowledge=[{"title": "Old rule", "statement": "Keep the old rule."}])
+    with pytest.raises(ValueError, match="session selection"):
+        Distill(backend.data_dir).prepare()
+    correction = handlers.tool_prepare_session_distill(target_knowledge=[{"title": "Old rule", "statement": "Keep the old rule."}])
     assert correction["success"] is False
-    assert correction["error"] != bare["error"]
     assert "未改动" in correction["error"]
 
     source_a = write("a")
     source_b = write("b")
     originals = {source_a: source_a.read_bytes(), source_b: source_b.read_bytes()}
-    sessions = handlers["inspect_sessions"](str(root), clients=["cursor"])["sessions"]
+    sessions = handlers.tool_inspect_sessions(str(root), clients=["cursor"])["sessions"]
     created = _prepare(handlers, root, batch_sessions=sessions)
     assert created["success"], created
     assert created["session_id"] == "a"
@@ -160,7 +146,7 @@ def test_public_registry_pauses_without_progress_then_continues(public_history):
     assert len(backend.transcript_store.list_distill_jobs(project_name="project")) == 1
     manifest_path = ManualBatchStore(backend.data_dir).root / f"{batch_id}.json"
     held_bytes = manifest_path.read_bytes()
-    inspected = handlers["inspect_sessions"](str(root), batch_id=batch_id)
+    inspected = handlers.tool_inspect_sessions(str(root), batch_id=batch_id)
     assert inspected["success"]
     assert manifest_path.read_bytes() == held_bytes
     again = _prepare(handlers, root, batch_id=batch_id)
@@ -181,11 +167,11 @@ def test_public_no_write_partial_and_failed_states_stay_retained(public_history)
     source_b = write("b")
     source_a_bytes = source_a.read_bytes()
     source_b_bytes = source_b.read_bytes()
-    sessions = handlers["inspect_sessions"](str(root), clients=["cursor"])["sessions"]
+    sessions = handlers.tool_inspect_sessions(str(root), clients=["cursor"])["sessions"]
     created = _prepare(handlers, root, batch_sessions=sessions)
     assert created["session_id"] == "a"
     batch_id = created["batch_id"]
-    final = handlers["finalize_session_distill"]("project", created["distill_job_id"], _review())
+    final = handlers.tool_finalize_session_distill("project", created["distill_job_id"], _review())
     assert final["success"], final
     assert final["knowledge_changes"] == []
     assert final["not_written"] == [{"reason": "没有需要长期记住的内容", "count": 1}]
@@ -223,9 +209,9 @@ def test_public_write_reopens_sqlite_search_and_note(public_history, monkeypatch
     statement = "The cache retains only verified current entries."
     evidence = root / "policy.txt"
     evidence.write_text(statement, encoding="utf-8")
-    created = _prepare(handlers, root, batch_sessions=handlers["inspect_sessions"](str(root), clients=["cursor"])["sessions"])
+    created = _prepare(handlers, root, batch_sessions=handlers.tool_inspect_sessions(str(root), clients=["cursor"])["sessions"])
     assert created["success"], created
-    candidate = handlers["govern_memory"](action="suggest", arguments={
+    candidate = handlers.tool_govern_memory(action="suggest", arguments={
         "kind": "memory", "project_name": "project", "category": "decision", "content": statement,
         "source": f"distill-job:{created['distill_job_id']}", "confidence": 0.99,
         "distill_job_id": created["distill_job_id"], "evidence_basis": "repository", "verification_outcome": "verified",
@@ -238,7 +224,7 @@ def test_public_write_reopens_sqlite_search_and_note(public_history, monkeypatch
     judgment = runpy.run_path(str(Path(__file__).with_name("test_manual_session_flow.py")))["_scope_judgment"]
     semantic.update(promotion_decision="promote", final_outcome="Verified the cache rule against current policy.",
                     final_scope_judgment={candidate["entry_id"]: judgment("Verified current cache", statement)})
-    final = handlers["finalize_session_distill"]("project", created["distill_job_id"], semantic)
+    final = handlers.tool_finalize_session_distill("project", created["distill_job_id"], semantic)
     assert final["success"], final
     assert final["knowledge_changes"] == [{
         "change": "added", "module": ["cache"], "title": "Verified current cache", "statement": statement,
@@ -256,12 +242,12 @@ def test_public_write_reopens_sqlite_search_and_note(public_history, monkeypatch
     try:
         entries = asyncio.run(reopened.structured_store.knowledge_store.list_entries("project"))
         assert [entry.statement for entry in entries] == [statement]
-        found = handlers["search_memory"](query="verified current cache", project_name="project", scope="project")
+        found = handlers.tool_search_memory(query="verified current cache", project_name="project", scope="project")
         assert found["memories"] == [{"title": "Verified current cache", "statement": statement}]
-        listed = handlers["search_memory"](query="", project_name="project", scope="project")
+        listed = handlers.tool_search_memory(query="", project_name="project", scope="project")
         assert listed["memories"] == [{"module": ["cache"], "title": "Verified current cache", "statement": statement}]
         committed = [entry.to_dict() for entry in entries]
-        replay = handlers["finalize_session_distill"]("project", created["distill_job_id"], {})
+        replay = handlers.tool_finalize_session_distill("project", created["distill_job_id"], {})
         assert replay["success"] and replay["idempotent_replay"], replay
         assert [entry.to_dict() for entry in asyncio.run(reopened.structured_store.knowledge_store.list_entries("project"))] == committed
         assert Path(replay["note"]["path"]).read_bytes() == note.read_bytes()
@@ -273,7 +259,7 @@ def test_integrity_stop_cannot_be_toggled_active(public_history):
     backend, root, write, handlers, _calls = public_history
     source = write("a")
     source_bytes = source.read_bytes()
-    sessions = handlers["inspect_sessions"](str(root), clients=["cursor"])["sessions"]
+    sessions = handlers.tool_inspect_sessions(str(root), clients=["cursor"])["sessions"]
     created = _prepare(handlers, root, batch_sessions=sessions)
     store = ManualBatchStore(backend.data_dir)
     frozen = store.load(created["batch_id"], "project", str(root))["sessions"]
@@ -298,14 +284,14 @@ def test_integrity_stop_cannot_be_toggled_active(public_history):
 def test_public_resume_rejects_replacement_and_other_project(public_history):
     backend, root, write, handlers, _calls = public_history
     write("a")
-    sessions = handlers["inspect_sessions"](str(root), clients=["cursor"])["sessions"]
+    sessions = handlers.tool_inspect_sessions(str(root), clients=["cursor"])["sessions"]
     created = _prepare(handlers, root, batch_sessions=sessions)
     path = ManualBatchStore(backend.data_dir).root / f"{created['batch_id']}.json"
     held = path.read_bytes()
     replaced = _prepare(handlers, root, batch_id=created["batch_id"], batch_sessions=sessions)
     assert replaced["success"] is False
     assert "cannot be replaced" in replaced["error"]
-    foreign = handlers["prepare_session_distill"](project_name="other", project_root=str(root), batch_id=created["batch_id"])
+    foreign = handlers.tool_prepare_session_distill(project_name="other", project_root=str(root), batch_id=created["batch_id"])
     assert foreign["success"] is False
     assert "another project" in foreign["error"]
     conflict = _prepare(handlers, root, batch_id=created["batch_id"], pause=True, continue_batch=True)
@@ -319,7 +305,7 @@ def test_public_resume_stops_on_owner_or_source_change(public_history):
     backend, root, write, handlers, _calls = public_history
     source = write("a")
     source_bytes = source.read_bytes()
-    sessions = handlers["inspect_sessions"](str(root), clients=["cursor"])["sessions"]
+    sessions = handlers.tool_inspect_sessions(str(root), clients=["cursor"])["sessions"]
     created = _prepare(handlers, root, batch_sessions=sessions)
     _rewrite_job(backend, created["distill_job_id"], project_name="other-owner")
     changed = _prepare(handlers, root, batch_id=created["batch_id"])
@@ -338,7 +324,7 @@ def test_public_resume_stops_on_owner_or_source_change(public_history):
     assert _manifest(backend, created["batch_id"], root)["state"] == "stopped"
 
     write("b")
-    selected = handlers["inspect_sessions"](str(root), clients=["cursor"])["sessions"]
+    selected = handlers.tool_inspect_sessions(str(root), clients=["cursor"])["sessions"]
     second = _prepare(handlers, root, batch_sessions=[row for row in selected if row["session_id"] == "b"])
     assert second["success"], second
     _rewrite_job(backend, second["distill_job_id"], source_revision="sha256:" + "f" * 64)
@@ -368,7 +354,7 @@ def test_public_batch_does_not_steal_background_lease(public_history):
         job_id, lease_owner="background", execution_source="autonomous_worker",
     ) is not None
     before = backend.transcript_store.get_distill_job(job_id).to_dict()
-    sessions = handlers["inspect_sessions"](str(root), clients=["cursor"])["sessions"]
+    sessions = handlers.tool_inspect_sessions(str(root), clients=["cursor"])["sessions"]
     denied = _prepare(handlers, root, batch_sessions=sessions)
     assert denied["success"] is False
     assert denied["error"] == "background review already owns this session"
@@ -381,7 +367,7 @@ def test_public_batch_does_not_steal_background_lease(public_history):
     ).sync_session(chunk_source, "chunk-owned", "project")).distill_job_id
     assert backend.transcript_store.claim_distill_chunks(chunk_job, lease_owner="interactive")
     chunk_before = backend.transcript_store.get_distill_job(chunk_job).to_dict()
-    sessions = handlers["inspect_sessions"](str(root), clients=["cursor"])["sessions"]
+    sessions = handlers.tool_inspect_sessions(str(root), clients=["cursor"])["sessions"]
     chunk_denied = _prepare(handlers, root, batch_sessions=[
         row for row in sessions if row["session_id"] == "chunk-owned"
     ])
@@ -398,9 +384,9 @@ def test_bound_history_releases_later_revision_and_stopped_unbound_stays(public_
     backend, root, write, handlers, _calls = public_history
     source = write("a", "Keep the first revision.")
     original_bytes = source.read_bytes()
-    created = _prepare(handlers, root, batch_sessions=handlers["inspect_sessions"](str(root), clients=["cursor"])["sessions"])
+    created = _prepare(handlers, root, batch_sessions=handlers.tool_inspect_sessions(str(root), clients=["cursor"])["sessions"])
     assert created["success"], created
-    assert handlers["finalize_session_distill"]("project", created["distill_job_id"], _review())["success"]
+    assert handlers.tool_finalize_session_distill("project", created["distill_job_id"], _review())["success"]
     original = backend.transcript_store.get_distill_job(created["distill_job_id"])
     assert original.status == "completed"
     with source.open("a", encoding="utf-8") as stream:
@@ -430,7 +416,7 @@ def test_bound_history_releases_later_revision_and_stopped_unbound_stays(public_
 
     write("b")
     path_c = write("c")
-    selected = handlers["inspect_sessions"](str(root), clients=["cursor"])["sessions"]
+    selected = handlers.tool_inspect_sessions(str(root), clients=["cursor"])["sessions"]
     fresh = [row for row in selected if row["session_id"] in {"b", "c"}]
     packet = _prepare(handlers, root, batch_sessions=fresh)
     assert packet["success"] and packet["session_id"] == "b", packet
@@ -457,7 +443,7 @@ def test_public_pause_blocks_chunk_finalize_and_direct_prepare(public_history):
     source_bytes = source.read_bytes()
     created = _prepare(
         handlers, root,
-        batch_sessions=handlers["inspect_sessions"](str(root), clients=["cursor"])["sessions"],
+        batch_sessions=handlers.tool_inspect_sessions(str(root), clients=["cursor"])["sessions"],
         evidence_mode="raw", chunk_limit=1,
     )
     assert created["success"] and created.get("chunks"), created
@@ -465,7 +451,7 @@ def test_public_pause_blocks_chunk_finalize_and_direct_prepare(public_history):
     paused = _prepare(handlers, root, batch_id=created["batch_id"], pause=True)
     assert paused["status"] == "paused", paused
     before = backend.transcript_store.get_distill_job(job_id).to_dict()
-    submitted = handlers["submit_distill_chunk"](
+    submitted = handlers.tool_submit_distill_chunk(
         job_id=job_id, chunk_id=created["chunks"][0]["chunk_id"],
         lease_owner=created["lease_owner"], result={"summary": "A read completed before pause."},
     )
@@ -478,13 +464,13 @@ def test_public_pause_blocks_chunk_finalize_and_direct_prepare(public_history):
             result={"summary": "A leased write after pause."},
         )
     assert backend.transcript_store.get_distill_job(job_id).to_dict() == before
-    direct = handlers["prepare_session_distill"](
+    direct = handlers.tool_prepare_session_distill(
         project_name="project", project_root=str(root), distill_job_id=job_id, run_ingest=False,
     )
     assert direct["success"] is False
     assert direct["reason_codes"] == ["batch_paused"]
     assert backend.transcript_store.get_distill_job(job_id).to_dict() == before
-    finalized = handlers["finalize_session_distill"]("project", job_id, _review())
+    finalized = handlers.tool_finalize_session_distill("project", job_id, _review())
     assert finalized["success"] is False
     assert finalized["error"] == "batch_paused"
     assert backend.transcript_store.get_distill_job(job_id).to_dict() == before

@@ -1686,7 +1686,7 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
         # Keep the compression check on the packet carrying source evidence and
         # the token cap above on the complete response sent to the agent.
         contract = packet["finalize_contract"]
-        assert contract["tool"] == "finalize_session_distill"
+        assert contract["method"] == "finish"
         assert contract["args_template"]["job_id"] == result.distill_job_id
         evidence_packet = {key: value for key, value in packet.items() if key != "finalize_contract"}
         _tokens, _tokenizer, evidence_packet_chars = serialized_result_tokens(evidence_packet)
@@ -1745,20 +1745,8 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
             assert finding == (
                 "candidate_required" if check_name in detected_checks else "absent"
             )
-        assert packet["next_step"] == "finalize_session_distill"
+        assert packet["next_step"] == "finish"
         assert "agent_execution" not in packet
-        assert diagnostic["agent_execution"] == {
-            "contract_version": "agent-distill-fast-path-v1",
-            "path": "prepare_then_finalize",
-            "target_mcp_calls": 2,
-            "completed_mcp_calls": 1,
-            "next_tool": "finalize_session_distill",
-            "additional_prepare_required": False,
-            "additional_prepare_allowed_when": [
-                "candidate_needs_raw_proof",
-                "legacy_raw_fallback",
-            ],
-        }
         checkpoints = backend.transcript_store.list_distill_checkpoints(
             result.distill_job_id
         )
