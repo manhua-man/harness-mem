@@ -1,3 +1,3 @@
 """harness-mem: local-first, auditable, pluggable Agent memory backend."""
 
-__version__ = "0.9.28"
+__version__ = "0.0.1"

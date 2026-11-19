@@ -18,6 +18,28 @@ _NO_WRITE_REASONS = {
     "defer": "暂缓处理",
     "conflict": "存在待解决冲突",
 }
+DEFERRED_REVIEW_PIPELINE = "lossless-distill-v1-deferred-review:"
+
+
+def deferred_review(job: SessionDistillJob) -> dict[str, Any]:
+    """Project an explicit continuation for unresolved points on retained sources."""
+    if (job.status != "completed" or not job.manual_only or not job.retain_source
+            or job.source_cleanup_status == "deleted"
+            or job.promotion_summary.get("readback", {}).get("verified") is not True):
+        return {}
+    points = [point for point in job.promotion_summary.get("points") or []
+              if point.get("disposition") in {"defer", "conflict"}]
+    if not points:
+        return {}
+    return {
+        "resume_deferred": {
+            "tool": "prepare_session_distill",
+            "arguments": {"distill_job_id": job.id, "retry_failures": True, "run_ingest": False},
+            "pending": [{"reason": point.get("reason"),
+                         "reason_codes": list(point.get("verification_reason_codes") or [])}
+                        for point in points],
+        },
+    }
 
 
 def _retained_state_items(job: SessionDistillJob) -> set[str]:
@@ -190,7 +212,7 @@ async def current_distill_result(backend: Any, job: SessionDistillJob) -> dict[s
         if job.promotion_summary.get("readback", {}).get("handoff_ids")
         else "没有需要长期记住的内容"
     )
-    return project_distill_result(
+    result = project_distill_result(
         points, entries, empty_reasons=[reason] if not points else (),
         unfinished_work=distill_unfinished_work(job),
         source_review_complete=(getattr(job, "status", None) == "completed"
@@ -199,3 +221,4 @@ async def current_distill_result(backend: Any, job: SessionDistillJob) -> dict[s
             and job.semantic_review.get("evidence_status") == "answered"
             and job.semantic_review.get("promotion_decision") == "promote"),
     )
+    return {**result, **deferred_review(job)}

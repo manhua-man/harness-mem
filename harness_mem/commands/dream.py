@@ -3408,7 +3408,9 @@ async def _dream_auto_tick_core(
     hook_session: dict[str, Any] | None = None
     legacy_accounting_failure: dict[str, str] | None = None
     if source == "ide_hook" and trigger_job_id:
+        from harness_mem.autonomous.worker import excluded_trigger_result
         from harness_mem.commands.support import detect_runtime_client, normalize_client_name
+        from harness_mem.hook_background import background_generation_from_env
 
         trigger_job = backend.transcript_store.get_distill_job(trigger_job_id)
         resolved_host_client = (
@@ -3418,13 +3420,25 @@ async def _dream_auto_tick_core(
             if trigger_job is not None
             else detect_runtime_client()
         )
+        if trigger_job is not None:
+            excluded = excluded_trigger_result(
+                backend, trigger_job, project_name=project_name, project_root=project_root, config=config,
+                trigger_id=trigger_id, client=resolved_host_client or "unknown", launch_source=source,
+                dispatch_generation=background_generation_from_env(),
+            )
+            if excluded is not None:
+                return await _record_dream_tick(
+                    backend, project_name=project_name, source=source, trigger_id=trigger_id,
+                    payload={"success": excluded["success"], "status": "skipped" if excluded["success"] else "failed",
+                             "project_name": project_name, "reason": excluded["reason"],
+                             "session_distill": _dream_session_receipt(excluded, excluded["receipt"]["job_id"])},
+                )
         auth_status = background_status(config, client=resolved_host_client)
         execution_client = resolved_host_client or auth_status.selected_cli or "unknown"
         if not auth_status.ready:
             from harness_mem.autonomous.worker import (
                 record_post_turn_preflight_failure,
             )
-            from harness_mem.hook_background import background_generation_from_env
 
             if auth_status.reason == "disabled":
                 message = "Hook-started Dream needs distill.autonomous.enabled=true."
@@ -3466,7 +3480,6 @@ async def _dream_auto_tick_core(
                 },
             )
         from harness_mem.autonomous.worker import run_autonomous_distill_batch
-        from harness_mem.hook_background import background_generation_from_env
 
         # Preserve the old paid source account before a new source completion
         # replaces last_verified_completion in the existing per-project receipt.
@@ -3512,6 +3525,13 @@ async def _dream_auto_tick_core(
             launch_source="ide_hook",
             dispatch_generation=background_generation_from_env(),
         )
+        if hook_session.get("reason") == "manual_session_owned":
+            return await _record_dream_tick(
+                backend, project_name=project_name, source=source, trigger_id=trigger_id,
+                payload={"success": True, "status": "skipped", "project_name": project_name,
+                         "reason": "manual_session_owned",
+                         "session_distill": _dream_session_receipt(hook_session, trigger_job_id)},
+            )
         if not hook_session.get("success", False):
             return await _record_dream_tick(
                 backend,

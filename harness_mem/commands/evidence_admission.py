@@ -125,7 +125,16 @@ async def validate_candidate_evidence(
             None,
         )
     matching = [ref for ref in refs if ref.kind == basis]
-    if not matching or len(matching) != len(refs):
+    supplementary = [ref for ref in refs if ref.kind != basis]
+    mixed_report = bool(
+        supplementary and basis == "source_report" and requested == "verified"
+        and all(ref.kind == "user_statement" for ref in supplementary)
+        # Only manual finalization derives checked per-reference bindings.
+        # The accountable report still needs a primary authored claim span.
+        and all(ref.bindings for ref in refs)
+        and any(binding.target == "claim" for ref in matching for binding in ref.bindings)
+    )
+    if not matching or supplementary and not mixed_report:
         return EvidenceValidation(
             basis,
             "unverified",
@@ -139,6 +148,9 @@ async def validate_candidate_evidence(
         requested = "not_applicable"
     if basis == "source_report":
         outcome, reasons, source_report = _validate_source_report_refs(backend, candidate, matching)
+        if outcome == "verified" and mixed_report:
+            outcome, user_reasons = await _validate_user_statement_refs(backend, candidate, supplementary)
+            reasons.extend(user_reasons)
         if outcome == "verified" and requested == "not_applicable":
             # Complete native role/source proof permits a deliberate no-write;
             # it must not turn session-only material into pending durable work.

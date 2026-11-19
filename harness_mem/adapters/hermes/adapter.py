@@ -30,7 +30,7 @@ from harness_mem.adapters.snapshot import TranscriptSyncResult, persist_session_
 from harness_mem.adapters.source_metadata import HEADER_BYTES, metadata_record
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
 from harness_mem.core.schemas.observation import Observation
-from harness_mem.integration.command_sync import default_hermes_home
+from harness_mem.hermes_profile import default_hermes_home
 from harness_mem.transcript_chunking import source_uri_from_path
 
 DEFAULT_SESSIONS_DIR = default_hermes_home() / "sessions"

@@ -30,7 +30,7 @@ from harness_mem.commands.support import (
     resolve_ingest_client,
 )
 from harness_mem.commands.distill_lifecycle import distill_drainer_metrics
-from harness_mem.commands.distill_result import distill_unfinished_work
+from harness_mem.commands.distill_result import DEFERRED_REVIEW_PIPELINE, deferred_review, distill_unfinished_work
 from harness_mem.commands.separated_assimilation import (
     apply_separated_assimilation,
     prepare_interactive_assimilation,
@@ -201,6 +201,7 @@ def _compact_finalize_result(result: dict[str, Any]) -> dict[str, Any]:
             "session_id", "idempotent_replay", "organization_status",
             "knowledge_changes", "removed_count", "not_written", "unfinished_work",
             "readback_verified",
+            "resume_deferred",
             "batch_id", "batch_progress", "next_after_finalize",
         }
     }
@@ -277,6 +278,7 @@ def _finalize_call_contract(project_name: str, job_id: str) -> dict[str, Any]:
             "A session can yield several independent memories. Each item should answer one later question on its own and retain the conditions that change what to do or how to verify it. Use the session summary for useful one-time incident context and unfinished_work for concrete remaining actions. Keep reusable lessons from failures as separate points when they answer distinct questions.",
             "Use the writing project's current_module_catalog and current_knowledge before choosing topic_path. Reuse the fitting functional path. Work and incident names belong in titles and statements; introduce a path only for a distinct function. Check focused search when the prepared comparison is limited. Preserve enough source-verified detail to use a result alone: a locatable entry point, exact command and target set, write trigger, recovery conditions, and specific acceptance checks. Do not repeat answers or infer authorization from a comparison.",
             "Source reports retain speaker, period and source scope; they do not establish external current truth, execution or user approval.",
+            "A source_report point can also cite user_statement as supporting context. Bind exact review.evidence for every ref and a primary claim quote from the report itself.",
             "Before saving an operational outcome, check the actual action and its returned result when the source contains them. A binding, preview or planned action can only support what it displays. Preserve the exact verified operation and any later correction or missing result in the statement.",
             "Use repository evidence for facts you independently checked against current files. Cite project-relative paths, or an absolute file under the user's evidence.repository_roots. Keep dated accounts as source_report when their external claim is not established.",
             "Each point's review is your content judgment. Fill conditions with necessary literal phrases from the final statement and undecided_state with any explicit still-applicable unresolved state; empty/null only after checking. Runtime binds final text and source/target versions. Do not duplicate review as final_scope_judgment.",
@@ -1154,6 +1156,7 @@ def tool_prepare_session_distill(
             if (
                 retry_failures and _distill_source == "agent" and session_job.status == "completed"
                 and session_job.pipeline_version != _MANUAL_SOURCE_RECHECK_PIPELINE_VERSION
+                and not deferred_review(session_job)
                 and (session_job.promotion_summary.get("unfinished_work")
                      or session_job.semantic_review.get("unfinished_work"))
             ):
@@ -1205,9 +1208,10 @@ def tool_prepare_session_distill(
         if is_manual_distill_job(backend, requested_job):
             return {"success": False, "error": "session belongs to manual processing",
                     "reason_codes": ["manual_session_owned"]}
+    deferred = deferred_review(requested_job) if requested_job else {}
     if (requested_job and requested_job.status == "completed" and retry_failures
             and _distill_source == "agent" and not _batch_selected
-            and requested_job.pipeline_version != _MANUAL_SOURCE_RECHECK_PIPELINE_VERSION
+            and (deferred or (requested_job.pipeline_version != _MANUAL_SOURCE_RECHECK_PIPELINE_VERSION
             and (distill_unfinished_work(requested_job)
                  or _completed_job_requires_signal_gate_recheck(requested_job)
                  or asyncio.run(_completed_promotion_result_error(backend, job=requested_job)) is not None
@@ -1215,18 +1219,25 @@ def tool_prepare_session_distill(
                  or (requested_job.semantic_review.get("last_turn_status") == "unknown"
                      and requested_job.semantic_review.get("promotion_decision") in {"promote", "partial"}
                      and "semantic_review_blocked" in requested_job.completion_reason_codes
-                     and requested_job.promotion_summary.get("answer_gate", {}).get("ANSWERED", 0)))):
+                     and requested_job.promotion_summary.get("answer_gate", {}).get("ANSWERED", 0)))))):
         # Retry the selected immutable source, not the newest job sharing its
         # session id. Keep the old receipt and all of its decisions intact.
         selected_source = backend.transcript_store.get_source(requested_job.source_id)
         if selected_source is None or selected_source.source_revision != requested_job.source_revision:
             return {"success": False, "error": "selected source revision is no longer current",
                     "reason_codes": ["source_revision_changed"]}
+        from harness_mem.commands.manual_distill import manual_job_guard, paused_batch_error
+
+        guard_error = paused_batch_error(backend, requested_job) or manual_job_guard(backend, requested_job)
+        if guard_error:
+            return {"success": False, "error": guard_error, "reason_codes": [guard_error]}
         try:
             requested_job = backend.transcript_store.enqueue_distill_job(
                 requested_job.source_id,
-                pipeline_version=_MANUAL_SOURCE_RECHECK_PIPELINE_VERSION,
+                pipeline_version=(DEFERRED_REVIEW_PIPELINE + requested_job.id
+                                  if deferred else _MANUAL_SOURCE_RECHECK_PIPELINE_VERSION),
                 manual_recheck=True,
+                expected_revision=requested_job.source_revision,
             )
         except (KeyError, ValueError) as exc:
             return {"success": False, "error": str(exc), "reason_codes": ["manual_source_unavailable"]}
@@ -1394,6 +1405,24 @@ def tool_prepare_session_distill(
             from harness_mem.adapters.native_tool_evidence import native_tool_evidence
 
             base_payload["native_evidence"] = native_tool_evidence(backend, lossless_job)
+        if lossless_job.pipeline_version.startswith(DEFERRED_REVIEW_PIPELINE):
+            previous = backend.transcript_store.get_distill_job(
+                lossless_job.pipeline_version.removeprefix(DEFERRED_REVIEW_PIPELINE)
+            )
+            if previous is not None:
+                pending = deferred_review(previous).get("resume_deferred", {}).get("pending", [])
+                points = [point for point in previous.promotion_summary.get("points") or []
+                          if point.get("disposition") in {"defer", "conflict"}]
+                for item, point in zip(pending, points):
+                    if point.get("handoff_id"):
+                        handoff = asyncio.run(backend.structured_store.get_task_handoff(point["handoff_id"]))
+                        if (handoff and handoff.project_name == previous.project_name
+                                and handoff.context.get("distill_job_id") == previous.id):
+                            item["previous_proposal"] = handoff.summary
+                base_payload["deferred_review"] = {
+                    "pending": pending,
+                    "instructions": "Review only unresolved points. Preserve already verified knowledge from the previous review.",
+                }
         if _distill_source == "ide_hook":
             base_payload.update(
                 {
@@ -2328,12 +2357,21 @@ def _submit_memory_points(
     candidate_ids: set[str] = set()
     source_transcript: str | None = None
     native_trace_material: dict[str, Any] | None = None
+    existing_bodies = set()
+    if job.pipeline_version.startswith(DEFERRED_REVIEW_PIPELINE):
+        existing_bodies = {
+            " ".join((entry.source_report.text if entry.source_report else entry.statement).split()).casefold()
+            for entry in asyncio.run(backend.structured_store.knowledge_store.list_entries(project_name))
+        }
     for point in points:
         args = dict(point)
         agent_review = None
         if "review" in args:
             agent_review = AgentKnowledgeReview.model_validate(args.pop("review"))
             args.setdefault("assimilation_reason", agent_review.reason)
+        if (args.get("assimilation_disposition") == "add"
+                and " ".join(str(args.get("content") or "").split()).casefold() in existing_bodies):
+            raise ValueError("existing knowledge is already saved; review only the unresolved points")
         if (args.get("assimilation_disposition") in {"add", "confirm", "refine", "replace"}
                 and args.get("verification_outcome") != "verified"):
             raise ValueError(

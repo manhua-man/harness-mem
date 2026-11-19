@@ -7,11 +7,12 @@ import hashlib
 import json
 import re
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from harness_mem.commands import token_estimator
+from harness_mem import read_knowledge
 from harness_mem.commands.wake import build_wake_injection
 from harness_mem.core.schemas import (
     AssimilationDecision, KnowledgeCandidate, KnowledgeEntry, ProjectKnowledgeSourceRef,
@@ -278,15 +279,37 @@ def test_medium_chinese_question_can_discover_a_matching_step(backend):
     assert opened["memories"] == [{"title": entry.title, "statement": entry.statement}]
 
 
-def test_natural_search_keeps_explicit_parts_in_order_and_reads_original_query(backend):
+def test_natural_search_keeps_explicit_parts_in_order_and_reads_original_query(backend, monkeypatch):
     add_memories(backend, ["回滚插件时先停用，再核对恢复的签名。"],
                  project="fictional", title="插件版本回退", number_titles=False)
     query = "怎么回滚插件更新？回滚完成后用什么证据核验签名？"
+    splitter = Mock(wraps=read_knowledge._QUESTION_PART_BREAK)
+    monkeypatch.setattr(read_knowledge, "_QUESTION_PART_BREAK", splitter)
     first = server.tool_search_memory(query=query, budget_tokens=2500)
+    splitter.split.assert_called_once_with(query)
     assert first["query"] == query
     assert first["question_parts"] == ["怎么回滚插件更新？", "回滚完成后用什么证据核验签名？"]
     assert "each part" in first["answer_guidance"]
     assert "question_parts" not in server.tool_search_memory(query="插件版本回退")
+
+
+def test_markdown_only_reads_project_sources_once_for_details(backend):
+    add_memories(backend, ["First fact.", "Second fact."])
+    add_memories(backend, ["Other fact."], project="other")
+    store = backend.structured_store
+    queries = []
+    store._canonical._conn.set_trace_callback(queries.append)
+    try:
+        plain = asyncio.run(store.knowledge_store.render_markdown("demo"))
+        assert not any("from knowledge_sources" in query.lower() for query in queries)
+        queries.clear()
+        detailed = asyncio.run(store.knowledge_store.render_markdown("demo", include_details=True))
+    finally:
+        store._canonical._conn.set_trace_callback(None)
+    source_queries = [query.lower() for query in queries if "from knowledge_sources" in query.lower()]
+    assert len(source_queries) == 1 and "project_id = 'demo'" in source_queries[0]
+    assert "demo-source.txt" not in plain
+    assert detailed.count("demo-source.txt") == 2 and "other-source.txt" not in detailed
 
 
 def test_configured_tight_natural_search_keeps_reading_link_without_optional_tokenizer(backend, monkeypatch):
@@ -382,6 +405,29 @@ def test_multipart_continuation_keeps_ranked_facts_and_original_request(backend,
     actual = _read_all(first, budget=3600)
     assert len(actual) == len(originals)
     assert set(actual) == set(originals)
+
+
+def test_existing_full_statement_can_be_matched_to_a_short_part_without_a_separate_subject(backend):
+    saved = add_memories(backend, ["旧版可进到结案。生产构建、规则测试和浏览器验收均通过。"
+                                  "用户看过后拒绝文字勾选，后续提议进入场景观察。"],
+                         title="《玻璃档案》原型验收和反馈", number_titles=False)[0]
+    query = "用户看过《玻璃档案》之后，原来第一版做到哪一层，怎么验过能走通？"
+    result = server.tool_search_memory(query=query)
+    assert result["query"] == query
+    assert result["question_parts"] == ["原来第一版做到哪一层", "怎么验过能走通？"]
+    position = next(i for i, row in enumerate(result["memories"], 1) if row.get("statement") == saved.statement)
+    assert position in result["question_part_matches"][1]
+
+
+def test_multipart_hint_prefers_the_question_subject_to_unrelated_literal_hits(backend):
+    evidence = add_memories(backend, ["Aurora 的启动脚本只通过静态检查，真机验收仍待执行。"],
+                            title="Aurora 启动脚本验收", number_titles=False)[0]
+    competing = add_memories(backend, ["地图切换的回归怎么验过：检查换图是否保留进度。"],
+                             title="地图切换回归怎么验过", number_titles=False)[0]
+    result = server.tool_search_memory(query="那次 Aurora 启动回归改到了哪里，怎么验过？")
+    statements = [row["statement"] for row in result["memories"]]
+    assert statements.index(evidence.statement) + 1 in result["question_part_matches"][1]
+    assert statements.index(competing.statement) + 1 not in result["question_part_matches"][1]
 
 
 def test_explicit_candidate_mode_survives_pagination_and_empty_query(backend):

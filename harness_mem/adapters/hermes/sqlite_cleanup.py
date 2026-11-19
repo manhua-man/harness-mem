@@ -22,7 +22,7 @@ from harness_mem.adapters.hermes.adapter import (
 )
 from harness_mem.adapters.source_inspection import metadata_project_root, normalized_root
 from harness_mem.core.schemas.transcript import TranscriptSource
-from harness_mem.integration.command_sync import default_hermes_home
+from harness_mem.hermes_profile import default_hermes_home
 from harness_mem.native_source_cleanup import NativeCleanupAction, path_from_local_file_uri
 
 

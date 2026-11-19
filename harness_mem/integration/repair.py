@@ -11,9 +11,8 @@ from pathlib import Path
 from typing import Literal
 
 from harness_mem import __version__
-from harness_mem.integration.command_sync import COMMAND_HOSTS, CommandHost
 from harness_mem.integration import installer
-from harness_mem.integration.installer import HookInstallResult, HookSpec
+from harness_mem.integration.installer import USER_HOOK_HOSTS, HookHost, HookInstallResult, HookSpec
 
 RepairStatus = Literal["installed", "updated", "unchanged", "failed", "unsupported"]
 OverallStatus = Literal["success", "partial_failure", "failed", "unsupported"]
@@ -23,7 +22,7 @@ OverallStatus = Literal["success", "partial_failure", "failed", "unsupported"]
 class HookRepairResult:
     """Outcome of repairing one host's project Hooks."""
 
-    host: CommandHost
+    host: HookHost
     status: RepairStatus
     artifacts: tuple[str, ...] = ()
     error: str | None = None
@@ -47,7 +46,7 @@ def _quote_command(*values: str) -> str:
 
 
 def _suite_specs(
-    client: CommandHost, root: Path, hook_runner: Path
+    client: HookHost, root: Path, hook_runner: Path
 ) -> tuple[HookSpec, ...]:
     if client == "cursor":
         return (
@@ -130,7 +129,7 @@ def _suite_specs(
 
 
 def _install_hooks(
-    client: CommandHost,
+    client: HookHost,
     root: Path,
     *,
     force: bool,
@@ -174,7 +173,7 @@ def _install_hooks(
 
 
 def _hook_result(
-    client: CommandHost, results: list[HookInstallResult]
+    client: HookHost, results: list[HookInstallResult]
 ) -> HookRepairResult:
     statuses = {item.status for item in results}
     status: RepairStatus
@@ -205,7 +204,7 @@ def _overall_status(results: list[HookRepairResult]) -> OverallStatus:
 
 def repair_project_hooks(
     *,
-    clients: tuple[CommandHost, ...] = COMMAND_HOSTS,
+    clients: tuple[HookHost, ...] = USER_HOOK_HOSTS,
     project_root: Path | None = None,
     force: bool = False,
     hook_runner_provider: Callable[[], Path] | None = None,

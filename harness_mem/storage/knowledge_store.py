@@ -77,10 +77,11 @@ class KnowledgeStore:
 
     async def list_entries(
         self,
-        project_name: str,
+        project_name: str | None,
         *,
         project_root: object | None = None,
     ) -> list[KnowledgeEntry]:
+        """Read current entries in project order, optionally filtered in storage."""
         del project_root
         return sorted(
             (
@@ -89,7 +90,7 @@ class KnowledgeStore:
                     "knowledge_entries", project_name=project_name
                 )
             ),
-            key=lambda entry: (entry.module_path, entry.title, entry.id),
+            key=lambda entry: (entry.project_name, entry.module_path, entry.title, entry.id),
         )
 
     async def known_projects(self) -> list[str]:
@@ -118,9 +119,13 @@ class KnowledgeStore:
         include_details: bool = False,
     ) -> str:
         entries = await self.list_entries(project_name)
-        source_map = {
-            entry.id: await self.list_sources(entry.id) for entry in entries
-        }
+        source_map: dict[str, list[KnowledgeSource]] = {}
+        if include_details and entries:
+            source_map = {entry.id: [] for entry in entries}
+            for payload in self._store.list_record_payloads("knowledge_sources", project_name=project_name):
+                sources = source_map.get(str(payload.get("knowledge_id") or ""))
+                if sources is not None:
+                    sources.append(KnowledgeSource.from_dict(payload))
         return render_knowledge_markdown(
             project_name,
             entries,
@@ -365,18 +370,31 @@ class KnowledgeStore:
                     )
             if report is not None:
                 indexes: set[int] = set()
+                supplemental = []
+                if any(ref.kind == "user_statement" for ref in refs):
+                    evidence = await self.list_evidence(candidate_before.id)
+                    if len(evidence) == 1 and evidence[0].evidence_basis == "source_report" and (
+                        evidence[0].verification_outcome == "verified"
+                    ):
+                        supplemental = [ref for ref in evidence[0].verification_refs
+                                        if ref.kind == "user_statement" and ref.bindings]
                 for ref in refs:
                     query = parse_qs(urlparse(ref.target).fragment)
-                    if (ref.kind != "source_report"
-                            or query.get("source_id") != [report.source_id]
+                    if (query.get("source_id") != [report.source_id]
                             or query.get("source_revision") != [report.source_revision]
-                            or query.get("role") != [report.speaker]
                             or len(query.get("exchange", [])) != 1):
                         raise ValueError("source-report authority does not match retained source scope")
                     try:
-                        indexes.add(int(query["exchange"][0]))
+                        exchange = int(query["exchange"][0])
                     except ValueError as exc:
                         raise ValueError("source-report exchange is invalid") from exc
+                    if ref.kind == "source_report" and query.get("role") == [report.speaker]:
+                        indexes.add(exchange)
+                    elif not (ref.kind == "user_statement" and "role" not in query and any(
+                        bound.exchange_index == exchange and bound.content_sha256 == ref.digest
+                        and bound.bindings == ref.bindings for bound in supplemental
+                    )):
+                        raise ValueError("source-report authority does not match retained source scope")
                 if indexes != set(report.exchange_indexes):
                     raise ValueError("source-report exchanges do not match retained source scope")
             if any((predecessor.source_report is None) != (report is None)

@@ -516,7 +516,7 @@ def _distill_stuck_reasons(
             {
                 "code": "retryable_waiting_for_lane",
                 "count": retryable_ready,
-                "action": "Use hm in an Agent to refill the active lane.",
+                "action": "Use prepare_session_distill in your Agent to continue pending work.",
             }
         )
     if parked and not active:
@@ -524,7 +524,7 @@ def _distill_stuck_reasons(
             {
                 "code": "parked_waiting_for_lane",
                 "count": parked,
-                "action": "Use hm in an Agent to refill the active lane.",
+                "action": "Use prepare_session_distill in your Agent to continue pending work.",
             }
         )
     if pending_total and throughput_per_day <= 0:

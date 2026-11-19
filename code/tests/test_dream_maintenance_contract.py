@@ -42,6 +42,7 @@ from harness_mem.core.schemas.knowledge import (
 )
 from harness_mem.core.schemas.project_knowledge_base import ProjectKnowledgeSourceRef
 from harness_mem.core.schemas.reflection_job import ReflectionJob
+from harness_mem.core.schemas.session_distill import SessionDistillJob
 from harness_mem.embedding import embeddings_disabled
 from harness_mem.retrieval_signals import record_retrieval_signal
 from harness_mem.storage.reflection_job_store import ReflectionJobStore
@@ -353,10 +354,14 @@ def test_hook_dream_uses_job_host_when_project_selects_another_cli(
     from harness_mem.commands import support
 
     monkeypatch.setattr(support, "detect_runtime_client", lambda: None)
+    job = SessionDistillJob(
+        id="job-43", idempotency_key="job-43", client="cursor", session_id="session-43",
+        project_name="demo", project_root=str(tmp_path), source_id="source-43", source_revision="revision-43",
+    )
     monkeypatch.setattr(
         backend.transcript_store,
         "get_distill_job",
-        lambda _job_id: SimpleNamespace(client="cursor"),
+        lambda job_id: job if job_id == job.id else None,
     )
     monkeypatch.setattr(
         "harness_mem.autonomous.executors.host_cli._resolve_executable",

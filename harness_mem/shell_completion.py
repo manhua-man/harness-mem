@@ -31,10 +31,8 @@ CONFIG_ACTIONS = ["get", "set", "list", "validate"]
 INTEGRATION_ACTIONS = [
     "hooks",
     "transcript-evidence",
-    "commands",
 ]
 INTEGRATION_HOOK_ACTIONS = ["sync"]
-INTEGRATION_COMMAND_ACTIONS = ["list", "sync"]
 HOOK_SUITE_CLIENTS = [
     "cursor",
     "claude-code",
@@ -65,7 +63,6 @@ def completion_bash() -> str:
     config_actions = " ".join(CONFIG_ACTIONS)
     integration_actions = " ".join(INTEGRATION_ACTIONS)
     integration_hook_actions = " ".join(INTEGRATION_HOOK_ACTIONS)
-    integration_command_actions = " ".join(INTEGRATION_COMMAND_ACTIONS)
     client_choices = " ".join(dict.fromkeys(CLIENT_CHOICES))
     return f"""# harness-mem bash completion
 _harness_mem_completion() {{
@@ -104,9 +101,7 @@ _harness_mem_completion() {{
                 return
                 ;;
             integration)
-                if [[ "${{words[2]}}" == "commands" ]]; then
-                    COMPREPLY=($(compgen -W "{integration_command_actions}" -- "${{cur}}"))
-                elif [[ "${{words[2]}}" == "hooks" ]]; then
+                if [[ "${{words[2]}}" == "hooks" ]]; then
                     COMPREPLY=($(compgen -W "{integration_hook_actions}" -- "${{cur}}"))
                 else
                     COMPREPLY=($(compgen -W "{integration_actions}" -- "${{cur}}"))
@@ -129,7 +124,7 @@ _harness_mem_completion() {{
     fi
 
     if [[ "${{words[1]}}" == "integration" && "${{cur}}" == -* ]]; then
-        COMPREPLY=($(compgen -W "--project-root --force --dry-run --client" -- "${{cur}}"))
+        COMPREPLY=($(compgen -W "--project-root --force --scope --client" -- "${{cur}}"))
         return
     fi
 }}
@@ -145,7 +140,6 @@ def completion_zsh() -> str:
     config_actions = " ".join(CONFIG_ACTIONS)
     integration_actions = " ".join(INTEGRATION_ACTIONS)
     integration_hook_actions = " ".join(INTEGRATION_HOOK_ACTIONS)
-    integration_command_actions = " ".join(INTEGRATION_COMMAND_ACTIONS)
     client_choices = " ".join(dict.fromkeys(CLIENT_CHOICES))
     return f"""# harness-mem zsh completion
 _harness_mem() {{
@@ -188,9 +182,6 @@ _harness_mem() {{
                     ;;
                 integration)
                     _values 'action' {integration_actions}
-                    ;;
-                commands)
-                    _values 'action' {integration_command_actions}
                     ;;
                 hooks)
                     _values 'action' {integration_hook_actions}
@@ -255,8 +246,6 @@ complete -c harness-mem -n '__fish_seen_subcommand_from integration' -l project-
 complete -c harness-mem -n '__fish_seen_subcommand_from integration' -l force -d "Overwrite existing hook"
 complete -c harness-mem -n '__fish_seen_subcommand_from integration' -l client -x -a "{hook_suite_clients}" -d "Client"
 complete -c harness-mem -n '__fish_seen_subcommand_from hooks' -a "sync" -d "Hook action"
-complete -c harness-mem -n '__fish_seen_subcommand_from commands' -a "list sync" -d "Command action"
-complete -c harness-mem -n '__fish_seen_subcommand_from commands' -l dry-run -d "Preview only"
 """
 
 

@@ -181,27 +181,27 @@
     },
     {
       "id": "codex_hook_lifecycle",
-      "description": "A built wheel installs the one hm entry without changing a project, and first use installs the project Hooks and reports Codex's trust step; Codex Desktop native start and post-turn hooks each have a fresh receipt for the current configuration.",
+      "description": "A built wheel configures Codex user Hooks and exposes the memory tools through MCP. Codex Desktop native start and post-turn hooks each have a fresh receipt for the current configuration.",
       "required": true,
       "checks": [
         {
           "id": "fresh_install_and_first_use",
-          "description": "Install-time smoke proves Codex Quickstart adds only hm, MCP initialization leaves the project untouched, and the first Codex status call specified by the installed hm entry installs Codex Hooks and reports the native trust step.",
+          "description": "Verify user Hook registration, a clean workspace after Quickstart and MCP initialization, tool discovery, and the first MCP status response with the Codex trust step.",
           "evidence_tier": "direct",
           "timeout_seconds": 120,
-          "command": ["{python}", "code/scripts/smoke_fresh_install.py", "--expected-version", "v0.9.28"],
+          "command": ["{python}", "code/scripts/smoke_fresh_install.py", "--expected-version", "v0.0.1"],
           "expect": {
             "exit_code": 0,
             "json": {
               "verified": {"equals": true},
-              "only_hm_entry_installed": {"equals": true},
-              "hm_entry_contract_complete": {"equals": true},
+              "user_hooks_registered": {"equals": true},
+              "no_command_skill_installed": {"equals": true},
               "quickstart_project_untouched": {"equals": true},
               "mcp_initialize_project_untouched": {"equals": true},
               "single_host_flow": {"equals": true},
               "first_status_project_ready": {"equals": true},
               "first_status_is_short": {"equals": true},
-              "first_status_hooks_installed": {"equals": true},
+              "first_status_preserves_hooks": {"equals": true},
               "codex_hook_trust_step_reported": {"equals": true}
             }
           }

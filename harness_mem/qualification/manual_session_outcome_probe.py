@@ -104,9 +104,6 @@ def run_manual_session_outcome_probe() -> dict:
             )
 
             class NoCalls:
-                name = "fixture_cli"
-                _native_results = None  # Optional diagnostics are not a provider call.
-
                 def __getattr__(self, name):
                     raise AssertionError(f"manual job reached background provider: {name}")
 
@@ -118,7 +115,8 @@ def run_manual_session_outcome_probe() -> dict:
             )
             after_job = backend.transcript_store.get_distill_job(job.id)
             background_isolation &= (
-                background["outcomes"] == [] and after_job is not None
+                background.get("reason") == "manual_session_owned"
+                and background["outcomes"] == [] and after_job is not None
                 and after_job.to_dict() == before_job
                 and tool_handlers.tool_search_memory(query="", project_name="project") == before_knowledge
                 and all(path.read_bytes() == content for path, content in original.items())
@@ -158,6 +156,19 @@ def run_manual_session_outcome_probe() -> dict:
                                 final_user_request=preference, final_outcome="已验证并记住全部偏好。")
                 calls += 1
                 output_chars += len(json.dumps(suggested))
+            if job.session_id in {"decision", "preference"}:
+                title, claim = (("Verified current cache", statement) if promote else
+                                ("Audit presentation", f"When conducting future memory audits, {preference}"))
+                candidate_id = suggested["entry_id"] if promote else suggested["candidate_id"]
+                semantic["final_scope_judgment"] = {candidate_id: {"points": [{
+                    "candidate_index": 0, "semantic_support": "supported",
+                    "future_scope": "durable", "source_use": "reusable_knowledge",
+                    "reason": "The fixture repository states this policy." if promote else
+                              "The fixture user explicitly applies this preference to future memory audits.",
+                    "scope_segments": [{"text": f"{title}\n{claim}", "source_use": "reusable_knowledge",
+                                        "future_scope": "durable", "content_role": "claim",
+                                        "standalone": True, "source_support": "supported"}],
+                }]}}
             final = tool_handlers.tool_finalize_session_distill("project", job.id, semantic)
             assert final["success"], final
             completed_job = backend.transcript_store.get_distill_job(job.id)

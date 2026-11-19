@@ -1,4 +1,4 @@
-"""Public search and retrieval-feedback MCP handlers."""
+"""Public search and automatic recall MCP handlers."""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ from typing import Any, Callable
 from harness_mem.autopilot_search import plan_autopilot_search
 from harness_mem.core.schemas import KnowledgeEntry
 from harness_mem.read_knowledge import (
-    is_focused_compound_query, is_long_query, is_natural_question, list_current_knowledge, question_parts,
-    search_current_knowledge,
+    contextual_part_matches, is_focused_compound_query, is_long_query, is_natural_question,
+    list_current_knowledge, search_current_knowledge,
 )
 
 from .handler_facade_proxy import tool_handlers_facade as _core
@@ -26,10 +26,7 @@ from harness_mem.mcp.read_projection import (
     resolve_read_budget,
     select_memory_page,
 )
-from harness_mem.mcp.read_feedback_handlers import (
-    VALID_CONTEXT_OUTCOMES,
-    tool_record_context_outcome as _tool_record_context_outcome,
-)
+from harness_mem.mcp.read_feedback_handlers import VALID_CONTEXT_OUTCOMES
 
 
 def _get_backend():
@@ -63,9 +60,6 @@ def tool_search_memory(
         cursor = read_cursor
     selected_project = project_name if scope == "project" else None
     query = query.strip()
-    parsed_parts = question_parts(query) if detail == "auto" and not _candidate_only else []
-    multipart = bool(parsed_parts) and not _include_diagnostics and _render_response is None
-    parts = parsed_parts if cursor is None else []
     discovery: dict[str, Any] = {}
     contextual_search: dict[str, Any] = {}
     if task_context is not None:
@@ -94,6 +88,9 @@ def tool_search_memory(
             "reason": "Current memory could not be read. Run harness-mem doctor before retrying.",
         }
 
+    parsed_parts = discovery.get("question_parts", []) if detail == "auto" and not _candidate_only else []
+    multipart = bool(parsed_parts) and not _include_diagnostics and _render_response is None
+    parts = parsed_parts if cursor is None else []
     retrieval_id = _new_retrieval_id()
     surface = "search_memory" if scope == "project" else "search_all"
     candidate_only = detail == "candidates" or bool(
@@ -163,15 +160,20 @@ def tool_search_memory(
         if parts and include_parts:
             payload["question_parts"] = parts
             if not index and discovery.get("part_matches"):
-                displayed = page if candidate_only else full_entries(page, index)
+                displayed = [(position, entry, memory) for position, (entry, memory) in
+                             enumerate(zip(page, memories), 1) if "statement" in memory]
+                text = [(position, memory["title"], memory["statement"]) for position, _, memory in displayed]
                 payload["question_part_matches"] = [
-                    [position for position, (entry, memory) in enumerate(zip(displayed, memories), 1)
-                     if (entry.project_name, entry.id) in matched and "statement" in memory]
-                    for matched in discovery["part_matches"]
+                    contextual_part_matches(
+                        query, part, text,
+                        [position for position, entry, _ in displayed if (entry.project_name, entry.id) in matched],
+                    )
+                    for part, matched in zip(parts, discovery["part_matches"])
                 ]
             payload["answer_guidance"] = (
                 "Check each part in the original order. Match numbers refer to memories and only suggest relevance. "
-                "Verify each requested detail against complete statements. Follow up only for missing details, "
+                "Check all complete statements before following up, including parts without a match number. "
+                "Follow up only for missing details, "
                 "and state any that remain unsupported."
             )
         if task_context is not None:
@@ -452,24 +454,3 @@ def tool_autopilot_search_tick(
             "error": search_payload.get("reason") or search_payload.get("error"),
         }
     return render(search_payload)
-
-
-def tool_record_context_outcome(
-    project_name: str,
-    surface: str,
-    outcome: str,
-    source_ids: list[str] | None = None,
-    reason: str | None = None,
-    retrieval_id: str | None = None,
-) -> dict:
-    """Compatibility entry preserving this module's injected backend seam."""
-
-    return _tool_record_context_outcome(
-        project_name=project_name,
-        surface=surface,
-        outcome=outcome,
-        source_ids=source_ids,
-        reason=reason,
-        retrieval_id=retrieval_id,
-        _backend=_get_backend(),
-    )

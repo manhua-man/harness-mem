@@ -342,18 +342,20 @@ def _normalize_semantic_claim(value: Any) -> Any:
 
 
 # Runtime modules keep the registry facade stable while owning separate handler domains.
-from harness_mem.mcp.read_handlers import (  # noqa: E402
+from harness_mem.mcp.read_search_handlers import (  # noqa: E402
     tool_autopilot_search_tick,
+    tool_search_memory,
+)
+from harness_mem.mcp.read_evidence_handlers import (  # noqa: E402
     tool_file_context,
     tool_get_observations,
     tool_get_project_profile,
     tool_get_task_handoffs,
-    tool_record_context_outcome,
-    tool_search_memory,
     tool_search_raw,
     tool_timeline,
-    tool_wake,
 )
+from harness_mem.mcp.read_feedback_handlers import tool_record_context_outcome  # noqa: E402
+from harness_mem.mcp.read_wake_handlers import tool_wake  # noqa: E402
 # Distill resolves this callback through the facade proxy.
 from harness_mem.mcp.status_handlers import tool_get_project_status  # noqa: E402
 from harness_mem.mcp.session_handlers import tool_inspect_sessions  # noqa: E402

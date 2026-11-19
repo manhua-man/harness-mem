@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sqlite3
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -95,6 +96,32 @@ def test_global_limit_follows_relevance_and_browse_keeps_project_provenance(back
     assert asyncio.run(search_current_knowledge(backend, query="sqlite", limit=1)) == [strongest]
     assert len(asyncio.run(list_current_knowledge(backend))) == 3
     assert len(asyncio.run(list_current_knowledge(backend, project_name="zeta"))) == 2
+
+
+@pytest.mark.parametrize("scope_args,expected_projects", [
+    ({}, ["zeta", "alpha"]),
+    ({"scope": "project"}, ["alpha"]),
+])
+def test_search_reads_current_rows_once_through_mcp(backend, scope_args, expected_projects):
+    _seed(backend, "alpha", "Weak hit", "sqlite advice")
+    _seed(backend, "zeta", "Strong hit", "sqlite sqlite sqlite advice")
+    _seed(backend, "other", "Lights", "Use a warm bulb.")
+    queries = []
+    connection = backend.structured_store._canonical._conn
+    connection.set_trace_callback(queries.append)
+    try:
+        response = server.handle_request({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+            "name": "search_memory", "arguments": {"query": "sqlite", "project_name": "alpha", **scope_args},
+        }})
+    finally:
+        connection.set_trace_callback(None)
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload["status"] == "answered"
+    assert [item.get("project_name", payload["project_name"]) for item in payload["memories"]] == expected_projects
+    reads = [" ".join(query.lower().split()) for query in queries]
+    reads = [query for query in reads if query.startswith("select ") and " from knowledge_entries " in query]
+    assert len(reads) == 1, reads
+    assert ("where project_id = 'alpha'" in reads[0]) == (scope_args.get("scope") == "project")
 
 
 def test_project_scope_keeps_filter_and_blank_query_module_projection(backend):
@@ -265,20 +292,12 @@ def test_autopilot_previews_all_projects_and_full_reads_enable_feedback(backend,
         assert server.tool_record_context_outcome(**call["arguments"], outcome="ignored")["success"] is True
 
 
-@pytest.mark.parametrize("failed_reader", ["known_projects", "list_entries"])
 @pytest.mark.parametrize("error_type", [ValueError, OSError, sqlite3.DatabaseError])
-def test_global_read_fault_is_unavailable_not_partial_or_empty(backend, monkeypatch, failed_reader, error_type):
+def test_global_read_fault_is_unavailable_not_partial_or_empty(backend, monkeypatch, error_type):
     _seed(backend, "alpha", "A decision", "sqlite alpha decision")
     _seed(backend, "zeta", "Z decision", "sqlite zeta decision")
     store = backend.structured_store.knowledge_store
-    original = getattr(store, failed_reader)
-
-    async def failing_reader(*args, **kwargs):
-        if failed_reader == "known_projects" or args[0] == "zeta":
-            raise error_type("private storage details")
-        return await original(*args, **kwargs)
-
-    monkeypatch.setattr(store, failed_reader, failing_reader)
+    monkeypatch.setattr(store, "list_entries", AsyncMock(side_effect=error_type("private storage details")))
     search = server.tool_search_memory(query="sqlite")
     assert search["status"] == "unavailable"
     assert search["memories"] == []

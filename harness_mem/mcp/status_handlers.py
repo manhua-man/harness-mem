@@ -121,11 +121,11 @@ def tool_get_project_status(
         recoveries = {
             "project_permission": (
                 "Project memory settings could not be prepared because access was denied.",
-                "Check write access to the harness-mem data directory, then retry hm.",
+                "Check write access to the harness-mem data directory, then retry get_project_status.",
             ),
             "project_unavailable": (
                 "Project memory settings could not be opened or saved.",
-                "Run harness-mem doctor before retrying hm.",
+                "Run harness-mem doctor before retrying get_project_status.",
             ),
             "project_invalid": (
                 "Project memory settings could not be read; existing files were preserved.",
@@ -140,7 +140,7 @@ def tool_get_project_status(
             ),
             "permission": (
                 "Host Hook files could not be written because access was denied.",
-                "Check write access to the host Hook configuration, then retry hm.",
+                "Check write access to the host Hook configuration, then retry get_project_status.",
             ),
             "unavailable": (
                 "The installed Hook program is unavailable.",
@@ -174,7 +174,7 @@ def tool_get_project_status(
             "success": False,
             "project_name": resolved_project,
             "message": "Project memory storage could not be opened.",
-            "action": "Run harness-mem doctor before retrying hm.",
+            "action": "Run harness-mem doctor before retrying get_project_status.",
         }
     if backend.runtime_state == "degraded_fallback" or backend.runtime_error:
         return {

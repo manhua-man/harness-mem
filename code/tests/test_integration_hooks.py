@@ -12,7 +12,7 @@ import pytest
 
 import harness_mem.commands.integration_cmds as integration_cmds
 import harness_mem.integration.installer as installer
-from harness_mem.integration.command_sync import default_host_commands_dir, sync_host_commands
+from harness_mem.hermes_profile import default_hermes_home
 from harness_mem.commands.integration_cmds import cmd_install_hook_suite
 from harness_mem.integration.installer import HookSpec, install_hermes_hook_suite, install_hook, install_hook_suite
 
@@ -378,7 +378,7 @@ def test_force_preserves_another_projects_same_named_script(tmp_path: Path, host
 
 
 def test_hermes_unsupported_valid_indentation_does_not_corrupt_config(tmp_path: Path) -> None:
-    path = default_host_commands_dir("hermes").parent / "config.yaml"
+    path = default_hermes_home() / "config.yaml"
     path.parent.mkdir(parents=True)
     original = 'hooks:\n    pre_llm_call:\n        - command: echo custom\n          timeout: 30\nother: true\n'
     path.write_text(original, encoding="utf-8")
@@ -499,7 +499,7 @@ def test_cmd_install_hook_suite_supports_hermes_global_install(
     monkeypatch.setenv("USERPROFILE", str(home))
 
     assert cmd_install_hook_suite("hermes", str(tmp_path), False) == 0
-    config_path = default_host_commands_dir("hermes").parent / "config.yaml"
+    config_path = default_hermes_home() / "config.yaml"
     config_body = config_path.read_text(encoding="utf-8")
     assert hook_runner.as_posix() in config_body
     assert "--adapter hermes-pre" in config_body
@@ -535,7 +535,7 @@ def test_hermes_hook_suite_normalizes_empty_inline_hooks_config(tmp_path: Path, 
     [("win32", True, True), ("linux", True, True),
      ("win32", False, True), ("win32", False, False), ("linux", False, True)],
 )
-def test_hermes_entry_and_hooks_share_only_the_active_profile(
+def test_hermes_hooks_use_only_the_active_profile(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     platform: str, custom_profile: bool, local_appdata: bool,
 ) -> None:
@@ -564,15 +564,8 @@ def test_hermes_entry_and_hooks_share_only_the_active_profile(
             entry.write_text("user profile entry\n", encoding="utf-8")
             originals[config] = config.read_bytes()
             originals[entry] = entry.read_bytes()
-    source = tmp_path / "source"
-    source.mkdir()
-    (source / "hm.md").write_text("# HM\n", encoding="utf-8")
-
-    entry_result = sync_host_commands(client="hermes", source_dir=source)
     assert cmd_install_hook_suite("hermes", str(tmp_path), False) == 0
 
-    assert entry_result.destination_dir == expected / "skills"
-    assert (expected / "skills" / "hm" / "SKILL.md").is_file()
     config_body = (expected / "config.yaml").read_text(encoding="utf-8")
     assert "--adapter hermes-pre" in config_body
     assert "--adapter hermes-post" in config_body

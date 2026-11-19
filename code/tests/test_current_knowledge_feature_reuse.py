@@ -23,14 +23,10 @@ def _entry(identifier, title, statement, *, project="alpha", module="Rules"):
 
 def _backend(entries):
     async def list_entries(project, **kwargs):
-        return [entry for entry in entries if entry.project_name == project]
-
-    async def known_projects():
-        return sorted({entry.project_name for entry in entries})
+        return [entry for entry in entries if project is None or entry.project_name == project]
 
     return SimpleNamespace(structured_store=SimpleNamespace(knowledge_store=SimpleNamespace(
         list_entries=AsyncMock(side_effect=list_entries),
-        known_projects=AsyncMock(side_effect=known_projects),
     )))
 
 
@@ -141,7 +137,7 @@ def test_repeated_calls_recompute_features_and_observe_replacement_and_deletion(
     assert calls[entries[0].title] == 3
     entries.clear()
     assert _search(backend, "日志保留期限") == []
-    assert backend.structured_store.knowledge_store.known_projects.await_count == 4
+    assert backend.structured_store.knowledge_store.list_entries.await_count == 4
 
 
 @pytest.mark.parametrize("project", [None, "alpha"])

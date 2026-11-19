@@ -179,6 +179,12 @@ def run_clean_retrieval_outcome_probe() -> dict[str, bool]:
                 )
                 injection = autopilot.get("context_injection") or {}
                 autopilot_memories = list(injection.get("memories") or [])
+                # An index-only response can place the first read on the page
+                # itself when the budget is too small for a candidate row.
+                continuation = injection.get("continuation") or {}
+                if not autopilot_memories and continuation.get("tool") == "search_memory":
+                    opened = tool_search_memory(**continuation["arguments"])
+                    autopilot_memories.extend(opened.get("memories") or [])
                 for candidate in list(autopilot_memories):
                     if candidate.get("read_cursor") and "statement" not in candidate:
                         opened = tool_search_memory(

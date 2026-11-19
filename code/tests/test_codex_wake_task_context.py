@@ -117,13 +117,10 @@ def test_codex_wake_searches_the_user_request_end_to_end(monkeypatch, tmp_path):
             self.data_dir = data_dir
 
             async def list_entries(project, **_kwargs):
-                return [entry for entry in entries if entry.project_name == project]
-
-            async def known_projects():
-                return ["oii", "other"]
+                return [entry for entry in entries if project is None or entry.project_name == project]
 
             self.structured_store = SimpleNamespace(knowledge_store=SimpleNamespace(
-                list_entries=list_entries, known_projects=known_projects,
+                list_entries=list_entries,
             ))
 
         async def init(self):

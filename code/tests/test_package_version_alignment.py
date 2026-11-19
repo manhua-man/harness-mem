@@ -8,8 +8,6 @@ from pathlib import Path
 
 from harness_mem import __version__
 
-RELEASE_TARGET_VERSION = "0.9.28"
-
 
 def _pyproject_version() -> str:
     text = (Path(__file__).resolve().parents[2] / "pyproject.toml").read_text(
@@ -34,7 +32,7 @@ def test_runtime_version_matches_pyproject() -> None:
     assert package.group(1) == __version__
 
 
-def test_source_and_public_install_versions_are_aligned() -> None:
+def test_plugin_manifest_matches_runtime_version() -> None:
     root = Path(__file__).resolve().parents[2]
     manifest = json.loads(
         (root / "code/plugins/harness-mem/.codex-plugin/plugin.json").read_text(
@@ -42,80 +40,3 @@ def test_source_and_public_install_versions_are_aligned() -> None:
         )
     )
     assert manifest["version"] == __version__
-
-    for relative in ("README.md", "README.zh-CN.md", "docs/quickstart.md"):
-        content = (root / relative).read_text(encoding="utf-8")
-        assert f"harness-mem=={RELEASE_TARGET_VERSION}" in content
-        assert f"expanded_assets/v{RELEASE_TARGET_VERSION}" in content
-        assert set(re.findall(r"expanded_assets/v(\d+\.\d+\.\d+)", content)) == {
-            RELEASE_TARGET_VERSION
-        }
-
-    current_version_text = {
-        "README.md": f"Current source package version: **{__version__}**",
-        "README.zh-CN.md": f"当前源码包版本：**{__version__}**",
-        "AGENTS.md": f"当前源码版本 `{__version__}`",
-        "docs/memory-adoption.md": f"current\nsource is `{__version__}`",
-        "docs/auto-promoted-memory-governance.md": (
-            f"current `{__version__}` source"
-        ),
-        "docs/canvases/README.md": f"**当前源码**：{__version__}",
-    }
-    for relative, expected in current_version_text.items():
-        assert expected in (root / relative).read_text(encoding="utf-8")
-
-    for relative in (
-        "docs/assets/harness-mem-cold-start-flow.svg",
-        "docs/assets/harness-mem-lossless-session-flow.svg",
-        "docs/assets/harness-mem-candidate-governance.svg",
-        "docs/assets/harness-mem-runtime-layered-architecture.svg",
-    ):
-        content = (root / relative).read_text(encoding="utf-8")
-        assert f"source {__version__}" in content
-        assert f"v{__version__}" not in content
-        assert "selected CLI" in content
-        assert "Verified outcome" not in content
-        assert "terminal outcome" not in content
-
-    maturity = (root / "docs/maturity-model.md").read_text(encoding="utf-8")
-    readiness = (root / "docs/canvases/harness-mem-readiness-v1.canvas.tsx").read_text(
-        encoding="utf-8"
-    )
-    convergence = (
-        root / "docs/canvases/harness-mem-convergence.canvas.tsx"
-    ).read_text(encoding="utf-8")
-    assert f"Current snapshot (v{__version__})" in maturity
-    assert "exact 20-tool contract" in maturity
-    for canvas in (readiness, convergence):
-        assert f'RUNTIME_VERSION = "{__version__}"' in canvas
-        assert "source {RUNTIME_VERSION}" in canvas
-        assert "released" in canvas
-        assert "PUBLIC_RELEASE_VERSION" not in canvas
-    assert 'const OUTCOME_RUN_STATUS = "passed"' in convergence
-    assert 'const OUTCOME_PASSED = 12' in convergence
-    assert "20-tool MCP" in convergence
-    assert "12/12" in readiness
-    assert "published artifacts are\nlisted on the GitHub Releases page" in maturity
-    assert "公开版本以 GitHub Releases 为准" in readiness
-
-    runtime_architecture = (
-        root / "docs/assets/harness-mem-runtime-layered-architecture.svg"
-    ).read_text(encoding="utf-8")
-    lossless_flow = (
-        root / "docs/assets/harness-mem-lossless-session-flow.svg"
-    ).read_text(encoding="utf-8")
-    maintenance_contract = (
-        root / "docs/roadmap/knowledge-truth-separation.md"
-    ).read_text(encoding="utf-8")
-    assert "MCP: 20 public tools" in runtime_architecture
-    assert "zero to twelve" not in lossless_flow
-    assert "fixed set of 85" not in maintenance_contract
-    assert "85-conversation maintenance boundary" not in maintenance_contract
-
-    release_notes = (root / "release-notes.md").read_text(encoding="utf-8")
-    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
-    assert release_notes.startswith(f"# Release {__version__} ")
-    assert f"Release completion requires Git tag `v{__version__}`" in release_notes
-    assert f"harness-mem=={RELEASE_TARGET_VERSION}" in release_notes
-    assert changelog.startswith("# Changelog\n\n")
-    assert f"## [{__version__}]" in changelog

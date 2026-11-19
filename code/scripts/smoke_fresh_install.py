@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+import sysconfig
 import tempfile
 from pathlib import Path
 
@@ -17,6 +18,10 @@ def main() -> int:
     args = parser.parse_args()
 
     expected_version = args.expected_version.removeprefix("v")
+    scripts = Path(sysconfig.get_path("scripts"))
+    suffix = ".exe" if os.name == "nt" else ""
+    cli = scripts / f"harness-mem{suffix}"
+    mcp = scripts / f"harness-mem-mcp{suffix}"
     with tempfile.TemporaryDirectory(prefix="harness-mem-first-install-") as temp:
         home = Path(temp) / "home"
         workspace = Path(temp) / "workspace"
@@ -29,6 +34,9 @@ def main() -> int:
             {
                 "HOME": str(home),
                 "USERPROFILE": str(home),
+                "CODEX_HOME": str(home / ".codex"),
+                "HARNESS_MEM_DATA_DIR": str(home / ".harness-mem" / "data"),
+                "PYTHONPATH": "",
                 "HARNESS_MEM_CLIENT": "codex",
                 "HARNESS_MEM_PROJECT_ROOT": str(workspace),
                 "HARNESS_MEM_DISABLE_EMBEDDINGS": "1",
@@ -54,9 +62,7 @@ def main() -> int:
         }
         quickstart = subprocess.run(
             [
-                sys.executable,
-                "-m",
-                "harness_mem.cli",
+                str(cli),
                 "quickstart",
                 "--client",
                 "codex",
@@ -75,21 +81,21 @@ def main() -> int:
         installed_skills = sorted(
             path.parent.name for path in skill_root.glob("*/SKILL.md")
         )
-        if installed_skills != ["hm"]:
+        if installed_skills:
             raise RuntimeError(
                 f"Quickstart installed unexpected Codex skills: {installed_skills}"
             )
-        hm_entry = skill_root / "hm" / "SKILL.md"
-        hm_text = hm_entry.read_text(encoding="utf-8")
-        required_entry_contract = (
-            "get_project_status(project_root=",
-            'host_client=<当前 Agent 宿主>',
-            'search_memory',
-            'finalize_session_distill',
-            'govern_memory',
-        )
-        if not all(fragment in hm_text for fragment in required_entry_contract):
-            raise RuntimeError("installed hm entry is missing its daily-use contract")
+        user_hooks = home / ".codex" / "hooks.json"
+        hooks = json.loads(user_hooks.read_text(encoding="utf-8"))["hooks"]
+        for event, adapter in (
+            ("SessionStart", "codex-start"), ("UserPromptSubmit", "codex-start"), ("Stop", "codex-stop"),
+        ):
+            if not any(
+                f"--adapter {adapter}" in item.get("command", "")
+                for group in hooks.get(event, [])
+                for item in group.get("hooks", [])
+            ):
+                raise RuntimeError(f"Quickstart did not register {event}")
         workspace_after = {
             path.relative_to(workspace).as_posix()
             for path in workspace.rglob("*")
@@ -130,7 +136,7 @@ def main() -> int:
             },
         }
         initialize_process = subprocess.run(
-            [sys.executable, "-m", "harness_mem.mcp.server"],
+            [str(mcp)],
             cwd=workspace,
             env=env,
             input=json.dumps(initialize) + "\n",
@@ -148,19 +154,23 @@ def main() -> int:
             raise RuntimeError(
                 f"unexpected MCP initialize response: {initialize_response}"
             )
+        server_version = initialize_response["result"]["serverInfo"]["version"]
+        if server_version != expected_version:
+            raise RuntimeError(f"unexpected MCP server version: {server_version}")
         workspace_after_initialize = {
             path.relative_to(workspace).as_posix()
             for path in workspace.rglob("*")
         }
         if workspace_after_initialize != workspace_before:
             raise RuntimeError(
-                "MCP initialize modified the project before hm was used: "
+                "MCP initialize modified the project before first use: "
                 f"before={sorted(workspace_before)}, "
                 f"after={sorted(workspace_after_initialize)}"
             )
 
         requests = [
             initialize,
+            {"jsonrpc": "2.0", "id": 3, "method": "tools/list"},
             {
                 "jsonrpc": "2.0",
                 "id": 2,
@@ -175,7 +185,7 @@ def main() -> int:
             },
         ]
         process = subprocess.run(
-            [sys.executable, "-m", "harness_mem.mcp.server"],
+            [str(mcp)],
             cwd=workspace,
             env=env,
             input="".join(json.dumps(request) + "\n" for request in requests),
@@ -187,26 +197,26 @@ def main() -> int:
         if process.returncode != 0:
             raise RuntimeError(f"MCP first run failed: {process.stderr}")
         responses = [json.loads(line) for line in process.stdout.splitlines() if line.strip()]
-        if len(responses) != 2 or any("error" in response for response in responses):
+        if len(responses) != 3 or any("error" in response for response in responses):
             raise RuntimeError(f"unexpected MCP responses: {responses}")
-        status_text = responses[1]["result"]["content"][0]["text"]
+        names = {tool["name"] for tool in responses[1]["result"]["tools"]}
+        if not {"get_project_status", "prepare_session_distill", "search_memory"} <= names:
+            raise RuntimeError(f"missing MCP entry points: {sorted(names)}")
+        status_text = responses[2]["result"]["content"][0]["text"]
         status = json.loads(status_text)
         expected_status = {
             "success": True,
             "project_name": workspace.name,
             "message": (
                 "Memory storage is ready; Hook files are prepared. "
-                "If not yet trusted, review project Hooks in Codex Settings, then start a new task."
+                "If not yet trusted, review user Hooks in Codex Settings, then start a new task."
             ),
         }
         if status != expected_status:
             raise RuntimeError(f"unexpected first-run status: {status}")
 
-        expected_hook = workspace / ".codex" / "hooks.json"
-        if not expected_hook.is_file():
-            raise RuntimeError(
-                f"first hm status did not install Codex hooks: {expected_hook}"
-            )
+        if json.loads(user_hooks.read_text(encoding="utf-8"))["hooks"] != hooks:
+            raise RuntimeError("First status check changed the configured user Hooks")
 
     print(
         json.dumps(
@@ -214,14 +224,15 @@ def main() -> int:
                 "verified": True,
                 "version": version,
                 "platform": sys.platform,
-                "only_hm_entry_installed": True,
-                "hm_entry_contract_complete": True,
+                "user_hooks_registered": True,
+                "no_command_skill_installed": True,
+                "mcp_tools_listed": sorted(names),
                 "quickstart_project_untouched": True,
                 "mcp_initialize_project_untouched": True,
                 "single_host_flow": True,
                 "first_status_project_ready": True,
                 "first_status_is_short": True,
-                "first_status_hooks_installed": True,
+                "first_status_preserves_hooks": True,
                 "codex_hook_trust_step_reported": True,
             },
             sort_keys=True,

@@ -81,7 +81,7 @@ def test_integration_exposes_one_hook_repair_surface(
 ) -> None:
     _assert_help_exit(["integration", "--help"])
     integration_help = capsys.readouterr().out
-    assert "{hooks,transcript-evidence,commands}" in integration_help
+    assert "{hooks,transcript-evidence}" in integration_help
 
     _assert_help_exit(["integration", "hooks", "sync", "--help"])
     hooks_help = capsys.readouterr().out
@@ -90,6 +90,7 @@ def test_integration_exposes_one_hook_repair_surface(
     assert "--force" in hooks_help
 
     retired = (
+        "commands",
         "install-cursor-hook",
         "install-claude-hook",
         "install-cursor-wake-hook",
@@ -537,6 +538,8 @@ def test_completion_surface_moves_import_and_purge_under_maintenance() -> None:
         assert "erase" in script
         assert "migrate-legacy-accepted" in script
         assert "hooks" in script
+        assert "transcript-evidence commands" not in script
+        assert "list sync" not in script
         assert "install-cursor-wake-hook" not in script
         assert "install-claude-wake-hook" not in script
         assert "install-cursor-suite" not in script

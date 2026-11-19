@@ -1,8 +1,7 @@
 [project]
 name = "harness-mem"
-version = "0.9.28"
+version = "0.0.1"
 description = "Local-first, auditable, pluggable Agent memory backend"
-readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
     "pydantic>=2.0",
@@ -56,7 +55,6 @@ python-packages = ["harness_mem"]
 features = ["pyo3/extension-module"]
 include = [
     { path = "harness_mem/integration/templates/*.template", format = "wheel" },
-    { path = "code/plugins/harness-mem/commands/hm/hm.md", format = "wheel" },
 ]
 
 [[tool.mypy.overrides]]

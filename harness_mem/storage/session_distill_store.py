@@ -80,6 +80,7 @@ class SessionDistillStore:
         active_limit: int | None = None,
         recent_first: bool = True,
         manual_recheck: bool = False,
+        expected_revision: str | None = None,
     ) -> SessionDistillJob:
         """Idempotently queue every chunk from one complete current revision."""
 
@@ -93,6 +94,8 @@ class SessionDistillStore:
                 if source_row is None:
                     raise KeyError(source_id)
                 source = TranscriptSource.from_dict(json.loads(source_row["data"]))
+                if expected_revision is not None and source.source_revision != expected_revision:
+                    raise ValueError("selected source revision is no longer current")
                 if source.coverage != "complete" or source.status not in (
                     {"synced", "missing"} if manual_recheck else {"synced"}
                 ):

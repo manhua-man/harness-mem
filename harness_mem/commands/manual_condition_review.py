@@ -45,6 +45,11 @@ _COMMON = {"可以", "使用", "问题", "情况", "需要", "必须", "不能",
            "when", "then", "only", "does", "that", "with", "without", "this", "have", "from", "must"}
 _WRITES = {"add", "refine", "replace", "confirm"}
 _DIFF_ADDITION = re.compile(r"^\+(?!\+)")
+_EDITORIAL_INTENT = re.compile(
+    r"^我(?:要|会|将|先|打算)[^，,]{0,100}(?:补进|补到|写进|写到|记录到|记到)[^，,]{1,80}"
+    r"[，,]\s*(?:避免|以免|免得)(?:目录|文档|记录|评审|清单|说明|正文|笔记)"
+    r"[^，,]{0,16}(?:只有|只剩|只是)(?:泛泛|笼统|空泛)[^，,]*$"
+)
 
 
 class ConditionReviewRequired(ValueError):
@@ -310,6 +315,8 @@ def review_source_conditions(
     ) -> None:
         cited = [item for item in candidates if _evidence_at(item[0], origin)]
         for line, sentence, terms in _sentences(text, details=bool(cited)):
+            if origin.get("role") == "assistant" and _EDITORIAL_INTENT.fullmatch(sentence):
+                continue
             conditional = bool(_CONDITION.search(sentence))
             compared = candidates if conditional else cited
             relevance = max((len(terms & topic) for _, _, topic in compared), default=0)
@@ -354,7 +361,7 @@ def review_source_conditions(
 
     if native_records:
         from harness_mem.commands.native_review_questions import (
-            is_native_table_row, native_question_clauses, native_review_questions,
+            is_native_table_row, native_question_clauses, native_review_questions, native_shell_launch_failures,
         )
 
         native_topics = []
@@ -364,16 +371,22 @@ def review_source_conditions(
             operations = [item for item in review.get("operations") or () if isinstance(item, dict)]
             native_topics.append((output, text, topic, operations))
 
-        grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        launches = native_shell_launch_failures(native_records)
+        grouped: dict[tuple[str, ...], list[dict[str, Any]]] = defaultdict(list)
         for finding in native_review_questions(native_records, revision):
-            # The same added line can be visible in a patch and subsequent
-            # readbacks. Keep every original location for quote verification.
-            grouped[finding["condition"]].append(finding)
-        for passage, occurrences in grouped.items():
+            passage = finding["condition"]
+            launch = launches.get(finding["result_line"]) if finding["quote_field"] == "result_quote" else None
+            # Preserve every exact location for evidence binding. The same
+            # failed launch may have a different wrapper cwd on each attempt.
+            key = ("launch", *launch[:2]) if launch and passage.startswith(launch[2]) else ("literal", passage)
+            grouped[key].append(finding)
+        for group, occurrences in grouped.items():
             if any(str(exclusions.get(item["id"], "")).strip() for item in occurrences):
                 continue
-            finding = occurrences[0]
-            clauses = native_question_clauses(passage, finding["kind"])
+            command = group[1] if group[0] == "launch" else None
+            finding = occurrences[-1] if command else occurrences[0]
+            passage = finding["condition"]
+            clauses = [] if command else native_question_clauses(passage, finding["kind"])
             changed_line = bool(_DIFF_ADDITION.match(passage))
             table_row = is_native_table_row(passage)
             clause_terms = [(clause, _terms(clause)) for clause in clauses]
@@ -381,11 +394,16 @@ def review_source_conditions(
             for output, text, topic, operations in native_topics:
                 if any(all(item.get(key) == occurrence[key] for key in ("call_id", "call_line", "result_line"))
                        and isinstance(item.get(occurrence["quote_field"]), str)
-                       and passage in item[occurrence["quote_field"]]
+                       and occurrence["condition"] in item[occurrence["quote_field"]]
                        and isinstance(item.get("phrase"), str) and item["phrase"].strip()
                        and item["phrase"] in output
                        for item in operations for occurrence in occurrences):
                     break
+                # A pre-launch error proves the named invocation could not
+                # start. A shared path or wrapper error cannot establish which
+                # command in the proposed knowledge failed.
+                if command and _literal_retained(command, text):
+                    relevance = max(relevance, 2)
                 for clause, terms in clause_terms:
                     if _native_topic_matches(clause, text, changed_line=changed_line, table_row=table_row):
                         relevance = max(relevance, len(terms & topic))

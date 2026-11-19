@@ -60,6 +60,12 @@ _CJK_DIRECT_QUESTION = re.compile(
     r"能(?:不能|否|说明|证明|代表|看出)|[吗么][?？]?$"
 )
 _CJK_INDIRECT_QUESTION = re.compile(r"(?:不清楚|不确定|不知道|没想好)[^，,。]*")
+_CJK_BACKGROUND_END = re.compile(r"(?:之后|以后|之前|以前|时|的情况下)[。]?$")
+_NAMED_SUBJECT = re.compile(
+    r"《([^》]{2,80})》|`([^`]{2,80})`|"
+    r"(?<![A-Za-z0-9_./-])(?:[A-Za-z][A-Za-z0-9_-]*[A-Z0-9][A-Za-z0-9_-]*|"
+    r"[A-Z][a-z]{2,}|/[a-z][a-z0-9_-]+)(?![A-Za-z0-9_-])",
+)
 
 
 def question_parts(query: str) -> list[str]:
@@ -81,12 +87,43 @@ def question_parts(query: str) -> list[str]:
             segments.append(current)
     # Context still contributes to ranking the intact question, but it should
     # not be presented as something the reader must answer on its own.
-    if (len(segments) >= 3 and _CJK_INDIRECT_QUESTION.search(segments[0])
+    if (len(segments) >= 2
+            and (_CJK_INDIRECT_QUESTION.search(segments[0]) or _CJK_BACKGROUND_END.search(segments[0]))
             and not _CJK_DIRECT_QUESTION.search(_CJK_INDIRECT_QUESTION.sub("", segments[0]))):
         segments = segments[1:]
     if not 2 <= len(segments) <= 6:
         return []
     return segments
+
+
+def _question_subjects(text: str) -> set[str]:
+    subjects = {next((group for group in match.groups() if group), match[0]).casefold()
+                for match in _NAMED_SUBJECT.finditer(text)}
+    return subjects - _ENGLISH_QUESTION_WORDS
+
+
+def contextual_part_matches(
+    query: str, part: str, displayed: list[tuple[int, str, str]], direct: list[int],
+) -> list[int]:
+    """Ground part hints in the subject mentioned here or elsewhere in the question."""
+    anchors = _question_subjects(part) or _question_subjects(query)
+    topic_terms = _cjk_query_pairs(_QUESTION_FRAMING.sub(" ", _CJK_DIRECT_QUESTION.sub(" ", part)))
+    anchored = []
+    lexical = []
+    for position, title, statement in displayed:
+        title, statement = title.casefold(), statement.casefold()
+        title_names = {name for name in anchors if name in title}
+        names = title_names | {name for name in anchors if name in statement}
+        overlap = sum(term in title or term in statement for term in topic_terms)
+        if names:
+            anchored.append((position, len(title_names), len(names), overlap, position in direct))
+        elif overlap >= 2:
+            lexical.append((position, overlap))
+    if anchored:
+        anchored.sort(key=lambda row: (-row[1], -row[2], -row[3], -row[4], row[0]))
+        supported = {position for position, overlap in lexical if position in direct and overlap >= 4}
+        return sorted(supported | {row[0] for row in anchored[:4]})
+    return direct or sorted(position for position, _ in sorted(lexical, key=lambda row: -row[1])[:4])
 
 
 def _unwrap_query_term(term: str) -> str:
@@ -296,6 +333,7 @@ def _prioritize_question_parts(
         }
         lanes.append(sorted(matches, key=lambda entry: -scores[id(entry)])[:3])
     if discovery is not None:
+        discovery["question_parts"] = parts
         discovery["part_matches"] = [{(entry.project_name, entry.id) for entry in lane} for lane in lanes]
     leading = (entry for row in zip_longest(*lanes) for entry in row if entry is not None)
     by_id: dict[tuple[str, str], KnowledgeEntry] = {}
@@ -609,14 +647,7 @@ async def _current_entries(
 ) -> list[KnowledgeEntry]:
     """Use the current-knowledge owner without workspace or profile resolution."""
 
-    store = backend.structured_store.knowledge_store
-    if project_name is not None:
-        return await store.list_entries(project_name, project_root=project_root)
-    entries: list[KnowledgeEntry] = []
-    for known_project in await store.known_projects():
-        # Read failures must reach the caller, never become a partial/empty hit.
-        entries.extend(await store.list_entries(known_project))
-    return entries
+    return await backend.structured_store.knowledge_store.list_entries(project_name, project_root=project_root)
 
 
 def _deduplicate_current(

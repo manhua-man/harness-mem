@@ -30,7 +30,7 @@ def test_mcp_setup_uses_the_packaged_server_command() -> None:
 
 
 def test_missing_optional_tiktoken_logs_a_concise_fallback_warning(
-    monkeypatch, caplog
+    monkeypatch, caplog, request
 ) -> None:
     original_import = builtins.__import__
 
@@ -40,6 +40,7 @@ def test_missing_optional_tiktoken_logs_a_concise_fallback_warning(
         return original_import(name, *args, **kwargs)
 
     token_estimator.reset_for_tests()
+    request.addfinalizer(token_estimator.reset_for_tests)
     monkeypatch.setattr(builtins, "__import__", missing_tiktoken)
     caplog.set_level(logging.WARNING, logger="harness_mem.commands.token_estimator")
 

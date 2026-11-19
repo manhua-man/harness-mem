@@ -16,7 +16,9 @@ from typing import TYPE_CHECKING, Any, Callable
 from harness_mem.adapters.source_inspection import normalized_root
 from harness_mem.adapters.snapshot import persist_inspected_session
 from harness_mem.capture_policy import decide_capture, source_capture_policy
-from harness_mem.commands.distill_result import distill_unfinished_work, project_distill_result
+from harness_mem.commands.distill_result import (
+    DEFERRED_REVIEW_PIPELINE, deferred_review, distill_unfinished_work, project_distill_result,
+)
 from harness_mem.commands.session_inventory import (
     collect_session_inventory, completed_job_ids, current_entries, session_reference,
 )
@@ -94,6 +96,16 @@ def manual_job_guard(backend: Any, job: SessionDistillJob, *, check_archive: boo
         return "source_policy_unreadable"
     if not decide_capture(config, client=job.client, session_id=job.session_id, source_uri=revision.source_uri).admitted:
         return "source_excluded_by_capture_policy"
+    if job.pipeline_version.startswith(DEFERRED_REVIEW_PIPELINE):
+        previous = backend.transcript_store.get_distill_job(job.pipeline_version.removeprefix(DEFERRED_REVIEW_PIPELINE))
+        if (previous is None or previous.source_id != job.source_id or previous.source_revision != job.source_revision
+                or previous.status != "completed" or previous.id == job.id):
+            return "manual_source_revision_missing"
+        inherited = paused_batch_error(backend, previous) or manual_job_guard(
+            backend, previous, check_archive=check_archive,
+        )
+        if inherited:
+            return inherited
     for _store, manifest, ref in _bound_manifests(backend, job):
         if manifest["state"] == "stopped":
             return "manual_batch_stopped"
@@ -312,7 +324,9 @@ def _project_batch(manifest: dict, jobs: dict[str, SessionDistillJob], entries: 
         status = "skipped" if skipped else "blocked" if reason else "pending"
         if not reason and job is not None:
             status = "completed" if job.id in proven else "needs_verification" if job.status == "completed" else job.status
-        statuses.append({"reference_id": ref, "status": status, **({"reason": reason} if reason else {})})
+        statuses.append({"reference_id": ref, "status": status, **({"reason": reason} if reason else {}),
+                         **(deferred_review(job) if job is not None and status == "completed"
+                            and manifest["state"] == "active" else {})})
         resolved_job_handoffs = False
         if job is not None:
             recorded_handoffs = set(job.promotion_summary.get("readback", {}).get("handoff_ids") or [])

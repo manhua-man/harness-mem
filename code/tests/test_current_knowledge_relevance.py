@@ -21,11 +21,10 @@ def _entry(identifier, title, statement, *, module="General", project="aurora"):
 
 def _backend(entries):
     async def list_entries(project, **kwargs):
-        return [entry for entry in entries if entry.project_name == project]
+        return [entry for entry in entries if project is None or entry.project_name == project]
 
     return SimpleNamespace(structured_store=SimpleNamespace(knowledge_store=SimpleNamespace(
         list_entries=AsyncMock(side_effect=list_entries),
-        known_projects=AsyncMock(return_value=sorted({entry.project_name for entry in entries})),
     )))
 
 

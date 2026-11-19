@@ -349,10 +349,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
         },
     },
     "get_observations": {
-        "description": (
-            "Fetch project observations by session_id or observation_ids. "
-            "Recent-context wake IDs can be passed directly."
-        ),
+        "description": "Fetch project observations by session_id or observation_ids.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -364,10 +361,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 "observation_ids": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": (
-                        "Observation IDs from recent-context wake output; "
-                        "full IDs, O-prefixed IDs, and unique prefixes are accepted"
-                    ),
+                    "description": "Full observation IDs, O-prefixed IDs, and unique prefixes are accepted.",
                 },
             },
             "required": ["project_name"],

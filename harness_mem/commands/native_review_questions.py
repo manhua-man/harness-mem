@@ -4,13 +4,23 @@ from __future__ import annotations
 
 from collections import Counter
 from hashlib import sha256
+import json
 import re
 from typing import Any, Iterable
 
 
 _PASSAGES = re.compile(r"\r?\n|\\r\\n|\\n")
-_PROSE_SENTENCE = re.compile(r"[。！？]+|(?<=\.)\s+(?=[A-Z])")
+_PROSE_SENTENCE = re.compile(r"[。！？]+|\.{3}\s*(?:[*-]\s+)?|(?<=\.)\s+(?:[*-]\s+)?(?=[A-Z])")
 _PATCH = re.compile(r"\*\*\* (?:Begin Patch|Add File:|Update File:)|\bapply_patch\(")
+_WINDOWS_SPAWN_ERROR = re.compile(
+    r"\A(?:Script failed\r?\nWall time [^\r\n]+\r?\nOutput:\s*Script error:\r?\n)?"
+    r'(?P<diagnostic>execution error: Io\(Custom \{ kind: Other, error: "windows sandbox: '
+    r'runner failed during SpawnChild: (?P<failure>[A-Za-z0-9_]+ failed: \d+) \([^|\r\n]+\) \| cwd=)'
+)
+_YIELDED_CELL = re.compile(r"\AScript running with cell ID ([A-Za-z0-9:_-]+)\r?\n")
+_TOOL_CALL = re.compile(r"\btools\.(\w+)\s*\(")
+_LITERAL_SHELL_OPTIONS = re.compile(r'\s*(\{(?:[^{}"\\]|"(?:\\.|[^"\\])*")*\})\s*\)')
+_BARE_OPTION_KEY = re.compile(r'("(?:\\.|[^"\\])*")|([,{]\s*)([A-Za-z_]\w*)(?=\s*:)')
 _QUESTION_PATTERNS = (
     (
         "validation", "What does this validate, and when does it accept or reject the input?",
@@ -45,6 +55,74 @@ _QUESTION_PATTERNS = (
         ),
     ),
 )
+
+
+def _shell_options(call: dict[str, Any]) -> dict[str, Any] | None:
+    text = call["text"]
+    calls = list(_TOOL_CALL.finditer(text))
+    if len(calls) != 1 or calls[0][1] != "shell_command":
+        return None
+    literal = _LITERAL_SHELL_OPTIONS.match(text, calls[0].end())
+    if not literal:
+        return None
+    try:
+        options = json.loads(_BARE_OPTION_KEY.sub(
+            lambda match: match[1] or f'{match[2]}"{match[3]}"', literal[1],
+        ))
+    except ValueError:
+        return None
+    command = options.get("command")
+    if not isinstance(command, str) or not command.strip():
+        return None
+    if options.get("sandbox_permissions") == "use_default":
+        options.pop("sandbox_permissions")
+    return options
+
+
+def native_shell_launch_failures(
+    records: list[dict[str, Any]],
+) -> dict[int, tuple[str, str, str]]:
+    """Map recognized launcher diagnostics to the original shell invocation."""
+    calls = {}
+    cells = {}
+    failures = {}
+    for record in records:
+        if record["type"] in {"custom_tool_call", "function_call"}:
+            calls[record["call_id"]] = record
+            continue
+        if record["type"] not in {"custom_tool_call_output", "function_call_output"}:
+            continue
+        call = calls.get(record["call_id"])
+        if call is None:
+            continue
+        text = record["text"]
+        if call["type"] == "custom_tool_call" and call.get("name") == "exec":
+            yielded = _YIELDED_CELL.match(text)
+            if yielded:
+                cells[yielded[1]] = call
+                continue
+        elif (call["type"] == "function_call" and call.get("name") == "wait"
+              and text.split("\n", 1)[0].rstrip("\r") in {"Script failed", "Script completed"}):
+            try:
+                arguments = json.loads(call["text"])
+            except ValueError:
+                continue
+            cell_id = arguments.get("cell_id") if isinstance(arguments, dict) else None
+            call = cells.pop(cell_id, None) if isinstance(cell_id, str) else None
+            if call is None:
+                continue
+        else:
+            continue
+        error = _WINDOWS_SPAWN_ERROR.match(text)
+        options = _shell_options(call) if error else None
+        if error and options:
+            # Ignore the wrapper's temporary cwd. An unknown requested cwd
+            # provides no proof that two invocations were equivalent.
+            workdir = options.get("workdir")
+            origin = "" if isinstance(workdir, str) and workdir.strip() else call["call_id"]
+            identity = json.dumps([error["failure"], options, origin], sort_keys=True)
+            failures[record["native_line"]] = options["command"], identity, error["diagnostic"]
+    return failures
 
 
 def native_question_clauses(passage: str, kind: str) -> list[str]:

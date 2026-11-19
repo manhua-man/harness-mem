@@ -286,6 +286,162 @@ def test_native_condition_review_coalesces_readbacks_and_keeps_table_cells_in_sc
     assert [item["condition"] for item in blocked.value.findings] == [required]
 
 
+def test_ancillary_document_intent_and_external_footer_do_not_block_a_source_review():
+    from harness_mem.commands.manual_condition_review import ConditionReviewRequired, review_source_conditions
+
+    prose = ("User: 核对归档规则。\n\nAssistant: 我要把归档规则补进 review.md，避免目录里只有泛泛的登记信息。"
+             "只有核对归档规则的校验结果后才可写入发布记录。")
+    unrelated = ("The import records tool is documented here. ... * Starting January 1, the external "
+                 "launcher only supports Windows 10 and later versions.")
+    records = [
+        {"type": "function_call", "call_id": "search", "native_line": 1, "text": "{}"},
+        {"type": "function_call_output", "call_id": "search", "native_line": 2, "text": unrelated},
+    ]
+    point = {"canonical_title": "归档规则与登记信息", "content": "归档规则 uses the import records tool.",
+             "assimilation_disposition": "add", "review": {"use": "reusable_knowledge"}}
+    with pytest.raises(ConditionReviewRequired) as blocked:
+        review_source_conditions(revision="revision", transcript=prose, project_root=None,
+                                 points=[point], exclusions={}, native_records=records)
+    assert [item["condition"] for item in blocked.value.findings] == ["只有核对归档规则的校验结果后才可写入发布记录"]
+
+
+def test_windows_launch_review_uses_the_invocation_and_keeps_distinct_failures():
+    from harness_mem.commands.manual_condition_review import ConditionReviewRequired, review_source_conditions
+
+    records = []
+    verification = "npm run verify:sample"
+    for call_line, (command, workdir, code) in enumerate([
+        ("Get-Content -Raw guide.md", "/project", 5),
+        (verification, "/project", 5),
+        (verification, "/project", 5),
+        (verification, "/project/alternate", 5),
+        (verification, "/project", 2),
+    ], 1):
+        call_id = str(call_line)
+        native_line = call_line * 4 - 3
+        options = json.dumps({"command": command, "workdir": workdir})
+        if call_line == 3:
+            options = options.replace('"command":', 'command:').rstrip("}") + ', "sandbox_permissions":"use_default"}'
+        result = (
+            'Script failed\nWall time 0.1 seconds\nOutput:\n\nScript error:\n'
+            'execution error: Io(Custom { kind: Other, error: "windows sandbox: runner failed during SpawnChild: '
+            f'CreateProcessAsUserW failed: {code} (reason) | cwd=temporary-{call_id} | cmd=PowerShell'
+        )
+        records.extend([
+            {"type": "custom_tool_call", "name": "exec", "call_id": call_id, "native_line": native_line,
+             "text": f"const r = await tools.shell_command({options}); text(r);"},
+            {"type": "custom_tool_call_output", "call_id": call_id, "native_line": native_line + 1,
+             "text": "Script running with cell ID 42\n" if call_line == 3 else result},
+        ])
+        if call_line == 3:
+            records.extend([
+                {"type": "function_call", "name": "wait", "call_id": "poll", "native_line": native_line + 2,
+                 "text": '{"cell_id":"42"}'},
+                {"type": "function_call_output", "call_id": "poll", "native_line": native_line + 3, "text": result},
+            ])
+    point = {"canonical_title": "Sample runtime verification", "assimilation_disposition": "add",
+             "content": f"`{verification}` was blocked by the windows sandbox at CreateProcessAsUserW failed.",
+             "review": {"use": "reusable_knowledge"}}
+
+    def blocked_lines():
+        with pytest.raises(ConditionReviewRequired) as blocked:
+            review_source_conditions(revision="revision", transcript="", project_root=None, points=[point],
+                                     exclusions={}, native_records=records)
+        return {finding["result_line"] for finding in blocked.value.findings}
+
+    assert blocked_lines() == {12, 14, 18}
+    point["review"]["operations"] = [{
+        "call_id": "2", "call_line": 5, "result_line": 6, "phrase": verification,
+        "result_quote": records[3]["text"],
+    }]
+    assert blocked_lines() == {14, 18}
+    point["content"] += " The inspection command Get-Content -Raw guide.md was also blocked."
+    assert blocked_lines() == {2, 14, 18}
+
+
+def test_bound_user_evidence_can_support_an_attributed_report_and_resume_deferred_points(device, tmp_path):
+    from harness_mem.commands.evidence_admission import validate_knowledge_sources
+
+    report = "The read-only deployment audit records the staging manifest."
+    user_text = "Please inspect the source; do not change the deployment."
+    backend, write = device
+    root = tmp_path / "workspace"
+    root.mkdir()
+    path = write("mixed", user_text, roots=[root])
+    records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    records[0]["payload"].update(timestamp="2025-05-03T12:00:00Z", cwd=str(root))
+    records[-1]["payload"]["content"][0]["text"] = report
+    path.write_text("\n".join(json.dumps(record) for record in records) + "\n", encoding="utf-8")
+    row, = tool_inspect_sessions(clients=["codex"])["sessions"]
+    prepared, _ = _rpc(backend, "prepare_session_distill", {"scope": "all", "batch_sessions": [row]})
+    assert prepared["success"], prepared
+    original = path.read_bytes()
+    exchange = prepared["semantic_decision_exchanges"][0]
+    refs = [
+        {"kind": kind, "role": role, "exchange_index": 1, "content_sha256": exchange["content_sha256"]}
+        for kind, role in (("source_report", "assistant"), ("user_statement", "user"))
+    ]
+    point = {
+        "content": report, "canonical_title": "Staging manifest audit", "topic_path": ["Deployment"],
+        "assimilation_disposition": "add", "evidence_basis": "source_report",
+        "verification_outcome": "verified", "verification_refs": refs,
+        "review": {"support": "supported", "use": "reusable_knowledge",
+                   "reason": "Keep the attributed audit with the original inspection scope.",
+                   "conditions": [], "undecided_state": None,
+                   "evidence": [{"ref": i, "target": "claim", "message_index": 1, "quote": text}
+                                for i, text in enumerate((report, user_text), 1)]},
+    }
+    todo = {**point, "content": user_text, "canonical_title": "Read-only deployment request",
+            "evidence_basis": "user_statement", "verification_refs": refs[1:]}
+    todo = {**todo, "review": {**point["review"], "use": "standing_decision",
+                              "evidence": [{"ref": 1, "target": "claim", "message_index": 1, "quote": user_text}]}}
+    waiting = {key: value for key, value in todo.items() if key != "review"}
+    waiting.update(assimilation_disposition="defer", verification_outcome="unverified",
+                   assimilation_reason="Check the scope of the retained request.")
+    review = {"session_summary": report, "final_user_request": user_text,
+              "final_outcome": report, "last_turn_status": "answered",
+              "contradictions": [], "unfinished_work": [], "evidence_status": "answered",
+              "promotion_decision": "promote"}
+    args = {"project_name": prepared["project_name"], "job_id": prepared["distill_job_id"],
+            "memory_points": [point, waiting], "semantic_review": review}
+
+    wrong = deepcopy(args)
+    wrong["memory_points"][0]["review"]["evidence"][1]["quote"] = "The assistant approved a deployment."
+    rejected, _ = _rpc(backend, "finalize_session_distill", wrong)
+    assert not rejected["success"] and "exact" in rejected["error"]
+    assert tool_handlers.tool_search_memory(query="")["memories"] == []
+
+    first, _ = _rpc(backend, "finalize_session_distill", args)
+    assert first["success"] and first["organization_status"] == "partial", json.dumps(first, ensure_ascii=False)
+    assert [row["title"] for row in first["knowledge_changes"]] == [point["canonical_title"]], first
+    store = backend.structured_store.knowledge_store
+    entry, = asyncio.run(store.list_entries(prepared["project_name"]))
+    assert entry.source_report.speaker == "assistant" and entry.source_report.exchange_indexes == [1]
+    sources = asyncio.run(store.list_sources(entry.id))
+    assert {source.source_kind for source in sources} == {"source_report", "user_statement"}
+    assert asyncio.run(validate_knowledge_sources(backend, project_name=entry.project_name, sources=sources,
+                                                 project_root=tmp_path / "workspace")).verification_outcome == "verified"
+
+    resume = first["resume_deferred"]["arguments"]
+    reopened, _ = _rpc(backend, "prepare_session_distill", resume)
+    assert reopened["success"] and reopened["distill_status"] == "reviewing", reopened
+    assert reopened["source_revision"] == prepared["source_revision"]
+    assert reopened["distill_job_id"] != prepared["distill_job_id"]
+    assert reopened["deferred_review"]["pending"]
+    reopened_again, _ = _rpc(backend, "prepare_session_distill", resume)
+    assert reopened_again["distill_job_id"] == reopened["distill_job_id"]
+    again = {**args, "job_id": reopened["distill_job_id"], "memory_points": [point, todo]}
+    duplicate, _ = _rpc(backend, "finalize_session_distill", again)
+    assert not duplicate["success"] and "already saved" in duplicate["error"]
+
+    continued, _ = _rpc(backend, "finalize_session_distill", {**again, "memory_points": [todo]})
+    assert continued["success"] and continued["organization_status"] == "completed", continued
+    assert continued["readback_verified"] and continued["knowledge_changes"][0]["title"] == todo["canonical_title"]
+    assert {row.id for row in asyncio.run(store.list_entries(entry.project_name))} >= {entry.id}
+    assert len(asyncio.run(store.list_entries(entry.project_name))) == 2
+    assert path.read_bytes() == original
+
+
 @pytest.mark.parametrize("field", ["source_id", "source_revision", "native_sha256"])
 def test_wrong_revision_binding_is_rejected(device, tmp_path, field):
     backend, _, prepared, _ = _prepare(device, tmp_path)

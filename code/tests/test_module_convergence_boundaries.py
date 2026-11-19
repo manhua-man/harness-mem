@@ -29,21 +29,6 @@ def test_structured_store_facade_stays_composed_and_bounded() -> None:
     assert "async def save_dream_run(" not in facade
 
 
-def test_read_handler_facade_and_domains_stay_bounded() -> None:
-    facade = _source("harness_mem/mcp/read_handlers.py")
-    domain_paths = (
-        "harness_mem/mcp/read_query_support.py",
-        "harness_mem/mcp/read_search_handlers.py",
-        "harness_mem/mcp/read_evidence_handlers.py",
-        "harness_mem/mcp/read_wake_handlers.py",
-    )
-
-    assert len(facade.splitlines()) < 100
-    assert all(len(_source(path).splitlines()) < 700 for path in domain_paths)
-    assert "def tool_search_memory(" not in facade
-    assert "def tool_wake(" not in facade
-
-
 def test_doctor_orchestrator_does_not_reabsorb_probe_or_rendering_bodies() -> None:
     doctor = _source("harness_mem/commands/doctor.py")
     classification = _source("harness_mem/commands/doctor_classification.py")

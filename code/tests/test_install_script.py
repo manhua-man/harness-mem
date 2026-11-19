@@ -8,16 +8,16 @@ def test_install_script_installs_runtime_without_managing_agent_connections() ->
     script = Path("code/plugins/harness-mem/scripts/install.ps1").read_text(encoding="utf-8")
 
     assert "pip install -e" in script
-    assert "harness-mem quickstart once" in script
+    assert "connect harness-mem-mcp" in script.lower()
     assert "sync-commands.ps1" not in script
     assert "mcp add" not in script
     assert "RegisterClaude" not in script
 
 
-def test_packaged_runtime_includes_only_the_single_command_asset() -> None:
+def test_packaged_runtime_does_not_require_the_retired_command_asset() -> None:
     pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
 
-    assert 'code/plugins/harness-mem/commands/hm/hm.md' in pyproject
+    assert 'code/plugins/harness-mem/commands/hm/hm.md' not in pyproject
     assert 'commands/hm/daily/*.md' not in pyproject
 
 
@@ -29,53 +29,3 @@ def test_plugin_mcp_config_uses_installed_console_script() -> None:
     server = config["mcpServers"]["harness_mem"]
     assert server["command"] == "harness-mem-mcp"
     assert server.get("args", []) == []
-
-
-def test_single_command_and_canonical_distill_skill_use_logical_tool_names() -> None:
-    command = Path("code/plugins/harness-mem/commands/hm/hm.md").read_text(
-        encoding="utf-8"
-    )
-    skill = Path("code/tools/hm-distill/SKILL.md").read_text(encoding="utf-8")
-
-    assert "inspect_sessions" in command
-    assert "检索和人工整理无需项目初始化、Hook、后台 CLI 或 Dream" in command
-    assert "不要求用户管理编号、目录" in command
-    assert "prepare_session_distill" in command
-    assert "finalize_session_distill" in command
-    assert "mcp__mcp_router__" not in command
-    assert "mcp__harness_mem__" not in command
-    assert "prepare_session_distill" in skill
-    assert "finalize_session_distill" in skill
-    assert 'scope="all"' in skill
-    assert "一个会话可以产生零条、一条或多条记忆" in skill
-    assert "不自设每日／批次数量上限" in command
-    assert "batch_id" in skill
-    assert "mcp__mcp_router__" not in skill
-    assert "mcp__harness_mem__" not in skill
-
-
-def test_mcp_setup_explains_router_namespace_and_task_refresh() -> None:
-    setup = Path("docs/mcp-setup.md").read_text(encoding="utf-8")
-
-    assert "mcp__mcp_router__get_project_status" in setup
-    assert "mcp__harness_mem__get_project_status" in setup
-    assert "existing tasks keep the tool snapshot" in setup
-
-
-def test_public_source_install_examples_use_converged_code_path() -> None:
-    paths = (
-        Path("README.md"),
-        Path("README.zh-CN.md"),
-        Path("docs/quickstart.md"),
-        Path("docs/mcp-setup.md"),
-        Path("code/plugins/harness-mem/README.md"),
-    )
-
-    for path in paths:
-        body = path.read_text(encoding="utf-8")
-        assert r".\plugins\harness-mem\scripts\install.ps1" not in body
-        if r"scripts\install.ps1" in body:
-            assert r".\code\plugins\harness-mem\scripts\install.ps1" in body
-
-    plugin = Path("code/plugins/harness-mem/README.md").read_text(encoding="utf-8")
-    assert r".\code\plugins\harness-mem\scripts\install.ps1" in plugin

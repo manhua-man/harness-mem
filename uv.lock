@@ -504,7 +504,7 @@ wheels = [
 
 [[package]]
 name = "harness-mem"
-version = "0.9.28"
+version = "0.0.1"
 source = { editable = "." }
 dependencies = [
     { name = "pydantic" },

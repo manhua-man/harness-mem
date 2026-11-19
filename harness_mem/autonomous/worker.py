@@ -136,9 +136,6 @@ _RUNTIME_SOURCE_FILES = (
     Path(__file__).parents[1] / "core" / "schemas" / "source_report.py",
     Path(__file__).parents[1] / "core" / "schemas" / "evidence.py",
     Path(__file__).parents[1] / "session_notes.py",
-    Path(__file__).parents[2] / "code" / "plugins" / "harness-mem" / "commands" / "hm" / "hm.md",
-    Path(__file__).parents[2] / "code" / "tools" / "hm-distill" / "SKILL.md",
-    Path(__file__).parents[2] / "code" / "tools" / "hm-distill" / "references" / "distillation-rules.md",
 )
 
 
@@ -393,9 +390,10 @@ def _record_post_turn_nonsemantic_terminal_receipt(
     trigger_id: str | None,
     client: str,
     dispatch_generation: str | None,
-    state: Literal["failed", "deferred"],
+    state: Literal["failed", "deferred", "idle"],
     job_id: str | None,
-    error: dict[str, Any],
+    error: dict[str, Any] | None,
+    skip_reason: str | None = None,
     execution_source: str = "hook_background",
     hook_launch_verified: bool | None = None,
     config_fingerprint: str | None = None,
@@ -418,7 +416,12 @@ def _record_post_turn_nonsemantic_terminal_receipt(
         project_root=root,
         update={
             "state": state,
-            "maintenance_status": "failed" if state == "failed" else "paused",
+            "maintenance_status": {"failed": "failed", "deferred": "paused", "idle": "skipped"}[state],
+            "source_state": None,
+            "source_finished_at": None,
+            "maintenance_dream": None,
+            "provider_name": None,
+            "provider_lifecycle": None,
             "started_at": finished_at,
             "finished_at": finished_at,
             "trigger_id": trigger_id,
@@ -440,12 +443,13 @@ def _record_post_turn_nonsemantic_terminal_receipt(
             "hook_guard_check": hook_guard_check,
             "batch": {
                 "state": state,
+                **({"skip_reason": skip_reason} if skip_reason else {}),
                 "offered": 0,
                 "attempted": 0,
                 "completed": 0,
                 "deferred": int(state == "deferred"),
                 "busy": 0,
-                "job_ids": [job_id] if job_id else [],
+                "job_ids": [job_id] if job_id and state != "idle" else [],
                 "jobs": [],
                 "input_tokens": 0,
                 "output_tokens": 0,
@@ -660,6 +664,18 @@ def run_autonomous_distill_batch(
     dispatch_generation: str | None = None,
 ) -> dict[str, Any]:
     """Own only executors created by this batch, including every early exit."""
+    from harness_mem.maintenance_lock import maintenance_is_locked
+
+    if launch_source != "archive_batch" and maintenance_is_locked(backend.data_dir, trigger_id=trigger_id):
+        return {"success": False, "state": "busy", "reason": "exclusive_maintenance_run_active", "outcomes": []}
+    if preferred_job_id:
+        excluded = excluded_trigger_result(
+            backend, backend.transcript_store.get_distill_job(preferred_job_id),
+            project_name=project_name, project_root=project_root, trigger_id=trigger_id, client=client,
+            config=config, launch_source=launch_source, dispatch_generation=dispatch_generation,
+        )
+        if excluded is not None:
+            return excluded
     owned: list[Any] = []
     try:
         # Optional accounting must not invoke a provider's dynamic operation
@@ -741,6 +757,37 @@ def run_autonomous_distill_batch(
                     active_error.native_attempts += error.native_attempts
 
 
+def excluded_trigger_result(
+    backend: LocalMemoryBackend, job: SessionDistillJob | None, *, project_name: str,
+    project_root: str | Path, trigger_id: str | None, client: str, config: MergedConfig,
+    launch_source: str | None, dispatch_generation: str | None,
+) -> dict[str, Any] | None:
+    """Resolve an explicitly named trigger before provider setup or backlog selection."""
+    from harness_mem.commands.manual_distill import is_manual_distill_job
+
+    root = Path(project_root).expanduser().resolve()
+    if (job is None or not _preferred_job_matches_trigger(job, project_name=project_name, trigger_id=trigger_id)
+            or Path(job.project_root).expanduser().resolve() != root):
+        reason = "trigger_job_scope_mismatch"
+        receipt_job_id = None
+        error = {"kind": reason, "message": "The requested job is unavailable for this project and trigger."}
+    elif is_manual_distill_job(backend, job):
+        reason = "manual_session_owned"
+        receipt_job_id = job.id
+        error = None
+    else:
+        return None
+    receipt = _record_post_turn_nonsemantic_terminal_receipt(
+        backend.data_dir, project_name=project_name, project_root=root, trigger_id=trigger_id,
+        client=client, dispatch_generation=dispatch_generation, state="failed" if error else "idle",
+        job_id=receipt_job_id, error=error, skip_reason=reason if error is None else None,
+        execution_source="autonomous_worker",
+        hook_launch_verified=bool(launch_source == "ide_hook" and trigger_id and client),
+        config_fingerprint=autonomous_config_fingerprint(config),
+    )
+    return {"success": error is None, "state": receipt["state"], "reason": reason, "outcomes": [], "receipt": receipt}
+
+
 def _run_autonomous_distill_batch(
     backend: LocalMemoryBackend,
     *,
@@ -758,19 +805,6 @@ def _run_autonomous_distill_batch(
     _create_executor: Any = None,
 ) -> dict[str, Any]:
     """Process a bounded offered batch and materialize user-visible notes."""
-
-    from harness_mem.maintenance_lock import maintenance_is_locked
-
-    if launch_source != "archive_batch" and maintenance_is_locked(
-        backend.data_dir,
-        trigger_id=trigger_id,
-    ):
-        return {
-            "success": False,
-            "state": "busy",
-            "reason": "exclusive_maintenance_run_active",
-            "outcomes": [],
-        }
 
     root = Path(project_root).expanduser().resolve()
     selected_limit = (
@@ -949,6 +983,19 @@ def _run_autonomous_distill_batch(
         if selected_limit is None
         else max(0, selected_limit - (1 if preferred_job_id else 0))
     )
+    preferred = (
+        backend.transcript_store.get_distill_job(preferred_job_id)
+        if preferred_job_id
+        else None
+    )
+    if preferred_job_id:
+        # A manual batch can reserve the job while this worker is starting.
+        excluded = excluded_trigger_result(
+            backend, preferred, project_name=project_name, project_root=root, trigger_id=trigger_id,
+            client=client, config=config, launch_source=launch_source, dispatch_generation=dispatch_generation,
+        )
+        if excluded is not None:
+            return excluded
     jobs = pending_distill_jobs(
         backend,
         project_name=project_name,
@@ -957,15 +1004,6 @@ def _run_autonomous_distill_batch(
         record_offer=True,
         background_only=True,
     )
-    preferred = (
-        backend.transcript_store.get_distill_job(preferred_job_id)
-        if preferred_job_id
-        else None
-    )
-    from harness_mem.commands.manual_distill import is_manual_distill_job
-
-    if preferred is not None and is_manual_distill_job(backend, preferred):
-        preferred = None
     # A repeated Stop hook may name a job that has already completed.  That is
     # not another batch result: materialize a missing Note and publish a fresh
     # terminal receipt for the hook, but keep ``outcomes`` empty so callers can
@@ -1011,6 +1049,14 @@ def _run_autonomous_distill_batch(
             outcomes.append(outcome)
             if offered.id == preferred_job_id:
                 outcome["selection_reason"] = "trigger_session"
+                if outcome.get("status") == "busy":
+                    excluded = excluded_trigger_result(
+                        backend, backend.transcript_store.get_distill_job(offered.id),
+                        project_name=project_name, project_root=root, trigger_id=trigger_id, client=client,
+                        config=config, launch_source=launch_source, dispatch_generation=dispatch_generation,
+                    )
+                    if excluded is not None:
+                        return excluded
 
     succeeded = [item for item in outcomes if item["status"] == "completed"]
     deferred = [item for item in outcomes if item["status"] == "deferred"]
@@ -1352,14 +1398,14 @@ def _run_one_core(
     notes_dir: Path,
 ) -> dict[str, Any]:
     lease_owner = f"autonomous:{os.getpid()}:{uuid4()}"
-    native_journal = getattr(provider, "_native_results", None)
-    native_start = len(native_journal) if isinstance(native_journal, list) else 0
     from harness_mem.commands.manual_distill import is_manual_distill_job
 
     current_job = backend.transcript_store.get_distill_job(job_id)
     if current_job is not None and is_manual_distill_job(backend, current_job):
         return {"job_id": job_id, "session_id": current_job.session_id,
                 "status": "busy", "reason": "manual_session_owned"}
+    native_journal = getattr(provider, "_native_results", None)
+    native_start = len(native_journal) if isinstance(native_journal, list) else 0
     try:
         packet = tools.tool_prepare_session_distill(
             project_name=project_name,
@@ -1374,6 +1420,9 @@ def _run_one_core(
             _distill_source="autonomous_worker",
         )
         if not packet.get("success"):
+            if "manual_session_owned" in packet.get("reason_codes", ()):
+                return {"job_id": job_id, "session_id": current_job.session_id if current_job else None,
+                        "status": "busy", "reason": "manual_session_owned"}
             raise ProviderError(
                 str(packet.get("error") or "semantic prepare failed"),
                 kind="transient",

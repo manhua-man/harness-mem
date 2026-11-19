@@ -15,7 +15,6 @@ import harness_mem.commands.support as support_module
 import harness_mem.mcp.status_handlers as status_handlers
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
-from harness_mem.guided_flow import build_guided_flow
 from harness_mem.mcp import server
 from harness_mem.mcp.tool_specs import (
     INTERNAL_MCP_TOOL_NAMES,
@@ -82,33 +81,6 @@ EXPECTED_PUBLIC_MCP_TOOLS = {
     "timeline",
     "wake",
 }
-
-
-@pytest.mark.parametrize(
-    ("phase", "pending_candidate_count"),
-    [
-        ("needs-project", 0),
-        ("awaiting-capture", 0),
-        ("needs-distill", 0),
-        ("ready", 0),
-        ("ready", 1),
-    ],
-)
-def test_guided_flow_mcp_entries_are_public_tools(
-    phase: str,
-    pending_candidate_count: int,
-) -> None:
-    flow = build_guided_flow(
-        phase=phase,
-        pending_candidate_count=pending_candidate_count,
-        project_name="demo",
-    )
-
-    for step in flow["steps"]:
-        if step["entry_kind"] != "mcp":
-            continue
-        tool_name = step["entry"].split("(", 1)[0]
-        assert tool_name in PUBLIC_MCP_TOOL_NAMES, step
 
 
 def test_public_tool_descriptions_do_not_name_internal_mcp_tools() -> None:
@@ -681,7 +653,7 @@ def test_public_mcp_surface_is_single_memory_entrypoint(backend) -> None:
     assert "set_active_project" not in tool_by_name
 
 
-def test_get_observations_accepts_recent_context_ids(backend) -> None:
+def test_get_observations_accepts_o_prefixed_ids(backend) -> None:
     asyncio.run(
         backend.verbatim_store.save(
             Observation(

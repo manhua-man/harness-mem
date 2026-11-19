@@ -638,6 +638,7 @@ class TranscriptStore:
         active_limit: int | None = None,
         recent_first: bool = True,
         manual_recheck: bool = False,
+        expected_revision: str | None = None,
     ) -> SessionDistillJob:
         return self._distill.enqueue(
             source_id,
@@ -645,6 +646,7 @@ class TranscriptStore:
             active_limit=active_limit,
             recent_first=recent_first,
             manual_recheck=manual_recheck,
+            expected_revision=expected_revision,
         )
 
     def get_distill_job(self, job_id: str) -> SessionDistillJob | None:

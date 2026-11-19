@@ -48,9 +48,12 @@ def read_exported_tool_descriptor(path: Path) -> dict[str, Any]:
 
 
 def default_export_dir() -> Path:
-    """Return the canonical ``mcps/harness_mem/tools`` directory."""
+    """Use the checkout's descriptor directory when running from source."""
 
-    return Path(__file__).resolve().parents[2] / "mcps" / "harness_mem" / "tools"
+    root = Path(__file__).resolve().parents[2]
+    if (root / "code" / "scripts" / "ensure_mcps_canonical.py").is_file():
+        root = root / "code"
+    return root / "mcps" / "harness_mem" / "tools"
 
 
 def main(argv: list[str] | None = None) -> int:

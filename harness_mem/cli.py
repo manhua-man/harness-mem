@@ -21,14 +21,12 @@ from harness_mem.commands import (
     cmd_export_json_snapshot,
     cmd_import,
     cmd_install_hook_suite,
-    cmd_list_commands,
     cmd_migrate_store_v2,
     cmd_purge,
     cmd_erase,
     cmd_reset_runtime,
     cmd_quickstart,
     cmd_state_audit,
-    cmd_sync_commands,
     cmd_transcript_evidence,
 )
 from harness_mem.commands.integration_cmds import SUPPORTED_HOOK_CLIENTS
@@ -48,12 +46,10 @@ __all__ = [
     "cmd_export_json_snapshot",
     "cmd_import",
     "cmd_install_hook_suite",
-    "cmd_list_commands",
     "cmd_migrate_store_v2",
     "cmd_purge",
     "cmd_quickstart",
     "cmd_state_audit",
-    "cmd_sync_commands",
     "cmd_transcript_evidence",
 ]
 
@@ -122,7 +118,7 @@ def main(argv: list[str] | None = None):
     quickstart = sub.add_parser(
         "quickstart",
         aliases=["qs"],
-        help="Prepare the current app's automatic memory and review entry",
+        help="Install user-level lifecycle Hooks for the current app",
     )
     quickstart.add_argument(
         "-c",
@@ -340,10 +336,7 @@ def main(argv: list[str] | None = None):
     integration = sub.add_parser(
         "integration",
         help="Inspect or repair supported IDE integrations",
-        description=(
-            "Repair project hooks, inspect transcript evidence, or synchronize "
-            "the single host-native memory entry."
-        ),
+        description="Repair lifecycle hooks or inspect transcript evidence.",
     )
     integration.set_defaults(command_name="integration")
     integration_sub = integration.add_subparsers(dest="integration_action")
@@ -351,10 +344,7 @@ def main(argv: list[str] | None = None):
     hooks = integration_sub.add_parser(
         "hooks",
         help="Repair or refresh one host's hook suite",
-        description=(
-            "Repair project hooks through the same idempotent suite installer "
-            "used by the first hm status check. Normal projects do not need this command."
-        ),
+        description="Repair lifecycle hooks at project or user scope.",
     )
     hooks_sub = hooks.add_subparsers(dest="hooks_action")
     hooks_sync = hooks_sub.add_parser("sync", help="Synchronize one hook suite")
@@ -390,24 +380,6 @@ def main(argv: list[str] | None = None):
     transcript_evidence.add_argument(
         "--project-root", help="Project directory (default: cwd)"
     )
-
-    commands = integration_sub.add_parser(
-        "commands",
-        help="List or sync the global host-native memory entry",
-        description="Manage the single global memory entry without reinstalling harness-mem.",
-    )
-    commands_sub = commands.add_subparsers(dest="commands_action")
-
-    commands_sub.add_parser("list", help="List the memory entry for each host")
-
-    commands_sync = commands_sub.add_parser(
-        "sync",
-        help="Synchronize the single global memory entry",
-    )
-    commands_sync.add_argument(
-        "--client", choices=["all", *SUPPORTED_HOOK_CLIENTS], default="all"
-    )
-    commands_sync.add_argument("--dry-run", action="store_true")
 
     args = parser.parse_args(args_list)
     command = getattr(args, "command_name", args.command)
@@ -571,18 +543,6 @@ def main(argv: list[str] | None = None):
             hooks.error(f"Unknown hooks action: {args.hooks_action}")
         if args.integration_action == "transcript-evidence":
             return cmd_transcript_evidence(args.client, args.project_root)
-        if args.integration_action == "commands":
-            if args.commands_action is None:
-                commands.print_help()
-                return 0
-            if args.commands_action == "list":
-                return cmd_list_commands()
-            if args.commands_action == "sync":
-                return cmd_sync_commands(
-                    client=args.client,
-                    dry_run=args.dry_run,
-                )
-            commands.error(f"Unknown commands action: {args.commands_action}")
         integration.error(f"Unknown integration action: {args.integration_action}")
 
     return 0

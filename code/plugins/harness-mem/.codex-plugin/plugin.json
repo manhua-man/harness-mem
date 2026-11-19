@@ -1,6 +1,6 @@
 {
   "name": "harness-mem",
-  "version": "0.9.28",
+  "version": "0.0.1",
   "wireFormatVersion": "hm-wire-v3.5",
   "description": "Local-first, auditable, pluggable Agent memory backend.",
   "author": {
@@ -20,7 +20,7 @@
   "interface": {
     "displayName": "harness-mem",
     "shortDescription": "Remember useful project knowledge locally and find it later.",
-    "longDescription": "Use one hm command with explicit distill, search, clean, status and review actions. Organize completed conversations and keep current knowledge on the local machine.",
+    "longDescription": "Use MCP tools to organize completed conversations and search current knowledge on the local machine.",
     "developerName": "harness-mem",
     "category": "Developer Tools",
     "capabilities": [
@@ -29,9 +29,9 @@
       "Write"
     ],
     "defaultPrompt": [
-      "$hm help",
-      "$hm status",
-      "$hm review"
+      "Find my completed conversations.",
+      "Search my saved knowledge.",
+      "Review my stored memories."
     ],
     "brandColor": "#0F766E"
   }

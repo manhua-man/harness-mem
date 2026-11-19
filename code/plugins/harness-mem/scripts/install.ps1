@@ -23,4 +23,4 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-Write-Host "Installed harness-mem. Run harness-mem quickstart once in the Agent you use."
+Write-Host "Installed harness-mem. Connect harness-mem-mcp in your Agent for manual memory tools. For lifecycle Hooks, run harness-mem quickstart."

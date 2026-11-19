@@ -72,8 +72,10 @@ def test_manual_batch_is_not_offered_to_background(manual_fixture):
     assert resume(root, packet["batch_id"])["distill_job_id"] == job_id
 
 
-def test_background_preferred_manual_job_does_not_call_provider(manual_fixture):
-    from harness_mem.autonomous.worker import run_autonomous_distill_batch
+def test_background_preferred_manual_job_does_not_call_provider(manual_fixture, monkeypatch):
+    from harness_mem.autonomous import worker
+    from harness_mem.commands import dream
+    from harness_mem.commands.distill_lifecycle import pending_distill_jobs
 
     backend, root, write = manual_fixture
     source = write("preferred-manual")
@@ -81,25 +83,102 @@ def test_background_preferred_manual_job_does_not_call_provider(manual_fixture):
     packet = start(root, tool_inspect_sessions(str(root), clients=["cursor"])["sessions"])
     job = backend.transcript_store.get_distill_job(packet["distill_job_id"])
     before = job.to_dict()
+    other = write("unrelated-backlog")
+    adapter = CursorAdapter(backend, projects_dir=root.parent / "cursor", project_root=root)
+    captured = asyncio.run(adapter.sync_session(other, "unrelated-backlog", "project"))
+    backlog = backend.transcript_store.get_distill_job(captured.distill_job_id)
+    assert [item.id for item in pending_distill_jobs(
+        backend, project_name="project", background_only=True, record_offer=False,
+    )] == [backlog.id]
+    before_backlog = backlog.to_dict()
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("explicit manual trigger reached background setup, selection or claim")
+
+    monkeypatch.setattr(worker, "build_semantic_executor", unexpected)
+    monkeypatch.setattr(worker, "_attach_maintenance_scope", unexpected)
+    monkeypatch.setattr(worker, "pending_distill_jobs", unexpected)
+    monkeypatch.setattr(backend.transcript_store, "claim_distill_chunks", unexpected)
+    monkeypatch.setattr(backend.transcript_store, "claim_distill_review", unexpected)
+    monkeypatch.setattr(dream, "background_status", unexpected)
 
     class NoCalls:
-        name = "test_cli"
-        attach_maintenance_binding = None
-        bind_task_budget = None
+        @property
+        def _native_results(self):
+            pytest.fail("manual trigger opened provider accounting")
 
-        def __getattr__(self, name):
+        def __getattribute__(self, name):
             pytest.fail(f"background tried to call provider: {name}")
 
-    result = run_autonomous_distill_batch(
-        backend, project_name="project", project_root=root,
-        config=MergedConfig(distill_autonomous_enabled=True),
-        trigger_id=job.session_id, client="cursor", provider=NoCalls(),
-        preferred_job_id=job.id,
-    )
-    assert result["outcomes"] == []
+    config = MergedConfig(distill_autonomous_enabled=True)
+    for provider in (None, NoCalls()):
+        result = worker.run_autonomous_distill_batch(
+            backend, project_name="project", project_root=root, config=config,
+            trigger_id=job.session_id, client="cursor", provider=provider,
+            preferred_job_id=job.id, dispatch_generation="manual-generation",
+        )
+        assert result["outcomes"] == [] and result["reason"] == "manual_session_owned"
+        assert result["receipt"]["batch"]["total_tokens"] == 0
+        assert result["receipt"]["provider"] is None
+    tick = asyncio.run(dream.dream_auto_tick(
+        backend, project_name="project", project_root=str(root), config=config,
+        source="ide_hook", host_client="cursor", trigger_id=job.session_id, trigger_job_id=job.id,
+    ))
+    assert tick["status"] == "skipped" and tick["reason"] == "manual_session_owned"
+    assert tick["session_distill"]["job_id"] == job.id
     assert backend.transcript_store.get_distill_job(job.id).to_dict() == before
+    assert backend.transcript_store.get_distill_job(backlog.id).to_dict() == before_backlog
     assert source.read_bytes() == source_before
     assert not asyncio.run(backend.structured_store.knowledge_store.list_entries("project"))
+
+
+@pytest.mark.parametrize("mismatch", ["project", "root", "trigger"])
+def test_manual_job_id_must_match_trigger_and_project(manual_fixture, monkeypatch, mismatch):
+    from harness_mem.autonomous import worker
+
+    backend, root, write = manual_fixture
+    write("manual-scope")
+    packet = start(root, tool_inspect_sessions(str(root), clients=["cursor"])["sessions"])
+    job_id = packet["distill_job_id"]
+    monkeypatch.setattr(worker, "build_semantic_executor", lambda *_: pytest.fail("constructed provider"))
+    result = worker.run_autonomous_distill_batch(
+        backend, project_name="other" if mismatch == "project" else "project",
+        project_root=root.parent if mismatch == "root" else root,
+        config=MergedConfig(distill_autonomous_enabled=True), client="cursor",
+        trigger_id="unrelated" if mismatch == "trigger" else "manual-scope", preferred_job_id=job_id,
+    )
+    assert not result["success"] and result["reason"] == "trigger_job_scope_mismatch"
+    assert job_id not in json.dumps(result)
+
+
+def test_manual_reservation_during_background_prepare_stops_the_trigger_batch(manual_fixture, monkeypatch):
+    from types import SimpleNamespace
+    from harness_mem.autonomous import worker
+
+    backend, root, write = manual_fixture
+    source = write("newly-manual")
+    sessions = tool_inspect_sessions(str(root), clients=["cursor"])["sessions"]
+    adapter = CursorAdapter(backend, projects_dir=root.parent / "cursor", project_root=root)
+    preferred = asyncio.run(adapter.sync_session(source, "newly-manual", "project"))
+    other = asyncio.run(adapter.sync_session(write("other"), "other", "project"))
+    prepare = tool_handlers.tool_prepare_session_distill
+    offered = []
+
+    def reserve_before_prepare(*args, **kwargs):
+        if kwargs.get("_distill_source") == "autonomous_worker":
+            offered.append(kwargs["distill_job_id"])
+            assert start(root, sessions)["distill_job_id"] == preferred.distill_job_id
+        return prepare(*args, **kwargs)
+
+    monkeypatch.setattr(tool_handlers, "tool_prepare_session_distill", reserve_before_prepare)
+    result = worker.run_autonomous_distill_batch(
+        backend, project_name="project", project_root=root, config=MergedConfig(distill_autonomous_enabled=True),
+        trigger_id="newly-manual", client="cursor", provider=SimpleNamespace(name="fixture"),
+        preferred_job_id=preferred.distill_job_id,
+    )
+    assert offered == [preferred.distill_job_id]
+    assert result["reason"] == "manual_session_owned" and result["receipt"]["batch"]["total_tokens"] == 0
+    assert backend.transcript_store.get_distill_job(other.distill_job_id).status == "queued"
 
 
 def test_background_excludes_frozen_but_not_yet_bound_source(manual_fixture):

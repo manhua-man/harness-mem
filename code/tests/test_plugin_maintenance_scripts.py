@@ -20,7 +20,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "code/plugins/harness-mem/scripts"
-SCRIPT_NAMES = ("install.ps1", "sync-commands.ps1", "doctor.ps1")
+SCRIPT_NAMES = ("install.ps1", "doctor.ps1")
 POWERSHELLS = [
     executable
     for name in ("pwsh", "powershell")
@@ -136,11 +136,8 @@ def test_maintenance_scripts_find_repo_independently_of_cwd(
         assert _same_path(call["arguments"][4], ROOT)
     else:
         assert _same_path(call["cwd"], ROOT)
-        expected = ["-m", "harness_mem.cli"]
-        expected += ["doctor"] if name == "doctor.ps1" else [
-            "integration", "commands", "sync", "--client", "all",
-        ]
-        assert call["arguments"] == expected
+        assert call["arguments"] == ["-m", "harness_mem.cli", "doctor"]
+
 
 
 @pytest.mark.parametrize("executable", POWERSHELLS)
@@ -169,7 +166,6 @@ def test_detached_scripts_fail_before_python_lookup(
 def test_existing_options_are_forwarded_to_stub(executable: str, name: str) -> None:
     arguments = {
         "install.ps1": {"WithHybrid": True},
-        "sync-commands.ps1": {"Client": "hermes", "DryRun": True},
         "doctor.ps1": {"Wake": True},
     }[name]
     result = _run_script(executable, name, ROOT / "code/tests", arguments=arguments)
@@ -178,10 +174,5 @@ def test_existing_options_are_forwarded_to_stub(executable: str, name: str) -> N
     forwarded = result["calls"][0]["arguments"]
     if name == "install.ps1":
         assert _same_path(forwarded[-1], str(ROOT) + "[hybrid]")
-    elif name == "sync-commands.ps1":
-        assert forwarded == [
-            "-m", "harness_mem.cli", "integration", "commands", "sync",
-            "--client", "hermes", "--dry-run",
-        ]
     else:
         assert forwarded == ["-m", "harness_mem.cli", "doctor"]

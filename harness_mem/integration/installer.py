@@ -26,12 +26,14 @@ from datetime import datetime, timezone
 from importlib import resources
 from pathlib import Path
 from string import Template
+from typing import Literal, get_args
 
 from harness_mem import __version__
-from harness_mem.integration.command_sync import default_hermes_home
+from harness_mem.hermes_profile import default_hermes_home
 from harness_mem.integration.hook_runner import probe_hook_runner, resolve_hook_runner
 
-USER_HOOK_HOSTS = frozenset({"codex", "claude-code", "cursor", "hermes", "grok", "opencode", "antigravity"})
+HookHost = Literal["claude-code", "cursor", "grok", "codex", "hermes", "opencode", "antigravity"]
+USER_HOOK_HOSTS: tuple[HookHost, ...] = get_args(HookHost)
 
 __all__ = [
     "DEFAULT_DOC_POINTER",

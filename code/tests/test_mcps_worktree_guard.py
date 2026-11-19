@@ -20,7 +20,8 @@ def test_harness_mem_tool_descriptors_are_canonical() -> None:
         assert exported == tool_descriptor(tool_name), f"drift in {tool_name}.json"
 
 
-def test_retired_router_snapshots_do_not_return() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-    assert not (repo_root / "mcps" / "mcp-router").exists()
-    assert not (repo_root / "mcps" / "mcp_router").exists()
+def test_distributed_descriptors_belong_to_harness_mem() -> None:
+    mcps = Path(__file__).resolve().parents[1] / "mcps"
+    assert set(mcps.rglob("*.json")) == {
+        mcps / "harness_mem" / "tools" / f"{name}.json" for name in PUBLIC_MCP_TOOL_NAMES
+    }

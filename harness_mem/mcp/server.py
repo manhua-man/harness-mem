@@ -23,7 +23,6 @@ Current module boundary:
   tool_registry.py — single-surface visibility and tools/list payloads
   executor.py      — tools/call execution policy and write gate enforcement
   tool_handlers.py — dependency binding and public handler registry
-  read_handlers.py — compatibility facade for split read-side handlers
   read_query_support.py — query interpretation and retrieval metadata
   read_search_handlers.py — search and retrieval-feedback tools
   read_evidence_handlers.py — evidence, timeline, profile, and file reads

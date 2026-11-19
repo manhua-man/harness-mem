@@ -181,9 +181,6 @@ def test_completion_refuses_missing_or_unremoved_current_rows(ids, replaced, cur
     "harness_mem/mcp/read_projection.py",
     "harness_mem/read_knowledge.py",
     "harness_mem/storage/knowledge_store.py",
-    "code/plugins/harness-mem/commands/hm/hm.md",
-    "code/tools/hm-distill/SKILL.md",
-    "code/tools/hm-distill/references/distillation-rules.md",
 ])
 def test_readable_result_dependency_drift_invalidates_hook_evidence(monkeypatch, relative_path) -> None:
     from harness_mem.autonomous import worker
