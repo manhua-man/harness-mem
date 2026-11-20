@@ -86,13 +86,19 @@ def failed(context, *, heartbeat=None):
 @pytest.mark.parametrize("initial_response", [True, False])
 def test_original_deadline_drains_bound_terminal_and_each_late_response(tail_peer, tail, initial_response):
     context = tail_peer(mode="timeout", cancel_tail=tail, suppress_initial_response=not initial_response)
-    error, record = failed(context)
+    before_call = time.monotonic()
+    ticks = []
+    error, record = failed(context, heartbeat=lambda: ticks.append(time.monotonic()))
     assert error.failure_reason == record["failure_reason"] == "native_request_deadline_exceeded"
     assert record["terminal"] == "completed" and record["thread_closed"] is True
     count = 2 if initial_response else 1
     assert record["usage"] == {key: number * count for key, number in protocol.KNOWN.items()}
     assert len(record["responses"]) == record["known_usage_response_count"] == count
-    assert record["request_timeout_seconds"] == pytest.approx(0.8, rel=0, abs=1e-9)
+    # The caller computes the deadline before run() samples its start time.
+    # Both samples must precede the first heartbeat, including on fine clocks.
+    deadline = record["request_deadline_monotonic"]
+    assert before_call + 0.8 <= deadline <= ticks[0] + 0.8
+    assert deadline - ticks[0] <= record["request_timeout_seconds"] <= deadline - before_call
     assert record["cancel_drain_state"] == "terminal_closed"
 
 

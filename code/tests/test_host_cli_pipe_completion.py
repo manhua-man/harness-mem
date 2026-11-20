@@ -59,6 +59,10 @@ sys.addaudithook(deny_network)
 mode, directory, *args = sys.argv[1:]
 signals = Path(directory)
 if mode == "child":
+    if os.name != "nt":
+        import fcntl
+        lifetime = (signals / "child-lifetime").open("w")
+        fcntl.flock(lifetime, fcntl.LOCK_EX)
     # These are the parent's actual stdout/stderr handles, not replacement pipes.
     (signals / "child-ready.json").write_text(json.dumps({
         "stdout_pipe": stat.S_ISFIFO(os.fstat(1).st_mode),
@@ -236,6 +240,26 @@ def _wait_for_windows_child_exit(
         assert ctypes.get_last_error() == 87  # Already gone, not access denied.
 
 
+def _wait_for_child_exit(signals: Path) -> None:
+    if os.name == "nt":
+        _wait_for_windows_child_exit(signals)
+        return
+
+    # Process-group cleanup can kill the child before its final Python line.
+    # The kernel releases its lock on either normal exit or termination.
+    import fcntl
+    deadline = time.monotonic() + 5
+    with (signals / "child-lifetime").open("r") as lifetime:
+        while True:
+            try:
+                fcntl.flock(lifetime, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                return
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    pytest.fail("local CLI child is still alive")
+                time.sleep(0.01)
+
+
 @pytest.fixture
 def local_cli(tmp_path: Path) -> Iterator[tuple[Path, Path]]:
     script = tmp_path / "local_cli.py"
@@ -247,10 +271,7 @@ def local_cli(tmp_path: Path) -> Iterator[tuple[Path, Path]]:
     finally:
         (signals / "release-child").touch()
         if (signals / "child-ready.json").exists():
-            if os.name == "nt":
-                _wait_for_windows_child_exit(signals)
-            else:
-                _wait_for(signals / "child-finished")
+            _wait_for_child_exit(signals)
 
 
 def _local_provider(
@@ -367,8 +388,7 @@ def test_provider_completes_and_removes_child_held_invocation_directory(
         witness = json.loads((signals / "child-ready.json").read_text("utf-8"))
         assert Path(witness["cwd"]).exists()
         assert provider.close()["closed"] is True
-        if os.name == "nt":
-            _wait_for_windows_child_exit(signals)
+        _wait_for_child_exit(signals)
         assert process.poll() is not None
         assert all(not reader.is_alive() for reader in readers)
         assert not list((tmp_path / "runtime").glob("assimilation-*"))
@@ -447,7 +467,7 @@ def test_running_parent_with_valid_decision_file_really_times_out(
     provider.close()
     if os.name == "nt":
         _wait_for_windows_child_exit(signals, "parent-ready.json")
-        _wait_for_windows_child_exit(signals)
+    _wait_for_child_exit(signals)
     assert not list((tmp_path / "runtime").glob("codex-app-server-*"))
     assert not list((tmp_path / "runtime").rglob("hook_guard/active/*.json"))
 

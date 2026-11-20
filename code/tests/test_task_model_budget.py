@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -715,42 +716,39 @@ def test_complete_native_input_bound_gates_before_transport(tmp_path: Path) -> N
     assert stopped.requests == []
 
 
-def test_concurrent_reopen_keeps_both_reservations(tmp_path: Path) -> None:
+def test_concurrent_reopen_waits_for_exact_usage_before_next_reservation(tmp_path: Path) -> None:
     binding = _binding(
         tmp_path,
         _budget_config(task_model_budget_max_calls=2),
         task_scope="task-concurrent",
     )
-    barrier = threading.Barrier(2)
-    errors: list[BaseException] = []
+    started = threading.Event()
+    finish = threading.Event()
 
-    def run(slice_id: str) -> None:
-        try:
-            barrier.wait(timeout=5)
-            _dispatch(
-                binding,
-                FakeNative([_exact(input_tokens=3, output_tokens=1, duration_seconds=1)]),
-                slice_id=slice_id,
-                input_bound_tokens=15,
-            )
-        except BaseException as exc:
-            errors.append(exc)
+    class HeldNative(FakeNative):
+        def __call__(self, request: NativeDispatchRequest) -> object:
+            started.set()
+            assert finish.wait(timeout=10)
+            return super().__call__(request)
 
-    threads = [
-        threading.Thread(target=run, args=(slice_id,))
-        for slice_id in ("slice-a", "slice-b")
-    ]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join(timeout=10)
-    assert errors == []
-    assert all(not thread.is_alive() for thread in threads)
     reopened = _binding(
         tmp_path,
         _budget_config(task_model_budget_max_calls=2),
         task_scope="task-concurrent",
     )
+    second = FakeNative([_exact()])
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        first = pool.submit(_dispatch, binding, HeldNative([_exact()]), slice_id="slice-a", input_bound_tokens=15)
+        try:
+            assert started.wait(timeout=5)
+            with pytest.raises(TaskBudgetRefusal) as pending:
+                _dispatch(reopened, second, slice_id="slice-b", input_bound_tokens=15)
+            assert pending.value.code == "remaining_not_demonstrable"
+            assert second.requests == []
+        finally:
+            finish.set()
+        first.result(timeout=5)
+    _dispatch(reopened, second, slice_id="slice-b", input_bound_tokens=15)
     receipt = read_task_budget_receipt(reopened.data_dir, reopened.task_scope)
     assert receipt is not None
     assert {row["slice_id"] for row in receipt["calls"]} == {"slice-a", "slice-b"}

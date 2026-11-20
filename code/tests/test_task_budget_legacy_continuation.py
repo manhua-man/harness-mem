@@ -21,6 +21,7 @@ from harness_mem.autonomous.worker import autonomous_receipt_path
 from harness_mem.commands import dream
 from harness_mem.config.merge import MergedConfig
 from harness_mem.core.schemas import DreamRun
+from harness_mem.core.schemas.session_distill import SessionDistillJob
 
 
 @pytest.fixture
@@ -49,8 +50,10 @@ def legacy(tmp_path):
         for cid, inp, out, seconds in rows
     ]
     root = tmp_path / "workspace"
-    job = SimpleNamespace(
+    job = SessionDistillJob(
         id="job",
+        idempotency_key="legacy-job",
+        source_id="source",
         project_name="project",
         project_root=str(root),
         client="codex",
@@ -110,7 +113,8 @@ def legacy(tmp_path):
     backend = SimpleNamespace(
         data_dir=tmp_path,
         transcript_store=SimpleNamespace(
-            get_distill_job=lambda jid: job if jid == "job" else None
+            get_distill_job=lambda jid: job if jid == "job" else None,
+            get_revision=lambda source_id, source_revision: None,
         ),
     )
     return backend, run, root, receipt, path

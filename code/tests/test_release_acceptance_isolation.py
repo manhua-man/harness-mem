@@ -161,7 +161,7 @@ def test_release_acceptance_never_initializes_the_real_backend(
     )
     monkeypatch.setattr(
         acceptance,
-        "_search_via_mcp",
+        "_search_in_new_process",
         lambda **_kwargs: {
             "process_ok": True,
             "status": "answered",
