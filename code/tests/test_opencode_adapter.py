@@ -122,6 +122,31 @@ def test_opencode_normalizes_native_workspace_aliases(tmp_path: Path) -> None:
     ]
 
 
+def test_opencode_scopes_windows_transcripts_by_path_components(tmp_path: Path) -> None:
+    database = tmp_path / "opencode.db"
+    _build_database(database)
+    with sqlite3.connect(database) as db:
+        db.execute("UPDATE session SET directory = ? WHERE id = 'ses-match'", ("f:/Repo/App/src",))
+        db.execute("UPDATE session SET directory = ? WHERE id = 'ses-other'", ("F:/repo/app/../other",))
+
+    adapter = OpenCodeAdapter(None, database_path=database, project_root=Path("F:/repo/app"))
+    assert [row["session_id"] for row in adapter.list_sessions()] == ["ses-match"]
+
+
+def test_opencode_scopes_native_directories_with_native_case_rules(tmp_path: Path) -> None:
+    database = tmp_path / "opencode.db"
+    _build_database(database)
+    workspace = tmp_path / "app"
+    other = tmp_path / "App"
+    with sqlite3.connect(database) as db:
+        db.execute("UPDATE session SET directory = ? WHERE id = 'ses-match'", (str(workspace),))
+        db.execute("UPDATE session SET directory = ? WHERE id = 'ses-other'", (str(other),))
+
+    adapter = OpenCodeAdapter(None, database_path=database, project_root=workspace)
+    found = {row["session_id"] for row in adapter.list_sessions()}
+    assert found == ({"ses-match", "ses-other"} if workspace == other else {"ses-match"})
+
+
 def test_opencode_snapshots_complete_per_session_revisions(tmp_path: Path) -> None:
     async def exercise() -> None:
         database = tmp_path / "opencode.db"

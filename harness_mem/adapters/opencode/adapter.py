@@ -5,13 +5,13 @@ from __future__ import annotations
 import base64
 import json
 import math
+import ntpath
 import os
-import re
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 from urllib.parse import quote
 from uuid import uuid4
@@ -145,7 +145,7 @@ class OpenCodeAdapter:
                 )
                 record["name"] = str(title or session_id)
                 record["mtime"] = _epoch_millis(updated or created) or record["mtime"]
-                if not roots or not Path(roots[0]).is_absolute():
+                if not roots or not _absolute_workspace(roots[0]):
                     record["metadata_status"] = "unknown"
                     record.pop("cwd", None)
                 sessions.append(record)
@@ -457,7 +457,7 @@ class OpenCodeAdapter:
     def _directory_matches(self, directory: object) -> bool:
         if self.project_root is None:
             return True
-        if not isinstance(directory, str) or not directory.strip():
+        if not isinstance(directory, str) or not _absolute_workspace(directory):
             return False
         return _same_or_child_path(Path(directory), self.project_root)
 
@@ -622,12 +622,17 @@ def _epoch_millis(value: object) -> datetime | None:
         return None
 
 
+def _absolute_workspace(directory: str) -> bool:
+    # The SQLite header can describe a Windows workspace on a POSIX reader.
+    return Path(directory).is_absolute() or PureWindowsPath(directory).is_absolute()
+
+
 def _normalize_workspace_path(path: Path | None) -> str | None:
     if path is None:
         return None
     raw = str(path.expanduser())
-    if re.match(r"^[A-Za-z]:[\\/]", raw) and not Path(raw).is_absolute():
-        return raw
+    if not path.is_absolute() and PureWindowsPath(raw).is_absolute():
+        return ntpath.normpath(raw)
     return str(normalize_project_root(Path(raw)))
 
 
@@ -635,9 +640,8 @@ def _same_or_child_path(value: Path, root: str) -> bool:
     normalized_value = _normalize_workspace_path(value)
     if normalized_value is None:
         return False
-    value_text = normalized_value.replace("/", "\\").rstrip("\\").lower()
-    root_text = str(root).replace("/", "\\").rstrip("\\").lower()
-    return value_text == root_text or value_text.startswith(root_text + "\\")
+    path_type = Path if Path(root).is_absolute() else PureWindowsPath
+    return path_type(normalized_value).is_relative_to(path_type(root))
 
 
 def _project_name_from_root(project_root: str) -> str:
