@@ -388,10 +388,11 @@ class ManualBatchStore:
         return self._update(batch_id, project_name, project_root, reference_id, already_completed=True)
 
     def bind_job(self, batch_id: str, project_name: str, project_root: str,
-                 reference_id: str, job_id: str, *, source_reference: dict | None = None) -> dict:
+                 reference_id: str, job_id: str, *, source_reference: dict | None = None,
+                 previous_job_id: str | None = None) -> dict:
         job_id = _text(job_id, "job_id")
         return self._update(batch_id, project_name, project_root, reference_id,
-                            job_id=job_id, source_reference=source_reference)
+                            job_id=job_id, source_reference=source_reference, previous_job_id=previous_job_id)
 
     def record_failure(self, batch_id: str, project_name: str, project_root: str,
                        reference_id: str, reason: str, stop_batch: bool = False) -> dict:
@@ -446,7 +447,7 @@ class ManualBatchStore:
                 reference_id: str, *, job_id: str | None = None,
                 reason: str | None = None, stop_batch: bool = False,
                 skip_reason: str | None = None, already_completed: bool = False,
-                source_reference: dict | None = None) -> dict:
+                source_reference: dict | None = None, previous_job_id: str | None = None) -> dict:
         # Reject missing or foreign manifests before creating a lock file.
         self.load(batch_id, project_name, project_root)
         path = self._path(batch_id)
@@ -459,9 +460,12 @@ class ManualBatchStore:
                 if reference_id in payload.get("skipped", {}):
                     raise ValueError("source was skipped in this selection")
                 existing = payload["bindings"].get(reference_id)
-                if existing is not None and existing != job_id:
+                if previous_job_id is not None and (payload["state"] != "active"
+                        or reference_id in payload["failures"] or existing not in (previous_job_id, job_id)):
+                    raise ValueError("retry requires the original binding in an active batch")
+                if existing is not None and existing != job_id and previous_job_id is None:
                     raise ValueError("reference cannot be rebound")
-                if existing is None:
+                if existing != job_id:
                     if payload["state"] != "active":
                         raise ValueError("batch is stopped" if payload["state"] == "stopped" else "batch is paused")
                     if job_id in payload["bindings"].values():

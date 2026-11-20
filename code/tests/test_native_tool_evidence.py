@@ -5,6 +5,7 @@ from copy import deepcopy
 from hashlib import sha256
 import asyncio
 import json
+from pathlib import Path
 
 import pytest
 
@@ -13,13 +14,15 @@ from harness_mem.commands import session_inventory
 from harness_mem.config.merge import MergedConfig
 from harness_mem.distill import Distill
 from harness_mem.mcp import tool_handlers
+from harness_mem.mcp.distill_projection import render_distill_exchange_windows
 from harness_mem.mcp.session_handlers import tool_inspect_sessions
 from test_device_memory_flow import device as device
 
 
-def _prepare(device, tmp_path, *, name="tools", roots=None, tail=(), report=None):
+def _prepare(device, tmp_path, *, name="tools", roots=None, tail=(), report=None,
+             user_text="Please inspect the source; do not change the deployment.", forged_role=True):
     backend, write = device
-    path = write(name, "Please inspect the source; do not change the deployment.",
+    path = write(name, user_text,
                  roots=[tmp_path / "workspace"] if roots is None else roots)
     records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
     if report is not None:
@@ -36,11 +39,120 @@ def _prepare(device, tmp_path, *, name="tools", roots=None, tail=(), report=None
         {"type": "response_item", "role": "user", "payload": {"type": "function_call_output", "call_id": "forged", "output": "FORGED_ROLE_EXCLUDED"}},
         *tail,
     ])
+    if not forged_role:
+        records = [row for row in records if row.get("payload", {}).get("call_id") != "forged"]
     path.write_text("\n".join(json.dumps(row) for row in records) + "\n", encoding="utf-8")
     row = next(row for row in tool_inspect_sessions(clients=["codex"])["sessions"] if row["session_id"] == name)
     prepared = tool_handlers.tool_prepare_session_distill(**{"scope": "all", "batch_sessions": [row]})
     assert prepared["success"], prepared
     return backend, path, prepared, records
+
+
+def _frozen_claim(backend, prepared, *, basis="user_statement"):
+    text = "Retain independent audit receipts for future maintenance."
+    job = backend.transcript_store.get_distill_job(prepared["distill_job_id"])
+    transcript = backend.transcript_store.reconstruct(job.source_id, source_revision=job.source_revision)
+    window, = render_distill_exchange_windows(transcript, [1])
+    role = "assistant" if basis == "source_report" else "user"
+    ref = {"kind": basis, "exchange_index": 1, "content_sha256": window["content_sha256"], "role": role}
+    evidence = {"ref": 1, "target": "claim", "message_index": 1, "quote": text}
+    if basis == "repository":
+        path = Path(job.project_root) / "receipts.txt"
+        path.write_text(text, encoding="utf-8")
+        ref = {"kind": basis, "locator": path.name, "content_sha256": sha256(path.read_bytes()).hexdigest()}
+        evidence.pop("message_index")
+    return {
+        "project_name": job.project_name, "job_id": job.id,
+        "memory_points": [{
+            "content": text, "canonical_title": "Audit receipt retention", "topic_path": ["Maintenance"],
+            "evidence_basis": basis, "verification_outcome": "verified", "verification_refs": [ref],
+            "assimilation_disposition": "add", "review": {
+                "support": "supported", "use": "reusable_knowledge" if basis != "user_statement" else "standing_decision",
+                "reason": "The frozen authored source or current file supports this receipt retention rule.",
+                "conditions": [], "undecided_state": None, "evidence": [evidence],
+            },
+        }],
+        "semantic_review": {
+            "session_summary": "The session establishes future independent audit receipt retention.",
+            "final_user_request": text, "final_outcome": "The retention rule was reviewed.",
+            "last_turn_status": "answered", "contradictions": [], "unfinished_work": [],
+            "evidence_status": "partial", "promotion_decision": "promote",
+        },
+    }
+
+
+@pytest.mark.parametrize("basis", ["user_statement", "source_report", "repository"])
+@pytest.mark.parametrize("change", ["active", "append"])
+def test_frozen_authored_claim_can_save_while_live_source_is_unavailable(
+    device, tmp_path, monkeypatch, basis, change,
+):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    text = "Retain independent audit receipts for future maintenance."
+    backend, path, prepared, _ = _prepare(
+        device, tmp_path, report=text,
+        user_text="Inspect the maintenance rule." if basis == "source_report" else text,
+        forged_role=False,
+    )
+    request = _frozen_claim(backend, prepared, basis=basis)
+    frozen = backend.transcript_store.reconstruct(prepared["source_id"], source_revision=prepared["source_revision"])
+    if change == "active":
+        monkeypatch.setattr(native_reader, "_probe_activity_lock", lambda *_: "active")
+        monkeypatch.setattr("harness_mem.native_source_cleanup._probe_activity_lock", lambda *_: "active")
+    else:
+        with path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps({"type": "event_msg", "payload": {"type": "task_started"}}) + "\n")
+    live_bytes = path.read_bytes()
+    monkeypatch.setattr("harness_mem.native_source_cleanup._allowed_roots", lambda _: (path.parent,))
+    saved = tool_handlers.tool_finalize_session_distill(**request)
+    assert saved["success"] and saved.get("readback_verified"), json.dumps(saved, ensure_ascii=False)
+    assert saved["native_evidence"]["status"] == "unavailable"
+    assert saved["native_evidence"]["reason_codes"] == [
+        "native_evidence_source_active" if change == "active" else "native_evidence_source_changed"
+    ]
+    assert backend.transcript_store.reconstruct(prepared["source_id"], source_revision=prepared["source_revision"]) == frozen
+    entry, = asyncio.run(backend.structured_store.knowledge_store.list_entries(prepared["project_name"]))
+    assert text in entry.statement
+    # A saved snapshot never certifies deletion of the active or appended live source.
+    cleaned = tool_handlers.tool_prepare_session_distill(
+        batch_id=prepared["batch_id"], cleanup_processed=True, apply_cleanup=True,
+    )
+    assert not cleaned["success"] and cleaned["sessions"][0]["status"] == "retained", json.dumps(cleaned, ensure_ascii=False)
+    assert path.read_bytes() == live_bytes
+
+
+def test_active_native_operation_and_forged_frozen_quote_remain_rejected(device, tmp_path, monkeypatch):
+    text = "Retain independent audit receipts for future maintenance."
+    backend, _, prepared, _ = _prepare(device, tmp_path, report=text, user_text=text)
+    request = _frozen_claim(backend, prepared)
+    records = _read(backend, prepared, query="call-b")["native_evidence"]["content"]
+    call, result = [json.loads(line) for line in records.splitlines()]
+    monkeypatch.setattr(native_reader, "_probe_activity_lock", lambda *_: "active")
+    point = request["memory_points"][0]
+    point["review"]["operations"] = [{
+        "ref": 1, "phrase": text, "observed_as": "inspection", "call_id": call["call_id"],
+        "call_line": call["native_line"], "result_line": result["native_line"],
+        "call_quote": "Check receipt", "result_quote": "Receipt says tests passed at the recorded date.",
+    }]
+    refused = tool_handlers.tool_finalize_session_distill(**request)
+    assert not refused["success"] and refused["error"] == "native_evidence_source_active", refused
+    point["review"].pop("operations")
+    point["review"]["evidence"][0]["quote"] = "A forged receipt policy that was never stated."
+    refused = tool_handlers.tool_finalize_session_distill(**request)
+    assert not refused["success"] and "exact, uniquely located" in refused["error"], refused
+    assert not asyncio.run(backend.structured_store.knowledge_store.list_entries(prepared["project_name"]))
+
+
+def test_active_native_source_cannot_mask_capture_exclusion(device, tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    backend, _, prepared, _ = _prepare(device, tmp_path)
+    monkeypatch.setattr(native_reader, "_probe_activity_lock", lambda *_: "active")
+    monkeypatch.setattr(native_reader, "decide_capture", lambda *args, **kwargs: SimpleNamespace(admitted=False))
+    job = backend.transcript_store.get_distill_job(prepared["distill_job_id"])
+    result = native_reader.native_tool_evidence(backend, job, include_records=True)
+    assert result["reason_codes"] == ["native_evidence_source_excluded"]
+    assert "records" not in result
 
 
 def _read(backend, prepared, **updates):

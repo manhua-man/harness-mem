@@ -11,7 +11,7 @@ description: 用户要求整理已结束的对话、从历史对话保存有来�
 
 1. 在有本项目 Python 包的解释器中导入 `from harness_mem.distill import Distill`，建立 `d = Distill()`。一次整理始终使用同一个数据目录。
 2. 用 `d.sessions(project_root=当前工作区绝对路径)` 盘点。跨项目查找可省略 `project_root`。按用户所指的宿主、时间和内容定位返回的行，需要辨认来源时用 `d.source(session=行, offset=位置)`。多个来源均符合且无法判定时，用会话主题让用户选择。
-3. 新批次调用 `d.prepare(sessions=选中的行列表)`，保存返回的 `batch_id`。同一次整理后续都用 `d.prepare(batch_id=原批次)`。恢复时若当前对话没有保留批次引用，查看 `d.sessions()`（项目批次带原项目范围）中的已有批次，按冻结范围和进度辨认。
+3. 用户泛指“上次的对话”时，先看当前项目盘点结果中的 `batch_continuation`。若有唯一待续批次，核对其中来源与用户意图；相符就用 `d.prepare(batch_id=原批次)` 续读冻结版本。后开的整理或检索聊天可能更新。用户明确指定其他来源时按指定选择，有歧义时按主题澄清。新批次调用 `d.prepare(sessions=选中的行列表)`，保存返回的 `batch_id`，后续凭它恢复。
 4. 每次读取返回的 `chunks` 中每段完整 `raw_content`，按 `chunk_index` 记录可能对将来有用的知识点、纠正、证据位置和待办。读完一段才调用 `d.checkpoint(job_id, chunk_id, packet["lease_owner"], {"summary": 实际阅读笔记})`，其中 `job_id = packet["distill_job_id"]`。用原批次继续直到 `distill_status == "reviewing"`。这时 `chunk_results` 包含先前的阅读笔记。被中断且尚未提交的读取可以使用原租约继续；租约失效后重新领取未完成段。
 5. 用户要求暂停时调用 `d.prepare(batch_id=原批次, pause=True)`。收到继续请求后使用 `continue_batch=True`；自然中断后直接用原批次。查看失败原因，按返回结果决定是否显式重试。检测到版本或授权变化时报告受影响的范围。
 

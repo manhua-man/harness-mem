@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from harness_mem.adapters.antigravity.sqlite_cleanup import AntigravityCleanupPlan
 
 _ARCHIVE_CHANGED = "archived_source_changed_or_unverified"
+_NATIVE_BINDING_FAILED = "selected_native_binding_failed"
 
 
 def runtime_fingerprint() -> str:
@@ -82,7 +83,12 @@ def paused_batch_error(backend: Any, job: SessionDistillJob | None) -> str | Non
 
 
 def manual_job_guard(backend: Any, job: SessionDistillJob, *, check_archive: bool = True) -> str | None:
-    if not job.retain_source:
+    reason = _manual_job_block(backend, job, check_archive=check_archive)
+    return "manual_batch_stopped" if reason == _NATIVE_BINDING_FAILED else reason
+
+
+def _manual_job_block(backend: Any, job: SessionDistillJob, *, check_archive: bool = True) -> str | None:
+    if not (job.manual_only or job.retain_source):
         return None
     from harness_mem.commands import session_inventory
     revision = backend.transcript_store.get_revision(job.source_id, job.source_revision)
@@ -106,15 +112,23 @@ def manual_job_guard(backend: Any, job: SessionDistillJob, *, check_archive: boo
         )
         if inherited:
             return inherited
+    stopped_reasons = set()
     for _store, manifest, ref in _bound_manifests(backend, job):
         if manifest["state"] == "stopped":
-            return "manual_batch_stopped"
+            reason = manifest["failures"].get(ref)
+            if reason not in {_NATIVE_BINDING_FAILED, "manual_batch_stopped"}:
+                return "manual_batch_stopped"
+            stopped_reasons.add(reason)
         if check_archive and manifest.get("archived_only") and job.source_cleanup_status != "deleted":
             reference = next(row for row in manifest["sessions"] if row["reference_id"] == ref)
             if (manifest["failures"].get(ref) == _ARCHIVE_CHANGED
                     or not _archive_selection_still_matches(backend, job, manifest, reference)):
                 return _ARCHIVE_CHANGED
-    return None
+    # Older retries sometimes persisted the guard's error as their own stop.
+    # Only recover when the underlying binding failure is still evidenced.
+    if _NATIVE_BINDING_FAILED in stopped_reasons:
+        return _NATIVE_BINDING_FAILED
+    return "manual_batch_stopped" if stopped_reasons else None
 
 
 def is_manual_distill_job(backend: Any, job: SessionDistillJob) -> bool:
@@ -1160,12 +1174,31 @@ def prepare_manual_batch(
                             raise ValueError("native binding changed the selected source")
                     except (OSError, ValueError, sqlite3.Error):
                         store.record_failure(batch_id, project_name, root_text, ref,
-                                             "selected_native_binding_failed", stop_batch=True)
+                                             _NATIVE_BINDING_FAILED, stop_batch=True)
                         return {"success": False, "batch_id": batch_id, "status": "stopped",
                                 "error": "selected_native_binding_failed"}
             if not cleaned:
                 backend.transcript_store.release_other_manual_revisions(job)
-            guard = None if cleaned else manual_job_guard(backend, job)
+            guard = None if cleaned else _manual_job_block(backend, job)
+            if guard == _NATIVE_BINDING_FAILED:
+                # A failed selection keeps its original job and leases blocked.
+                # Only a separate selection can restart a never-checkpointed read.
+                if job.phase == "chunks" and not job.completed_chunk_count:
+                    if paused_batch_error(backend, job):
+                        return {"success": False, "batch_id": batch_id, "error": "batch_paused"}
+                    retry = backend.transcript_store.enqueue_distill_job(
+                        job.source_id, expected_revision=job.source_revision,
+                        pipeline_version="manual-binding-retry:" + job.id, manual_recheck=True,
+                    )
+                    manifest = store.bind_job(
+                        batch_id, project_name, root_text, ref, retry.id, previous_job_id=job.id,
+                        source_reference=session_reference(job.client, job.session_id, job.source_id, job.source_revision)
+                        if device_scope else None,
+                    )
+                    job = retry
+                    guard = manual_job_guard(backend, job)
+                else:
+                    guard = "manual_batch_stopped"
             if guard:
                 if guard == _ARCHIVE_CHANGED:
                     manifest = store.record_failure(batch_id, project_name, root_text, ref, guard)

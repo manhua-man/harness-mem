@@ -126,13 +126,13 @@ def native_tool_evidence(
         path = path_from_local_file_uri(locator)
         if not path.is_file() or _is_link_or_reparse(path) or any(_is_link_or_reparse(parent) for parent in path.parents):
             raise ValueError("native_evidence_source_unavailable")
-        _activity(source, path)
         from harness_mem.commands import session_inventory
 
         roots = revision.metadata.get("source_context_roots") or []
         config = source_capture_policy(roots, config_loader=session_inventory.load_merged_config)
         if not decide_capture(config, client=job.client, session_id=job.session_id, source_uri=locator).admitted:
             raise ValueError("native_evidence_source_excluded")
+        _activity(source, path)
         before = path.stat()
         raw = path.read_bytes()
         if sha256(raw).hexdigest() != digest:

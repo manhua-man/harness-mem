@@ -202,7 +202,7 @@ def _compact_finalize_result(result: dict[str, Any]) -> dict[str, Any]:
             "success", "project_name", "distill_job_id", "distill_status",
             "session_id", "idempotent_replay", "organization_status",
             "knowledge_changes", "removed_count", "not_written", "unfinished_work",
-            "readback_verified",
+            "readback_verified", "native_evidence",
             "resume_deferred",
             "batch_id", "batch_progress", "next_after_finalize",
         }
@@ -2578,6 +2578,7 @@ async def _consume_supplied_final_scope(
     candidate_ids: list[str],
     plan: dict[str, Any],
     contract: Any,
+    agent_reviews: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Prove every new writing point before apply, including public omission.
 
@@ -2663,10 +2664,38 @@ async def _consume_supplied_final_scope(
                     and all(item.content and not item.truncated for item in reopened)
                 )
                 if not complete:
-                    return _judgment_refusal(
-                        "native_source_reopen_incomplete",
-                        "native source reopen is incomplete; current knowledge was not written",
+                    # A current, independently quoted user decision can correct
+                    # an old ordinary entry after its former evidence changed or
+                    # disappeared. Confirmations and source-report revisions
+                    # still require their historical source checks. The final
+                    # judgment below binds the full old snapshot and its version;
+                    # apply revalidates the new evidence before the CAS write.
+                    from harness_mem.core.schemas.assimilation import AgentKnowledgeReview
+
+                    checked_review = (agent_reviews or {}).get(candidate_id)
+                    checked_review = (AgentKnowledgeReview.model_validate(checked_review)
+                                      if checked_review is not None else None)
+                    new_evidence = await store.list_evidence(candidate_id)
+                    old_entry = await store.get_entry(target_id, project_name=project_name)
+                    freshly_supported_correction = bool(
+                        str(point.get("disposition")) in {"refine", "replace"}
+                        and checked_review is not None and checked_review.support == "supported"
+                        and checked_review.preserves_meaning is True
+                        and old_entry is not None and old_entry.source_report is None
+                        and len(new_evidence) == 1
+                        and new_evidence[0].evidence_basis == "user_statement"
+                        and new_evidence[0].verification_outcome == "verified"
+                        and new_evidence[0].verification_refs
+                        and all(ref.kind == "user_statement" and ref.role == "user" and ref.bindings
+                                for ref in new_evidence[0].verification_refs)
+                        and any(binding.target == "claim" for ref in new_evidence[0].verification_refs
+                                for binding in ref.bindings)
                     )
+                    if not freshly_supported_correction:
+                        return _judgment_refusal(
+                            "native_source_reopen_incomplete",
+                            "native source reopen is incomplete; current knowledge was not written",
+                        )
         try:
             # Current-Agent review can supply the same complete ORIGINAL
             # report inventory used by native final verification. Rebuild it
@@ -2769,6 +2798,7 @@ def tool_finalize_session_distill(
     diagnostic.emit("accepted", "running")
     diagnostic.emit("started", "running")
     result: dict[str, Any]
+    native_review_status: dict[str, Any] | None = None
     try:
         with diagnostic.activate_children():
             try:
@@ -2804,11 +2834,32 @@ def tool_finalize_session_distill(
                                 native_review = native_tool_evidence(
                                     backend or _get_backend(), job, include_records=True,
                                 )
-                                if set(native_review.get("reason_codes", ())) & {
-                                    "native_evidence_source_changed", "native_evidence_binding_changed",
-                                    "native_evidence_source_active", "native_evidence_liveness_unknown",
-                                    "native_evidence_source_excluded",
-                                }:
+                                native_review_status = {
+                                    key: native_review[key] for key in ("status", "reason_codes")
+                                    if key in native_review
+                                }
+                                needs_native_operations = any(
+                                    isinstance(point.get("review"), dict) and point["review"].get("operations")
+                                    for point in memory_points
+                                )
+                                frozen_evidence_only = all(
+                                    point.get("evidence_basis") in {"user_statement", "source_report", "repository"}
+                                    for point in memory_points
+                                )
+                                reasons = set(native_review.get("reason_codes", ()))
+                                # Authored quotes bind the immutable transcript, and
+                                # repository quotes bind their own file digest. A live
+                                # rollout is supplementary material for those claims.
+                                # Native operation claims still require its exact
+                                # call/result revision to be readable and inactive.
+                                if (needs_native_operations and native_review.get("status") != "available"
+                                        or not frozen_evidence_only and reasons & {
+                                            "native_evidence_source_changed", "native_evidence_source_active",
+                                        }
+                                        or reasons & {
+                                            "native_evidence_binding_changed", "native_evidence_captured_revision_invalid",
+                                            "native_evidence_source_excluded", "native_evidence_liveness_unknown",
+                                        }):
                                     raise ValueError(native_review["reason_codes"][0])
                                 native_records = native_review.get("records")
                             review_source_conditions(
@@ -2918,6 +2969,8 @@ def tool_finalize_session_distill(
             key: value for key, value in result["promotion"].items()
             if key not in {"answer_packet", "readback"}
         }}
+    if native_review_status is not None:
+        result["native_evidence"] = native_review_status
     return result if caller_has_lease else _compact_finalize_result(result)
 
 
@@ -3231,6 +3284,7 @@ def _tool_finalize_session_distill_core(
                     candidate_ids=candidate_ids,
                     plan=semantic_review["assimilation"],
                     contract=_final_scope_contract(semantic_review, final_scope_judgment),
+                    agent_reviews=semantic_review.get("_memory_point_reviews"),
                 )
             )
             if judgment_error is not None:

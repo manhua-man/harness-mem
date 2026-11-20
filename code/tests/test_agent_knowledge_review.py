@@ -219,3 +219,45 @@ def test_confirm_reviews_existing_conditions_without_new_knowledge(public_histor
     result = finalize(public_history, again, confirmation)
     assert result["success"], result
     assert [entry.id for entry in entries(public_history)] == [old.id]
+
+
+@pytest.mark.parametrize("old_source", ["changed", "deleted"])
+def test_new_checked_user_evidence_can_correct_a_stale_repository_target(public_history, old_source):  # noqa: F811
+    backend, root, _write, handlers, _calls = public_history
+    policy = root / "old-policy.txt"
+    policy.write_text(BODY, encoding="utf-8")
+    _path, packet, point = prepare(public_history)
+    point.update(evidence_basis="repository", verification_refs=[{
+        "kind": "repository", "locator": policy.name,
+        "content_sha256": hashlib.sha256(policy.read_bytes()).hexdigest(),
+    }])
+    assert finalize(public_history, packet, point)["readback_verified"]
+    old = entries(public_history)[0]
+    if old_source == "changed":
+        policy.write_text("This historical policy was superseded.", encoding="utf-8")
+    else:
+        policy.unlink()
+    new = BODY + " Use the signed release artifact."
+    _path, packet, point = prepare(public_history, "fresh-user-correction", new)
+    point.update(assimilation_disposition="refine", target_knowledge=[{
+        "title": old.title, "statement": old.statement, "project_name": old.project_name,
+    }])
+    point["review"].update(preserves_meaning=True, evidence=[
+        {"ref": 1, "target": "claim", "message_index": 1, "quote": new},
+        *[{"ref": 1, "target": "condition", "condition": phrase, "message_index": 1, "quote": phrase}
+          for phrase in point["review"]["conditions"]],
+    ])
+    # A supplementary ref can bind only an applicable condition; at least one
+    # primary ref must still bind the whole claim.
+    point["verification_refs"].append(copy.deepcopy(point["verification_refs"][0]))
+    point["review"]["evidence"][-1]["ref"] = 2
+    forged = copy.deepcopy(point)
+    forged["review"]["evidence"][0]["quote"] = "This was never said."
+    rejected = finalize(public_history, packet, forged)
+    assert not rejected["success"] and entries(public_history)[0].to_dict() == old.to_dict()
+    corrected = finalize(public_history, packet, point)
+    assert corrected["success"] and corrected.get("readback_verified"), corrected
+    saved, = entries(public_history)
+    assert saved.statement == new
+    sources = asyncio.run(backend.structured_store.knowledge_store.list_sources(saved.id))
+    assert sources and all(source.source_kind == "user_statement" for source in sources)
