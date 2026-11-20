@@ -183,6 +183,12 @@ def classify_records(records: list[dict[str, Any]], client: str) -> str:
         elif "history_record" in record or "transcript_record" in record:
             recognized = True
             interaction |= _has_content(record.get("history_record") or record.get("transcript_record"))
+        elif client == "claude-code" and kind in {
+            "queue-operation", "attachment", "atis-latch", "last-prompt", "cost-state",
+        }:
+            # Claude interleaves these host records with authored turns. A
+            # queued or repeated prompt alone is not a conversation.
+            recognized = True
         elif client == "codex" and kind in {
             "session_meta", "turn_context", "world_state", "compacted",
             "inter_agent_communication_metadata", "token_usage_record",

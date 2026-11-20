@@ -278,6 +278,54 @@ def test_nonreadable_classification_is_unchanged(tmp_path, raw, status, reason):
         assert inspected.authored_user_texts is None
 
 
+def test_claude_manual_selection_proves_authors_among_host_records(tmp_path, monkeypatch):
+    from harness_mem.adapters.source_inspection import classify_records
+    from harness_mem.agent_runtime import agent_backend
+    from harness_mem.commands.evidence_admission import source_report_speaker_excerpt
+    from harness_mem.core.schemas.knowledge import EvidenceRef
+    from harness_mem.distill import Distill
+    from harness_mem.mcp.distill_handlers import _load_distill_exchange_windows
+
+    root = tmp_path / "work"
+    root.mkdir()
+    sessions = tmp_path / "sessions"
+    source = sessions / "bucket" / "test-session.jsonl"
+    source.parent.mkdir(parents=True)
+    monkeypatch.setattr("harness_mem.adapters.claude_code.adapter.DEFAULT_SESSIONS_DIR", sessions)
+    host_records = [
+        {"type": "queue-operation", "operation": "enqueue", "content": "Pending input"},
+        {"type": "attachment", "attachment": {"type": "context"}, "renderedRole": "user"},
+        {"type": "atis-latch", "atis": {}}, {"type": "last-prompt", "lastPrompt": "Repeated input"},
+        {"type": "cost-state", "totalCostUSD": 1},
+    ]
+    turns = [
+        {"type": "user", "message": {"role": "user", "content": "Keep the previous settings."}},
+        {"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "text", "text": "The settings were retained."},
+        ]}},
+    ]
+    assert classify_records(host_records, "claude-code") == "empty_draft"
+    assert classify_records([*turns, *host_records, {"type": "future-record"}], "claude-code") == "unknown_format"
+    source.write_text("\n".join(json.dumps(dict(row, cwd=str(root), sessionId=source.stem))
+                                for row in [*host_records, *turns]), encoding="utf-8")
+    digest = sha256_bytes(source.read_bytes())
+    agent = Distill(tmp_path / "data")
+    row, = agent.sessions(project_root=str(root), clients=["claude-code"])["sessions"]
+    assert row["ownership"] == "project" and agent.source(row)["success"]
+    packet = agent.prepare(sessions=[row], project_root=str(root))
+    assert packet["success"] and packet["source_revision"] == "sha256:" + digest
+    with agent_backend(agent.data_dir) as backend:
+        window, = _load_distill_exchange_windows(
+            backend, source_id=packet["source_id"], source_revision=packet["source_revision"], indexes=[1],
+        )
+        for role, expected in (("user", "Keep the previous settings."), ("assistant", "The settings were retained.")):
+            ref = EvidenceRef(kind="source_report", role=role, exchange_index=1, content_sha256=window["content_sha256"])
+            assert source_report_speaker_excerpt(backend, project_name=root.name,
+                job_id=packet["distill_job_id"], ref=ref) == expected
+            assert source_report_speaker_excerpt(backend, project_name=root.name,
+                job_id=packet["distill_job_id"], ref=ref.model_copy(update={"content_sha256": "0" * 64})) is None
+
+
 @pytest.mark.parametrize("failure", [FileNotFoundError, PermissionError, UnicodeDecodeError])
 def test_unreadable_source_errors_are_not_swallowed(tmp_path, monkeypatch, failure):
     path = tmp_path / "unreadable.jsonl"

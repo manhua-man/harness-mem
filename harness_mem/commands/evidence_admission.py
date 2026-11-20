@@ -1018,6 +1018,8 @@ def _frozen_user_exchange_indexes(
         return None
     if hashlib.sha256(raw).hexdigest() != revision.raw_sha256:
         return None
+    if _inspected_claude_jsonl(revision):
+        return _source_report_author_indexes(revision, rendering, raw, "user")
     if revision.client == "cursor" and text.lstrip().startswith("{"):
         from harness_mem.adapters.cursor.sqlite_history import cursor_export_messages
         import json
@@ -1184,6 +1186,22 @@ def _frozen_user_exchange_indexes(
     return rendered_user_indexes
 
 
+def _inspected_claude_jsonl(revision: Any) -> bool:
+    return (revision.client == "claude-code"
+            and revision.parser_version == "native-inspected-source-v1"
+            and revision.source_kind == "native-session-export")
+
+
+def _claude_evidence_rendering(revision: Any, raw: bytes) -> str | None:
+    from harness_mem.adapters.snapshot import _native_claude_rendering
+
+    # Both sync and manual selection retain JSONL. Bind roles by replaying
+    # those bytes, including sessions already captured by the manual path.
+    if revision.parser_version != "claude-code-jsonl-v1" and not _inspected_claude_jsonl(revision):
+        return None
+    return _native_claude_rendering(raw, revision.session_id)
+
+
 def _source_report_context(backend: LocalMemoryBackend, *, project_name: str,
                            source_id: str, source_revision: str) -> tuple[Any, str, bytes]:
     """Reconstruct all immutable bytes and chunks before using any report ref."""
@@ -1225,13 +1243,9 @@ def _source_report_context(backend: LocalMemoryBackend, *, project_name: str,
     ):
         raise ValueError("source_report_source_incomplete")
     if revision.client == "claude-code":
-        from harness_mem.adapters.snapshot import _native_claude_rendering
-
         # The immutable Claude ledger holds JSONL; refs cite its canonical
         # conversation rendering. Derive that view only after full byte checks.
-        if revision.parser_version != "claude-code-jsonl-v1":
-            raise ValueError("source_report_speaker_unproved")
-        native_rendering = _native_claude_rendering(raw, revision.session_id)
+        native_rendering = _claude_evidence_rendering(revision, raw)
         if native_rendering is None:
             raise ValueError("source_report_speaker_unproved")
         rendering = native_rendering
@@ -1245,7 +1259,7 @@ def _source_report_context(backend: LocalMemoryBackend, *, project_name: str,
 def _source_report_author_indexes(revision: Any, rendering: str, raw: bytes,
                                   speaker: str) -> set[int] | None:
     """Prove the cited role, with no legacy text/explicit-role escape hatch."""
-    from harness_mem.adapters.snapshot import _native_claude_rendering, _native_codex_authored_texts
+    from harness_mem.adapters.snapshot import _native_codex_authored_texts
     from harness_mem.mcp.distill_projection import _ENTRY_RE
 
     try:
@@ -1265,9 +1279,7 @@ def _source_report_author_indexes(revision: Any, rendering: str, raw: bytes,
         return None
     exchanges = _parse_exchanges(rendering)[1]
     if revision.client == "claude-code":
-        if revision.parser_version != "claude-code-jsonl-v1":
-            return None
-        native_rendering = _native_claude_rendering(raw, revision.session_id)
+        native_rendering = _claude_evidence_rendering(revision, raw)
         if native_rendering is None:
             return None
     elif revision.client in {"codex", "codex-archive"}:
