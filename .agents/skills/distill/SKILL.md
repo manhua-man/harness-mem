@@ -18,6 +18,7 @@ description: 用户要求整理已结束的对话、从历史对话保存有来�
 ## 判断与提交
 
 - 对照准备结果中的 `current_knowledge` 和模块目录，按需调用 Search 查同主题的完整旧正文。每个点只保留一个可独立回答以后问题的事实，写清仍适用的条件、日期、例外或未定状态。一次性过程进会话总结，真实未完成动作进 `unfinished_work`。
+- 如果决定取决于对照测量或阈值，在同条知识正文里保留决定所用的比较条件、数值和判断依据。区分原会话报告的数值和可独立核实的测量；有出入时保留各自的来源。
 - 在审阅阶段用 `d.read(job_id, exchange_indexes=[交换序号])` 核对含角色、原文和摘要的证据窗口。技术事实核对当前文件或实际返回结果；明确区分用户决定、助手报告、已观察到的操作。Codex 准备结果中若提供原生阅读问题，取 `packet["native_evidence"]["review_questions"]["arguments"]["native_evidence"]` 交给 `d.read(job_id, native_evidence=请求)`；同理用 `read` 请求查有关操作记录。按 `next_offset` 继续读至所需记录完整，证据不足的范围保留说明。
 - 取 `packet["finalize_contract"]["args_template"]` 作为填表参考，用实际内容替换示例。每个写入点填写标题、正文、模块、处置、证据依据及核验结果。`verification_refs` 使用原文窗口的交换序号、角色和 `content_sha256`；`review.evidence` 的 `ref` 及相应角色内的 `message_index` 均从 1 开始，`quote` 必须是可定位的原句。补充、确认或替换时带入准确的旧条目。缺少证据或没有独立长期用途的点可不写。
 - 由 Agent 填写会话总结、最后用户要求、实际结果、证据覆盖及遗留事项。调用 `d.finish(job_id, semantic_review=会话审阅, memory_points=各点)`。未通过时按具体错误回查来源或修正判断。收到变化和回读结果后再向用户报告保存的内容及剩余问题。多场会话继续用原批次处理下一场。
