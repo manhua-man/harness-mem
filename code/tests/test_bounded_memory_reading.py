@@ -355,6 +355,22 @@ def test_multipart_search_delivers_whole_statements_for_distinct_parts(backend, 
     assert "only suggest relevance" in result["answer_guidance"]
 
 
+def test_multipart_search_keeps_whole_question_evidence_ahead_of_incidental_followup(backend):
+    from harness_mem.search import search
+
+    expected = [
+        add_memories(backend, [body], project=project, title=title, number_titles=False)[0]
+        for project, title, body in (
+            ("建筑", "建筑隔音验收规程", "用校准仪器在两侧实测隔音量，验收时保留报告。"),
+            ("声学", "隔音复验方法", "隔音验收还应复验门窗缝隙。"),
+        )
+    ]
+    add_memories(backend, ["公开发售的资料需脱敏，一些材料还要保密。"],
+                 project="出版", title="归档材料保密", number_titles=False)
+    result = search("上次怎么约定建筑隔音验收？提交时要提前看到哪些材料？", data_dir=backend.data_dir)
+    assert [row["statement"] for row in result["memories"][:2]] == [entry.statement for entry in expected]
+
+
 def test_multipart_search_marks_questions_after_context_and_subjectless_followups(backend):
     walk, remit, proof, mode = [
         add_memories(backend, [body], title=title, number_titles=False)[0]

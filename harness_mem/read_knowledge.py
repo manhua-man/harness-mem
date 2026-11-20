@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from hashlib import sha256
 from collections import Counter
-from itertools import chain, zip_longest
+from itertools import zip_longest
 from math import log1p
 from pathlib import Path
 from typing import Callable
@@ -19,7 +19,7 @@ _CJK_RUN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]+")
 # Question scaffolding is not a topic. This is lexical matching, not a synonym
 # dictionary or a semantic model; the Agent still reformulates empty queries.
 _QUESTION_WORDS = re.compile(
-    "请问|之前|以前|这个|那个|我们|你们|怎么|如何|什么|是否|一下|"
+    "请问|之前|以前|这个|那个|我们|你们|怎么|如何|什么|哪些|是否|一下|"
     "可以|需要|问题|解决|处理|记得|记住|了吗|的吗"
 )
 _GENERIC_ACTION_PAIRS = frozenset({"自动", "开启", "关闭", "启用", "停用", "使用", "默认"})
@@ -315,7 +315,13 @@ def _prioritize_question_parts(
     *, count_terms: Callable[[str], Counter[str]], discovery: dict | None,
 ) -> list[KnowledgeEntry]:
     """Give each explicit part first-page space, using the full question as context."""
-    context = {id(entry): rank for rank, entry in enumerate(overall)}
+    # Fuse whole-question and part rankings before pagination. A literal
+    # match for one follow-up should not reserve a slot ahead of every
+    # other result for the intact question.
+    by_id = {(entry.project_name, entry.id): entry for entry in overall}
+    # The intact wording carries the subject that later clauses can omit.
+    # Its leading ranks therefore receive more weight than a part alone.
+    scores = {key: 1 / (3 + rank) for rank, key in enumerate(by_id, 1)}
     lanes: list[list[KnowledgeEntry]] = []
     for part in parts:
         matches = _rank_current_entries(entries, part, count_terms=count_terms)
@@ -325,21 +331,20 @@ def _prioritize_question_parts(
             # A follow-up without its subject can share a few meaningful
             # terms with a leading result while missing the standalone cutoff.
             matches = _rank_current_entries(overall[:6], part, count_terms=count_terms, source_context=True)
-        # A follow-up can omit its subject. The complete query contributes a
-        # preference while a separate explicit topic can still win on its own.
-        scores = {
-            id(entry): 1 / (3 + rank) + 0.65 / (3 + context.get(id(entry), len(entries)))
-            for rank, entry in enumerate(matches)
-        }
-        lanes.append(sorted(matches, key=lambda entry: -scores[id(entry)])[:3])
+        for rank, entry in enumerate(matches, 1):
+            key = (entry.project_name, entry.id)
+            scores[key] = scores.get(key, 0.0) + 1 / (12 + rank)
+        lanes.append(matches)
+    part_matches = []
+    for lane in lanes:
+        leading = sorted(lane, key=lambda entry: -scores[(entry.project_name, entry.id)])[:3]
+        matches_by_id = {(entry.project_name, entry.id): entry for entry in leading}
+        by_id.update(matches_by_id)
+        part_matches.append(set(matches_by_id))
     if discovery is not None:
         discovery["question_parts"] = parts
-        discovery["part_matches"] = [{(entry.project_name, entry.id) for entry in lane} for lane in lanes]
-    leading = (entry for row in zip_longest(*lanes) for entry in row if entry is not None)
-    by_id: dict[tuple[str, str], KnowledgeEntry] = {}
-    for entry in chain(overall[:1], leading, overall):
-        by_id.setdefault((entry.project_name, entry.id), entry)
-    return list(by_id.values())
+        discovery["part_matches"] = part_matches
+    return [by_id[key] for key in sorted(by_id, key=scores.__getitem__, reverse=True)]
 
 
 def _rank_long_query_candidates(
